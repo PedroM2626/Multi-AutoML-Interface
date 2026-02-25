@@ -187,21 +187,29 @@ elif menu == "Treinamento":
                         log_placeholder.code("\n".join(all_logs[-20:])) # Mostrar mais linhas
                         
                         # Parse performance metrics from logs
-                        for log_line in all_logs[-5:]: # Verificar apenas as linhas mais recentes
-                            # Padrões comuns de log do FLAML e AutoGluon
-                            # Ex: "Iteração 5: loss=0.1234", "Best loss: 0.1234", "val_score: 0.85"
+                        for log_line in all_logs[-10:]: # Verificar uma janela maior de linhas recentes
                             try:
                                 import re
-                                # Procurar por padrões numéricos após palavras-chave
-                                if any(kw in log_line.lower() for kw in ["loss", "score", "accuracy", "val_"]):
-                                    # Extrair o último número da linha que parece um float
-                                    numbers = re.findall(r"[-+]?\d*\.\d+|\d+", log_line)
-                                    if numbers:
-                                        val = float(numbers[-1])
-                                        # Evitar adicionar números que parecem timestamps ou IDs (valores muito grandes)
-                                        if abs(val) < 1000000:
+                                # Procurar padrões como: "loss=0.123", "score: 0.85", "accuracy: 0.9", "Best loss: 0.11"
+                                # Também capturar padrões do LightGBM/XGBoost que o FLAML printa
+                                patterns = [
+                                    r"loss[:=]\s*([-+]?\d*\.\d+|\d+)",
+                                    r"score[:=]\s*([-+]?\d*\.\d+|\d+)",
+                                    r"accuracy[:=]\s*([-+]?\d*\.\d+|\d+)",
+                                    r"val_loss[:=]\s*([-+]?\d*\.\d+|\d+)"
+                                ]
+                                
+                                for p in patterns:
+                                    match = re.search(p, log_line.lower())
+                                    if match:
+                                        val = float(match.group(1))
+                                        # Filtro básico para evitar valores absurdos ou timestamps
+                                        if 0 <= abs(val) <= 1000:
+                                            # Se for score/accuracy, o gráfico sobe (bom)
+                                            # Se for loss, o gráfico desce (bom)
                                             performance_history.append(val)
                                             chart_placeholder.line_chart(performance_history)
+                                            break # Achou uma métrica nesta linha, pula para a próxima
                             except:
                                 pass
                     

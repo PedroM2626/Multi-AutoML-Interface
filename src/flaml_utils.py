@@ -17,6 +17,12 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
     safe_set_experiment("FLAML_Experiments")
     logging.info(f"Iniciando treinamento FLAML para a run: {run_name}")
     
+    # Ensure flaml logger is also at INFO level
+    import flaml
+    from flaml import AutoML
+    flaml_logger = logging.getLogger('flaml')
+    flaml_logger.setLevel(logging.INFO)
+    
     with mlflow.start_run(run_name=run_name) as run:
         # Data cleaning: drop rows where target is NaN
         train_data = train_data.dropna(subset=[target])
@@ -34,12 +40,6 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
         
         automl = AutoML()
         
-        # Determine low_cost_partial_config to avoid warnings
-        # This is a dictionary of hyperparameter values with known low computation cost
-        low_cost_config = None
-        if task in ['classification', 'regression']:
-            low_cost_config = {"n_estimators": 4, "max_leaves": 4}
-
         settings = {
             "time_budget": time_budget,
             "metric": metric,
@@ -49,7 +49,6 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
             "seed": 42,
             "n_jobs": 1,
             "verbose": 3,
-            "low_cost_partial_config": low_cost_config
         }
         
         # Train model
