@@ -211,11 +211,24 @@ elif menu == "Treinamento":
                 if final_result["success"]:
                     if final_result['type'] == "flaml":
                         predictor = final_result['predictor']
+                        
+                        st.subheader("🏆 Melhor Modelo (FLAML)")
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Melhor Estimador", predictor.best_estimator)
+                        col2.metric("Melhor Perda (Loss)", f"{predictor.best_loss:.4f}")
+                        col3.metric("Melhor Iteração", predictor.best_iteration)
+                        
+                        with st.expander("⚙️ Melhor Configuração (Hiperparâmetros)"):
+                            st.json(predictor.best_config)
+                            
+                        if hasattr(predictor, 'best_config_per_estimator') and predictor.best_config_per_estimator:
+                            with st.expander("📊 Melhores Configurações por Estimador"):
+                                st.json(predictor.best_config_per_estimator)
+                            
                         if hasattr(predictor, 'feature_importances_') and predictor.feature_importances_ is not None:
                             try:
                                 fig, ax = plt.subplots()
                                 importances = predictor.feature_importances_
-                                # Use feature names from the predictor if available
                                 if hasattr(predictor, 'feature_names_in_'):
                                     feature_names = predictor.feature_names_in_
                                 else:
@@ -232,13 +245,27 @@ elif menu == "Treinamento":
                                 st.warning(f"Erro ao gerar gráfico de importância: {feat_err}")
                     
                     elif final_result['type'] == "autogluon":
+                        predictor = final_result['predictor']
+                        st.subheader("🏆 Resultados do AutoGluon")
+                        
+                        best_model = predictor.get_model_best()
+                        st.success(f"O melhor modelo encontrado foi: **{best_model}**")
+                        
                         st.subheader("Leaderboard Final")
-                        st.dataframe(final_result['predictor'].leaderboard(silent=True))
+                        leaderboard = predictor.leaderboard(silent=True)
+                        st.dataframe(leaderboard)
+                        
+                        with st.expander("⚙️ Detalhes de Treinamento (AutoGluon Info)"):
+                            try:
+                                info = predictor.info()
+                                st.json(info)
+                            except:
+                                st.write("Informações detalhadas não disponíveis para este modelo.")
                         
                         if st.checkbox("Gerar Importância de Variáveis (AutoGluon)"):
                             with st.spinner("Calculando importância (isso pode levar um tempo)..."):
                                 try:
-                                    fi = final_result['predictor'].feature_importance(df)
+                                    fi = predictor.feature_importance(df)
                                     st.dataframe(fi)
                                     fig, ax = plt.subplots()
                                     fi['importance'].nlargest(10).plot(kind='barh', ax=ax)
