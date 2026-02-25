@@ -142,21 +142,32 @@ elif menu == "Treinamento":
             
             # Training function to run in thread
             def run_training():
-                try:
-                    if framework == "AutoGluon":
-                        res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets)
-                        result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
-                    else: # FLAML
-                        res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list)
-                        result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
-                except Exception as e:
-                    import traceback
-                    error_msg = f"ERRO CRÍTICO NO TREINAMENTO: {str(e)}\n{traceback.format_exc()}"
-                    log_queue.put(error_msg)
-                    result_queue.put({"success": False, "error": str(e)})
-                finally:
-                    training_done.set()
-                    logger.removeHandler(handler)
+                # Redirect stdout and stderr to capture everything
+                import io
+                from contextlib import redirect_stdout, redirect_stderr
+                
+                class LogIO(io.StringIO):
+                    def write(self, s):
+                        if s.strip():
+                            log_queue.put(s.strip())
+                        return super().write(s)
+
+                with redirect_stdout(LogIO()), redirect_stderr(LogIO()):
+                    try:
+                        if framework == "AutoGluon":
+                            res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets)
+                            result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
+                        else: # FLAML
+                            res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list)
+                            result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
+                    except Exception as e:
+                        import traceback
+                        error_msg = f"ERRO CRÍTICO NO TREINAMENTO: {str(e)}\n{traceback.format_exc()}"
+                        log_queue.put(error_msg)
+                        result_queue.put({"success": False, "error": str(e)})
+                    finally:
+                        training_done.set()
+                        logger.removeHandler(handler)
 
             # Start training
             try:
@@ -171,20 +182,28 @@ elif menu == "Treinamento":
                         log_line = log_queue.get()
                         all_logs.append(log_line)
                         new_logs = True
-                        
-                        # Parse performance metrics from logs
-                        if "best_loss" in log_line.lower() or "loss" in log_line.lower():
-                            try:
-                                import re
-                                numbers = re.findall(r"[-+]?\d*\.\d+|\d+", log_line)
-                                if numbers:
-                                    performance_history.append(float(numbers[-1]))
-                                    chart_placeholder.line_chart(performance_history)
-                            except:
-                                pass
                     
                     if new_logs:
-                        log_placeholder.code("\n".join(all_logs[-15:]))
+                        log_placeholder.code("\n".join(all_logs[-20:])) # Mostrar mais linhas
+                        
+                        # Parse performance metrics from logs
+                        for log_line in all_logs[-5:]: # Verificar apenas as linhas mais recentes
+                            # Padrões comuns de log do FLAML e AutoGluon
+                            # Ex: "Iteração 5: loss=0.1234", "Best loss: 0.1234", "val_score: 0.85"
+                            try:
+                                import re
+                                # Procurar por padrões numéricos após palavras-chave
+                                if any(kw in log_line.lower() for kw in ["loss", "score", "accuracy", "val_"]):
+                                    # Extrair o último número da linha que parece um float
+                                    numbers = re.findall(r"[-+]?\d*\.\d+|\d+", log_line)
+                                    if numbers:
+                                        val = float(numbers[-1])
+                                        # Evitar adicionar números que parecem timestamps ou IDs (valores muito grandes)
+                                        if abs(val) < 1000000:
+                                            performance_history.append(val)
+                                            chart_placeholder.line_chart(performance_history)
+                            except:
+                                pass
                     
                     time.sleep(0.5)
                 

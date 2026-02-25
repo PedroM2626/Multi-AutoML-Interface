@@ -2,22 +2,25 @@ import os
 import pandas as pd
 import mlflow
 import shutil
+import logging
 from flaml import AutoML
 import matplotlib.pyplot as plt
 import time
 from src.mlflow_utils import safe_set_experiment
+
+logger = logging.getLogger(__name__)
 
 def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto'):
     """
     Trains a FLAML model and logs results to MLflow.
     """
     safe_set_experiment("FLAML_Experiments")
-    print(f"Iniciando treinamento FLAML para a run: {run_name}")
+    logging.info(f"Iniciando treinamento FLAML para a run: {run_name}")
     
     with mlflow.start_run(run_name=run_name) as run:
         # Data cleaning: drop rows where target is NaN
         train_data = train_data.dropna(subset=[target])
-        print(f"Dados limpos: {len(train_data)} linhas restantes.")
+        logging.info(f"Dados prontos: {len(train_data)} linhas.")
         
         # Log parameters
         mlflow.log_param("target", target)
@@ -31,13 +34,12 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
         
         automl = AutoML()
         
-        # Determine the task-specific callback
-        # FLAML's 'callbacks' in settings are for the AutoML/Tune level, not the estimator level.
-        # The error happened because FLAML passed the callback down to LightGBM which expects a callable.
-        
-        # We will use a custom logger instead of a callback to track performance_history.csv
-        # by monitoring the flaml.log file or using the 'on_trial_result' correctly.
-        
+        # Determine low_cost_partial_config to avoid warnings
+        # This is a dictionary of hyperparameter values with known low computation cost
+        low_cost_config = None
+        if task in ['classification', 'regression']:
+            low_cost_config = {"n_estimators": 4, "max_leaves": 4}
+
         settings = {
             "time_budget": time_budget,
             "metric": metric,
@@ -47,22 +49,23 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
             "seed": 42,
             "n_jobs": 1,
             "verbose": 3,
+            "low_cost_partial_config": low_cost_config
         }
         
         # Train model
-        print("Executando automl.fit()...")
+        logging.info("Executando busca de hiperparâmetros (automl.fit)...")
         try:
             automl.fit(X_train=X_train, y_train=y_train, **settings)
-            print("Treinamento finalizado com sucesso.")
+            logging.info("Busca finalizada com sucesso.")
         except StopIteration:
-            print("Treinamento interrompido por StopIteration (orçamento esgotado).")
+            logging.info("Busca interrompida (limite de tempo atingido).")
             if not hasattr(automl, 'best_estimator') or automl.best_estimator is None:
-                raise RuntimeError("FLAML parou prematuramente sem encontrar um modelo.")
+                raise RuntimeError("FLAML parou sem encontrar um modelo válido.")
         
         # Log metrics
         if hasattr(automl, 'best_loss'):
             mlflow.log_metric("best_loss", automl.best_loss)
-            print(f"Melhor perda encontrada: {automl.best_loss}")
+            logging.info(f"Melhor Loss final: {automl.best_loss:.4f}")
         
         # Save best model
         model_path = os.path.join("models", f"flaml_{run_name}.pkl")
