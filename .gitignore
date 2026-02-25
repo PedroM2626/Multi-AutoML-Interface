@@ -2,3 +2,6 @@ mlruns
 models
 *.db
 __pycache__
+*.log
+*.csv
+*.txt

@@ -2,6 +2,10 @@ import os
 import pandas as pd
 import mlflow
 import shutil
+import logging
+from src.mlflow_utils import safe_set_experiment
+
+logger = logging.getLogger(__name__)
 
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit: int = 60, presets: str = 'medium_quality'):
     """
@@ -9,9 +13,12 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit
     """
     from autogluon.tabular import TabularPredictor
     
-    mlflow.set_experiment("AutoGluon_Experiments")
+    safe_set_experiment("AutoGluon_Experiments")
     
     with mlflow.start_run(run_name=run_name) as run:
+        # Data cleaning: drop rows where target is NaN
+        train_data = train_data.dropna(subset=[target])
+        
         # Log parameters
         mlflow.log_param("target", target)
         mlflow.log_param("time_limit", time_limit)

@@ -3,16 +3,21 @@ import pandas as pd
 import os
 import queue
 import sys
+import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
 from src.data_utils import load_data, get_data_summary
 from src.autogluon_utils import train_model as train_autogluon, load_model_from_mlflow as load_autogluon
 from src.flaml_utils import train_flaml_model, load_flaml_model
 from src.log_utils import setup_logging_to_queue, StdoutRedirector
+from src.mlflow_utils import heal_mlruns
 import mlflow
 import time
 
 st.set_page_config(page_title="AutoML Visual Interface", layout="wide")
+
+# Heal MLflow cache on startup
+heal_mlruns()
 
 # Initialize session state
 if 'df' not in st.session_state:
@@ -77,60 +82,179 @@ elif menu == "Treinamento":
         else: # FLAML
             time_budget = st.slider("Budget de tempo (segundos)", 30, 3600, 60)
             task = st.selectbox("Tarefa", ['classification', 'regression', 'ts_forecast', 'rank'])
-            metric = st.selectbox("Métrica", ['auto', 'accuracy', 'roc_auc', 'f1', 'rmse', 'mae', 'r2'])
+            
+            # Smart metric selection for FLAML
+            num_classes = df[target].nunique()
+            if task == 'classification':
+                if num_classes > 2:
+                    st.warning(f"Detectado problema multiclasse ({num_classes} classes).")
+                    metric_options = ['auto', 'accuracy', 'macro_f1', 'micro_f1', 'roc_auc_ovr', 'roc_auc_ovo', 'log_loss']
+                else:
+                    metric_options = ['auto', 'accuracy', 'roc_auc', 'f1', 'log_loss']
+            elif task == 'regression':
+                metric_options = ['auto', 'rmse', 'mae', 'r2', 'mape']
+            else:
+                metric_options = ['auto']
+                
+            metric = st.selectbox("Métrica", metric_options)
             estimators = st.multiselect("Estimadores", ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree', 'lrl1', 'lrl2'], default=['lgbm', 'rf'])
             estimator_list = estimators if estimators else 'auto'
 
         if st.button("Iniciar Treinamento"):
-            log_container = st.empty()
-            plot_container = st.empty()
+            st.subheader("📺 Monitoramento em Tempo Real")
             
-            # Setup logging redirection
-            old_stdout = sys.stdout
-            sys.stdout = StdoutRedirector(st.session_state['log_queue'])
+            col_logs, col_chart = st.columns([1, 1])
             
-            logs = []
+            with col_logs:
+                st.write("📋 Logs de Treinamento")
+                log_placeholder = st.empty()
             
-            try:
-                with st.spinner(f"Treinando com {framework}..."):
-                    if framework == "AutoGluon":
-                        predictor, run_id = train_autogluon(df, target, run_name, time_limit, presets)
-                        st.session_state['predictor'] = predictor
-                        st.session_state['model_type'] = "autogluon"
-                        
-                        st.success(f"AutoGluon finalizado! Run ID: {run_id}")
-                        st.subheader("Leaderboard")
-                        st.dataframe(predictor.leaderboard(silent=True))
-                    
-                    else: # FLAML
-                        automl, run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list)
-                        st.session_state['predictor'] = automl
-                        st.session_state['model_type'] = "flaml"
-                        
-                        st.success(f"FLAML finalizado! Run ID: {run_id}")
-                        st.write(f"Melhor Estimador: {automl.best_estimator}")
-                        st.write(f"Melhor Loss: {automl.best_loss}")
-                        
-                        # Show feature importance plot for FLAML
-                        if hasattr(automl, 'feature_importances_'):
-                            fig, ax = plt.subplots()
-                            feat_importances = pd.Series(automl.feature_importances_, index=df.drop(columns=[target]).columns)
-                            feat_importances.nlargest(10).plot(kind='barh', ax=ax)
-                            plt.title("Top 10 Feature Importances (FLAML)")
-                            st.pyplot(fig)
-
-                # Capture logs while training (simplified for this context)
-                while not st.session_state['log_queue'].empty():
-                    logs.append(st.session_state['log_queue'].get())
+            with col_chart:
+                st.write("📈 Evolução da Performance")
+                chart_placeholder = st.empty()
+            
+            # Shared state for thread communication
+            import threading
+            training_done = threading.Event()
+            log_queue = queue.Queue()
+            result_queue = queue.Queue()
+            
+            # Custom Log Handler for the thread
+            class ThreadLogHandler(logging.Handler):
+                def emit(self, record):
+                    msg = self.format(record)
+                    log_queue.put(msg)
+            
+            # Setup logger to capture all framework output
+            logger = logging.getLogger()
+            for h in logger.handlers[:]:
+                logger.removeHandler(h)
                 
-                if logs:
-                    with st.expander("Ver Logs de Treinamento"):
-                        st.code("\n".join(logs))
+            handler = ThreadLogHandler()
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+            
+            for lib in ['flaml', 'autogluon', 'mlflow']:
+                l = logging.getLogger(lib)
+                l.addHandler(handler)
+                l.setLevel(logging.INFO)
+            
+            # Training function to run in thread
+            def run_training():
+                try:
+                    if framework == "AutoGluon":
+                        res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets)
+                        result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
+                    else: # FLAML
+                        res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list)
+                        result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
+                except Exception as e:
+                    import traceback
+                    error_msg = f"ERRO CRÍTICO NO TREINAMENTO: {str(e)}\n{traceback.format_exc()}"
+                    log_queue.put(error_msg)
+                    result_queue.put({"success": False, "error": str(e)})
+                finally:
+                    training_done.set()
+                    logger.removeHandler(handler)
+
+            # Start training
+            try:
+                thread = threading.Thread(target=run_training)
+                thread.start()
+                
+                all_logs = []
+                performance_history = []
+                while not training_done.is_set():
+                    new_logs = False
+                    while not log_queue.empty():
+                        log_line = log_queue.get()
+                        all_logs.append(log_line)
+                        new_logs = True
+                        
+                        # Parse performance metrics from logs
+                        if "best_loss" in log_line.lower() or "loss" in log_line.lower():
+                            try:
+                                import re
+                                numbers = re.findall(r"[-+]?\d*\.\d+|\d+", log_line)
+                                if numbers:
+                                    performance_history.append(float(numbers[-1]))
+                                    chart_placeholder.line_chart(performance_history)
+                            except:
+                                pass
+                    
+                    if new_logs:
+                        log_placeholder.code("\n".join(all_logs[-15:]))
+                    
+                    time.sleep(0.5)
+                
+                # Get final results from queue
+                final_result = result_queue.get()
+                
+                if final_result["success"]:
+                    st.session_state['predictor'] = final_result["predictor"]
+                    st.session_state['run_id'] = final_result["run_id"]
+                    st.session_state['model_type'] = final_result["type"]
+                    st.success(f"Treinamento finalizado com sucesso! Run ID: {final_result['run_id']}")
+                else:
+                    st.error(f"O treinamento falhou: {final_result['error']}")
+
+                # Show all logs at the end
+                while not log_queue.empty():
+                    all_logs.append(log_queue.get())
+                
+                if all_logs:
+                    with st.expander("Ver Logs de Treinamento Completos"):
+                        st.code("\n".join(all_logs))
+                
+                # Post-training visualizations
+                if final_result["success"]:
+                    if final_result['type'] == "flaml":
+                        predictor = final_result['predictor']
+                        if hasattr(predictor, 'feature_importances_') and predictor.feature_importances_ is not None:
+                            try:
+                                fig, ax = plt.subplots()
+                                importances = predictor.feature_importances_
+                                # Use feature names from the predictor if available
+                                if hasattr(predictor, 'feature_names_in_'):
+                                    feature_names = predictor.feature_names_in_
+                                else:
+                                    feature_names = df.drop(columns=[target]).columns
+                                
+                                if len(importances) == len(feature_names):
+                                    feat_importances = pd.Series(importances, index=feature_names)
+                                    feat_importances.nlargest(10).plot(kind='barh', ax=ax)
+                                    plt.title("Top 10 Feature Importances (FLAML)")
+                                    st.pyplot(fig)
+                                else:
+                                    st.info(f"Importância de variáveis disponível, mas com mismatch de colunas ({len(importances)} vs {len(feature_names)}).")
+                            except Exception as feat_err:
+                                st.warning(f"Erro ao gerar gráfico de importância: {feat_err}")
+                    
+                    elif final_result['type'] == "autogluon":
+                        st.subheader("Leaderboard Final")
+                        st.dataframe(final_result['predictor'].leaderboard(silent=True))
+                        
+                        if st.checkbox("Gerar Importância de Variáveis (AutoGluon)"):
+                            with st.spinner("Calculando importância (isso pode levar um tempo)..."):
+                                try:
+                                    fi = final_result['predictor'].feature_importance(df)
+                                    st.dataframe(fi)
+                                    fig, ax = plt.subplots()
+                                    fi['importance'].nlargest(10).plot(kind='barh', ax=ax)
+                                    plt.title("Feature Importance (AutoGluon)")
+                                    st.pyplot(fig)
+                                except Exception as e:
+                                    st.error(f"Erro ao calcular importância: {e}")
 
             except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
                 st.error(f"Erro durante o treinamento: {e}")
+                with st.expander("Ver detalhes do erro (Traceback)"):
+                    st.code(error_details)
             finally:
-                sys.stdout = old_stdout
+                pass
     else:
         st.warning("Por favor, faça o upload de dados primeiro.")
 
@@ -188,13 +312,32 @@ elif menu == "Predição":
 
 elif menu == "Histórico (MLflow)":
     st.header("📊 Histórico de Experimentos")
+    
+    # Button to clean corrupted MLflow metadata
+    if st.sidebar.button("Limpar Cache MLflow (Reparar Erros)"):
+        import shutil
+        if os.path.exists("mlruns"):
+            # Instead of deleting everything, we could try to find the malformed ones
+            # but deleting is safer for a local "repair"
+            shutil.rmtree("mlruns")
+            st.sidebar.success("Cache limpo! Reinicie o treinamento.")
+            st.rerun()
+
     exp_name = st.selectbox("Selecione o Experimento", ["AutoGluon_Experiments", "FLAML_Experiments"])
     
     try:
-        runs = mlflow.search_runs(experiment_names=[exp_name])
-        if not runs.empty:
-            st.dataframe(runs)
+        # Heal again if we are about to access the history
+        heal_mlruns()
+        # Check if experiment exists first to avoid crashes on malformed file store
+        experiment = mlflow.get_experiment_by_name(exp_name)
+        if experiment is None:
+            st.info(f"O experimento '{exp_name}' ainda não foi criado. Inicie um treinamento primeiro.")
         else:
-            st.write("Nenhuma run encontrada.")
+            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+            if not runs.empty:
+                st.dataframe(runs)
+            else:
+                st.write("Nenhuma run encontrada para este experimento.")
     except Exception as e:
-        st.error(f"Erro ao buscar histórico: {e}")
+        st.error(f"Erro ao acessar o MLflow: {e}")
+        st.warning("Isso pode ser causado por arquivos de metadados corrompidos na pasta 'mlruns'. Use o botão 'Limpar Cache' na barra lateral se o erro persistir.")
