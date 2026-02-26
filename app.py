@@ -385,30 +385,48 @@ elif menu == "Treinamento":
                         # Verificar se o H2O ainda está conectado antes de acessar o modelo
                         try:
                             best_model = automl.leader
-                            st.success(f"O melhor modelo encontrado foi: **{best_model.model_id}**")
-                            
-                            st.subheader("Leaderboard Final")
-                            try:
-                                leaderboard = automl.leaderboard.as_data_frame()
-                                st.dataframe(leaderboard)
-                            except Exception as e:
-                                st.warning(f"Não foi possível exibir o leaderboard: {e}")
-                                # Tentar exibir como texto
+                            if best_model is not None:
+                                st.success(f"O melhor modelo encontrado foi: **{best_model.model_id}**")
+                                
+                                st.subheader("Leaderboard Final")
                                 try:
-                                    st.text(str(automl.leaderboard.head(10)))
-                                except:
-                                    st.info("Leaderboard não disponível (conexão H2O encerrada)")
-                            
-                            with st.expander("⚙️ Detalhes do Melhor Modelo (H2O)"):
-                                try:
-                                    model_params = {
-                                        "model_id": best_model.model_id,
-                                        "algo": best_model.algo,
-                                        "model_type": best_model._model_json["output"]["model_category"]
-                                    }
-                                    st.json(model_params)
+                                    leaderboard = automl.leaderboard.as_data_frame()
+                                    st.dataframe(leaderboard)
                                 except Exception as e:
-                                    st.warning(f"Não foi possível obter detalhes do modelo: {e}")
+                                    st.warning(f"Não foi possível exibir o leaderboard: {e}")
+                                    # Tentar exibir como texto
+                                    try:
+                                        st.text(str(automl.leaderboard.head(10)))
+                                    except:
+                                        st.info("Leaderboard não disponível (conexão H2O encerrada)")
+                                
+                                with st.expander("⚙️ Detalhes do Melhor Modelo (H2O)"):
+                                    try:
+                                        model_params = {
+                                            "model_id": best_model.model_id,
+                                            "algo": best_model.algo,
+                                            "model_type": best_model._model_json["output"]["model_category"]
+                                        }
+                                        st.json(model_params)
+                                    except Exception as e:
+                                        st.warning(f"Não foi possível obter detalhes do modelo: {e}")
+                            else:
+                                st.warning("⚠️ Nenhum modelo foi treinado durante esta execução.")
+                                st.info("Isso pode acontecer quando:")
+                                st.info("• O tempo máximo é insuficiente para o dataset")
+                                st.info("• Os dados não são adequados para os algoritmos selecionados")
+                                st.info("• Houver problemas na configuração dos parâmetros")
+                                
+                                # Tentar mostrar informações básicas
+                                try:
+                                    st.subheader("📊 Informações do Treinamento")
+                                    st.info(f"• Tipo: H2O AutoML")
+                                    st.info(f"• Run ID: {final_result['run_id']}")
+                                    st.info(f"• Status: Concluído, mas sem modelos treinados")
+                                    st.info(f"• Duração: ~3600 segundos (timeout)")
+                                    st.info(f"• Recomendação: Aumentar tempo máximo ou reduzir complexidade dos dados")
+                                except:
+                                    pass
                         except Exception as e:
                             st.error(f"⚠️ Não foi possível acessar os detalhes do modelo H2O: {e}")
                             st.info("Isso acontece quando o H2O é finalizado após o treinamento. Os resultados foram salvos no MLflow com sucesso!")
