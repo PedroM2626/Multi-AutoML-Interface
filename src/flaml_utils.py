@@ -40,6 +40,10 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
         
         automl = AutoML()
         
+        # Note: We are NOT using low_cost_partial_config because it causes 
+        # TypeError in some estimators (like LGBM) when passed via automl.fit.
+        # The 'No low-cost partial config given' message is just an INFO warning from FLAML.
+
         settings = {
             "time_budget": time_budget,
             "metric": metric,
@@ -48,7 +52,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
             "log_file_name": "flaml.log",
             "seed": 42,
             "n_jobs": 1,
-            "verbose": 3,
+            "verbose": 0, # Reduzir verbosidade interna para evitar poluição, o progresso vai para flaml.log
         }
         
         # Train model

@@ -174,44 +174,67 @@ elif menu == "Treinamento":
                 thread = threading.Thread(target=run_training)
                 thread.start()
                 
+                # UI Update Loop
                 all_logs = []
                 performance_history = []
+                last_pos = 0
+                
+                # Clear old flaml.log if exists
+                if os.path.exists("flaml.log"):
+                    try:
+                        os.remove("flaml.log")
+                    except:
+                        pass
+
                 while not training_done.is_set():
+                    # 1. Capture logs from the queue (Standard logging/stdout)
                     new_logs = False
                     while not log_queue.empty():
                         log_line = log_queue.get()
-                        all_logs.append(log_line)
-                        new_logs = True
+                        # Filter out the annoying FLAML low-cost warning from UI logs
+                        if "low-cost partial config" in log_line.lower():
+                            continue
+                            
+                        if log_line not in all_logs:
+                            all_logs.append(log_line)
+                            new_logs = True
                     
+                    # 2. Capture logs from flaml.log file (Iterative progress)
+                    if os.path.exists("flaml.log"):
+                        try:
+                            with open("flaml.log", "r") as f:
+                                f.seek(last_pos)
+                                new_lines = f.readlines()
+                                last_pos = f.tell()
+                                if new_lines:
+                                    for line in new_lines:
+                                        clean_line = line.strip()
+                                        # Filter warning from file logs too
+                                        if "low-cost partial config" in clean_line.lower():
+                                            continue
+                                            
+                                        if clean_line and clean_line not in all_logs:
+                                            all_logs.append(clean_line)
+                                            new_logs = True
+                                            
+                                            # 3. Parse performance metrics
+                                            if any(kw in clean_line.lower() for kw in ["loss", "accuracy", "score"]):
+                                                import re
+                                                numbers = re.findall(r"[-+]?\d*\.\d+|\d+", clean_line)
+                                                if numbers:
+                                                    try:
+                                                        val = float(numbers[-1])
+                                                        if 0 <= abs(val) <= 1000:
+                                                            performance_history.append(val)
+                                                            chart_placeholder.line_chart(performance_history)
+                                                    except:
+                                                        pass
+                        except:
+                            pass
+
                     if new_logs:
-                        log_placeholder.code("\n".join(all_logs[-20:])) # Mostrar mais linhas
-                        
-                        # Parse performance metrics from logs
-                        for log_line in all_logs[-10:]: # Verificar uma janela maior de linhas recentes
-                            try:
-                                import re
-                                # Procurar padrões como: "loss=0.123", "score: 0.85", "accuracy: 0.9", "Best loss: 0.11"
-                                # Também capturar padrões do LightGBM/XGBoost que o FLAML printa
-                                patterns = [
-                                    r"loss[:=]\s*([-+]?\d*\.\d+|\d+)",
-                                    r"score[:=]\s*([-+]?\d*\.\d+|\d+)",
-                                    r"accuracy[:=]\s*([-+]?\d*\.\d+|\d+)",
-                                    r"val_loss[:=]\s*([-+]?\d*\.\d+|\d+)"
-                                ]
-                                
-                                for p in patterns:
-                                    match = re.search(p, log_line.lower())
-                                    if match:
-                                        val = float(match.group(1))
-                                        # Filtro básico para evitar valores absurdos ou timestamps
-                                        if 0 <= abs(val) <= 1000:
-                                            # Se for score/accuracy, o gráfico sobe (bom)
-                                            # Se for loss, o gráfico desce (bom)
-                                            performance_history.append(val)
-                                            chart_placeholder.line_chart(performance_history)
-                                            break # Achou uma métrica nesta linha, pula para a próxima
-                            except:
-                                pass
+                        # Display only the most relevant recent logs
+                        log_placeholder.code("\n".join(all_logs[-20:]))
                     
                     time.sleep(0.5)
                 
