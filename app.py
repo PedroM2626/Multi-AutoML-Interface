@@ -1,16 +1,34 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
-import queue
+import io
 import sys
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
+import importlib
+import queue
+
+# Forçar reload dos módulos para pegar as alterações mais recentes
+modules_to_reload = [
+    'src.autogluon_utils',
+    'src.flaml_utils', 
+    'src.h2o_utils',
+    'src.mlflow_cache'
+]
+
+for module in modules_to_reload:
+    if module in sys.modules:
+        importlib.reload(sys.modules[module])
+
 from src.data_utils import load_data, get_data_summary
 from src.autogluon_utils import train_model as train_autogluon, load_model_from_mlflow as load_autogluon
 from src.flaml_utils import train_flaml_model, load_flaml_model
+from src.h2o_utils import train_h2o_model, load_h2o_model
 from src.log_utils import setup_logging_to_queue, StdoutRedirector
 from src.mlflow_utils import heal_mlruns
+from src.mlflow_cache import mlflow_cache, get_cached_experiment_list
 import mlflow
 import time
 
@@ -70,16 +88,25 @@ elif menu == "Treinamento":
         df = st.session_state['df']
         columns = df.columns.tolist()
         
-        framework = st.selectbox("Selecione o Framework AutoML", ["AutoGluon", "FLAML"])
+        framework = st.selectbox("Selecione o Framework AutoML", ["AutoGluon", "FLAML", "H2O AutoML"])
         target = st.selectbox("Selecione a coluna alvo (Target)", columns)
         run_name = st.text_input("Nome da Run", value=f"{framework.lower()}_run_{int(time.time())}")
         
         # Framework specific options
         st.subheader(f"Configurações para {framework}")
+        
+        # Opções comuns para todos os frameworks
+        seed = st.number_input("Seed (reprodutibilidade)", value=42, min_value=0, max_value=9999)
+        
+        # Inicializar variáveis para todos os frameworks
+        time_limit = time_budget = max_runtime_secs = 60
+        presets = task = metric = estimator_list = None
+        nfolds = balance_classes = sort_metric = exclude_algos = None
+        
         if framework == "AutoGluon":
             time_limit = st.slider("Limite de tempo (segundos)", 30, 3600, 60)
             presets = st.selectbox("Presets", ['medium_quality', 'best_quality', 'high_quality', 'good_quality', 'optimize_for_deployment'])
-        else: # FLAML
+        elif framework == "FLAML":
             time_budget = st.slider("Budget de tempo (segundos)", 30, 3600, 60)
             task = st.selectbox("Tarefa", ['classification', 'regression', 'ts_forecast', 'rank'])
             
@@ -99,6 +126,21 @@ elif menu == "Treinamento":
             metric = st.selectbox("Métrica", metric_options)
             estimators = st.multiselect("Estimadores", ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree', 'lrl1', 'lrl2'], default=['lgbm', 'rf'])
             estimator_list = estimators if estimators else 'auto'
+        elif framework == "H2O AutoML":
+            st.warning("⚠️ H2O AutoML requer Java instalado. Se não tiver Java, use AutoGluon ou FLAML.")
+            st.info("💡 Para usar H2O sem instalar Java localmente, use Docker.")
+            
+            max_runtime_secs = st.slider("Tempo máximo (segundos)", 60, 3600, 300)
+            max_models = st.slider("Número máximo de modelos", 5, 50, 10)
+            nfolds = st.slider("Número de folds CV", 2, 10, 3)
+            balance_classes = st.checkbox("Balancear classes", value=True)
+            
+            # Opções avançadas H2O
+            with st.expander("⚙️ Opções Avançadas H2O"):
+                sort_metric = st.selectbox("Métrica de ordenação", ["AUTO", "AUC", "logloss", "RMSE", "MAE", "F1"])
+                
+                exclude_options = ['DeepLearning', 'GLM', 'GBM', 'DRF', 'XGBoost', 'GLRM']
+                exclude_algos = st.multiselect("Excluir algoritmos", exclude_options, help="Algoritmos para excluir do AutoML")
 
         if st.button("Iniciar Treinamento"):
             st.subheader("📺 Monitoramento em Tempo Real")
@@ -135,7 +177,7 @@ elif menu == "Treinamento":
             logger.addHandler(handler)
             logger.setLevel(logging.INFO)
             
-            for lib in ['flaml', 'autogluon', 'mlflow']:
+            for lib in ['flaml', 'autogluon', 'mlflow', 'h2o']:
                 l = logging.getLogger(lib)
                 l.addHandler(handler)
                 l.setLevel(logging.INFO)
@@ -155,11 +197,23 @@ elif menu == "Treinamento":
                 with redirect_stdout(LogIO()), redirect_stderr(LogIO()):
                     try:
                         if framework == "AutoGluon":
-                            res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets)
+                            res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets, seed)
                             result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
-                        else: # FLAML
-                            res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list)
+                        elif framework == "FLAML":
+                            res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list, seed)
                             result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
+                        elif framework == "H2O AutoML":
+                            res_automl, res_run_id = train_h2o_model(
+                                df, target, run_name, 
+                                max_runtime_secs=max_runtime_secs, 
+                                max_models=max_models, 
+                                nfolds=nfolds, 
+                                balance_classes=balance_classes, 
+                                seed=seed, 
+                                sort_metric=sort_metric, 
+                                exclude_algos=exclude_algos
+                            )
+                            result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "h2o", "success": True})
                     except Exception as e:
                         import traceback
                         error_msg = f"ERRO CRÍTICO NO TREINAMENTO: {str(e)}\n{traceback.format_exc()}"
@@ -323,6 +377,28 @@ elif menu == "Treinamento":
                                     st.pyplot(fig)
                                 except Exception as e:
                                     st.error(f"Erro ao calcular importância: {e}")
+                    
+                    elif final_result['type'] == "h2o":
+                        automl = final_result['predictor']
+                        st.subheader("🏆 Resultados do H2O AutoML")
+                        
+                        best_model = automl.leader
+                        st.success(f"O melhor modelo encontrado foi: **{best_model.model_id}**")
+                        
+                        st.subheader("Leaderboard Final")
+                        leaderboard = automl.leaderboard.as_data_frame()
+                        st.dataframe(leaderboard)
+                        
+                        with st.expander("⚙️ Detalhes do Melhor Modelo (H2O)"):
+                            try:
+                                model_params = {
+                                    "model_id": best_model.model_id,
+                                    "algo": best_model.algo,
+                                    "model_type": best_model._model_json["output"]["model_category"]
+                                }
+                                st.json(model_params)
+                            except:
+                                st.write("Informações detalhadas não disponíveis para este modelo.")
 
             except Exception as e:
                 import traceback
@@ -342,7 +418,7 @@ elif menu == "Predição":
     
     if load_option == "Carregar do MLflow":
         col1, col2 = st.columns(2)
-        m_type = col1.selectbox("Tipo do Modelo", ["AutoGluon", "FLAML"])
+        m_type = col1.selectbox("Tipo do Modelo", ["AutoGluon", "FLAML", "H2O AutoML"])
         run_id_input = col2.text_input("Run ID")
         
         if st.button("Carregar Modelo"):
@@ -350,9 +426,12 @@ elif menu == "Predição":
                 if m_type == "AutoGluon":
                     st.session_state['predictor'] = load_autogluon(run_id_input)
                     st.session_state['model_type'] = "autogluon"
-                else:
+                elif m_type == "FLAML":
                     st.session_state['predictor'] = load_flaml_model(run_id_input)
                     st.session_state['model_type'] = "flaml"
+                elif m_type == "H2O AutoML":
+                    st.session_state['predictor'] = load_h2o_model(run_id_input)
+                    st.session_state['model_type'] = "h2o"
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao carregar: {e}")
@@ -371,8 +450,16 @@ elif menu == "Predição":
             
             if st.button("Executar Predição"):
                 try:
+                    # Verificar se o predictor não é None
+                    if predictor is None:
+                        st.error("Nenhum modelo carregado. Por favor, carregue um modelo primeiro.")
+                        st.stop()
+                    
                     if m_type == "autogluon":
                         predictions = predictor.predict(predict_df)
+                    elif m_type == "h2o":
+                        from src.h2o_utils import predict_with_h2o
+                        predictions = predict_with_h2o(predictor, predict_df)
                     else: # flaml
                         predictions = predictor.predict(predict_df)
                     
@@ -400,21 +487,30 @@ elif menu == "Histórico (MLflow)":
             st.sidebar.success("Cache limpo! Reinicie o treinamento.")
             st.rerun()
 
-    exp_name = st.selectbox("Selecione o Experimento", ["AutoGluon_Experiments", "FLAML_Experiments"])
+    # Botão para limpar cache MLflow
+    if st.sidebar.button("Limpar Cache MLflow"):
+        mlflow_cache.clear_cache()
+        st.sidebar.success("Cache limpo!")
+        st.rerun()
+
+    # Usar lista cacheada de experimentos
+    experiment_list = get_cached_experiment_list()
+    exp_name = st.selectbox("Selecione o Experimento", experiment_list)
     
     try:
-        # Heal again if we are about to access the history
-        heal_mlruns()
-        # Check if experiment exists first to avoid crashes on malformed file store
-        experiment = mlflow.get_experiment_by_name(exp_name)
-        if experiment is None:
-            st.info(f"O experimento '{exp_name}' ainda não foi criado. Inicie um treinamento primeiro.")
+        # Usar cache para obter runs
+        runs = mlflow_cache.get_cached_all_runs(exp_name)
+        
+        if not runs.empty:
+            st.dataframe(runs)
+            
+            # Mostrar estatísticas do cache
+            with st.expander("📊 Estatísticas do Cache"):
+                st.write(f"Experimento: {exp_name}")
+                st.write(f"Total de runs: {len(runs)}")
+                st.write(f"Cache TTL: 5 minutos")
         else:
-            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-            if not runs.empty:
-                st.dataframe(runs)
-            else:
-                st.write("Nenhuma run encontrada para este experimento.")
+            st.write("Nenhuma run encontrada para este experimento.")
     except Exception as e:
         st.error(f"Erro ao acessar o MLflow: {e}")
         st.warning("Isso pode ser causado por arquivos de metadados corrompidos na pasta 'mlruns'. Use o botão 'Limpar Cache' na barra lateral se o erro persistir.")

@@ -8,3 +8,4 @@ openpyxl>=3.1.2
 scikit-learn>=1.4.0
 matplotlib
 seaborn
+h2o>=3.44.0.3

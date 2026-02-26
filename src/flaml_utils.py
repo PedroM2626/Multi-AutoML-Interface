@@ -10,7 +10,7 @@ from src.mlflow_utils import safe_set_experiment
 
 logger = logging.getLogger(__name__)
 
-def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto'):
+def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42):
     """
     Trains a FLAML model and logs results to MLflow.
     """
@@ -34,6 +34,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
         mlflow.log_param("task", task)
         mlflow.log_param("metric", metric)
         mlflow.log_param("estimator_list", str(estimator_list))
+        mlflow.log_param("seed", seed)
         
         X_train = train_data.drop(columns=[target])
         y_train = train_data[target]
@@ -50,7 +51,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
             "task": task,
             "estimator_list": estimator_list,
             "log_file_name": "flaml.log",
-            "seed": 42,
+            "seed": seed,
             "n_jobs": 1,
             "verbose": 0, # Reduzir verbosidade interna para evitar poluição, o progresso vai para flaml.log
         }

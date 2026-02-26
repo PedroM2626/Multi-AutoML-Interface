@@ -7,7 +7,7 @@ from src.mlflow_utils import safe_set_experiment
 
 logger = logging.getLogger(__name__)
 
-def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit: int = 60, presets: str = 'medium_quality'):
+def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
     """
@@ -23,6 +23,7 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit
         mlflow.log_param("target", target)
         mlflow.log_param("time_limit", time_limit)
         mlflow.log_param("presets", presets)
+        mlflow.log_param("seed", seed)
         
         # Output directory for AutoGluon
         model_path = os.path.join("models", run_name)
@@ -33,7 +34,8 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str, time_limit
         predictor = TabularPredictor(label=target, path=model_path).fit(
             train_data, 
             time_limit=time_limit, 
-            presets=presets
+            presets=presets,
+            seed=seed
         )
         
         # Log metrics (leaderboard)
