@@ -6,3 +6,13 @@ __pycache__
 *.csv
 *.txt
 reference/
+# Electron
+node_modules/
+dist/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+electron/assets/icon.ico
+electron/assets/icon.icns
