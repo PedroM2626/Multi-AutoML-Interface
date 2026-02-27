@@ -161,6 +161,10 @@ elif menu == "Treinamento":
                     'TPOT light', 'TPOT MDR', 'TPOT sparse', 'TPOT NN'
                 ], help="Configuração predefinida do TPOT para diferentes tipos de problemas")
                 
+                tfidf_max_features = st.number_input("Máximo de features de texto (TF-IDF)", min_value=100, max_value=10000, value=500, step=100)
+                ngram_max = st.slider("Tamanho máximo de N-Gramas de texto", 1, 3, 2, help="Se 2, avalia unigramas e bigramas. Se 3, unigramas, bigramas e trigramas.")
+                tfidf_ngram_range = (1, ngram_max)
+                
                 # Detecção automática do problema
                 problem_type = 'classification' if df[target].nunique() <= 20 or df[target].dtype == 'object' else 'regression'
                 st.info(f"🎯 Tipo de problema detectado: **{problem_type}**")
@@ -257,7 +261,9 @@ elif menu == "Treinamento":
                                 random_state=seed,
                                 verbosity=verbosity,
                                 n_jobs=n_jobs,
-                                config_dict=config_dict
+                                config_dict=config_dict,
+                                tfidf_max_features=tfidf_max_features,
+                                tfidf_ngram_range=tfidf_ngram_range
                             )
                             result_queue.put({"predictor": res_tpot, "pipeline": res_pipeline, "run_id": res_run_id, "info": res_info, "type": "tpot", "success": True})
                     except Exception as e:

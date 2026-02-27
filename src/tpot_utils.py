@@ -29,7 +29,7 @@ def detect_problem_type(y):
     else:
         return 'classification'
 
-def create_feature_pipeline(df, target_column, text_columns=None):
+def create_feature_pipeline(df, target_column, text_columns=None, tfidf_max_features=500, tfidf_ngram_range=(1, 2)):
     """Create feature engineering pipeline for TPOT"""
     # Identify column types
     categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
@@ -56,8 +56,8 @@ def create_feature_pipeline(df, target_column, text_columns=None):
     if text_columns:
         for col in text_columns:
             transformers.append((f'tfidf_{col}', TfidfVectorizer(
-                max_features=500, 
-                ngram_range=(1, 2), 
+                max_features=tfidf_max_features, 
+                ngram_range=tfidf_ngram_range, 
                 stop_words='english',
                 dtype=np.float64,
                 token_pattern=r'(?u)\b\w+\b'  # Handle empty strings better
@@ -120,7 +120,8 @@ def prepare_data_for_tpot(df, target_column, test_size=0.2, random_state=42):
 
 def train_tpot_model(df, target_column, run_name, generations=5, population_size=20, cv=5, 
                     scoring=None, max_time_mins=30, max_eval_time_mins=5, random_state=42, 
-                    verbosity=2, n_jobs=-1, config_dict='TPOT sparse'):
+                    verbosity=2, n_jobs=-1, config_dict='TPOT sparse',
+                    tfidf_max_features=500, tfidf_ngram_range=(1, 2)):
     """
     Train TPOT model with MLflow tracking
     """
@@ -134,7 +135,11 @@ def train_tpot_model(df, target_column, run_name, generations=5, population_size
         )
         
         # Create feature pipeline
-        preprocessor, text_columns, cat_columns, num_columns = create_feature_pipeline(X_train, target_column)
+        preprocessor, text_columns, cat_columns, num_columns = create_feature_pipeline(
+            X_train, target_column, 
+            tfidf_max_features=tfidf_max_features, 
+            tfidf_ngram_range=tfidf_ngram_range
+        )
         
         # Process features
         if preprocessor is not None:
@@ -175,6 +180,10 @@ def train_tpot_model(df, target_column, run_name, generations=5, population_size
             else:
                 scoring = 'neg_mean_squared_error'
         
+        # Certifica que não há nenhuma run ativa solta que possa dar erro ao começar
+        while mlflow.active_run():
+            mlflow.end_run()
+            
         with mlflow.start_run(run_name=run_name) as run:
             logger.info(f"Iniciando treinamento TPOT para a run: {run_name}")
             
