@@ -10,7 +10,7 @@ import warnings
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder, OrdinalEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score, f1_score, classification_report, mean_squared_error, r2_score
 from tpot import TPOTClassifier, TPOTRegressor
@@ -56,7 +56,7 @@ def create_feature_pipeline(df, target_column, text_columns=None):
     if text_columns:
         for col in text_columns:
             transformers.append((f'tfidf_{col}', TfidfVectorizer(
-                max_features=5000, 
+                max_features=500, 
                 ngram_range=(1, 2), 
                 stop_words='english',
                 dtype=np.float64,
@@ -69,8 +69,8 @@ def create_feature_pipeline(df, target_column, text_columns=None):
     
     # Categorical features (non-text)
     if categorical_columns:
-        # For TPOT, we'll one-hot encode categorical variables
-        transformers.append(('cat', OneHotEncoder(handle_unknown='ignore', sparse=False), categorical_columns))
+        # For TPOT, we use OrdinalEncoder to prevent dimension explosion on high cardinality
+        transformers.append(('cat', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), categorical_columns))
     
     if transformers:
         preprocessor = ColumnTransformer(transformers, remainder='drop')
