@@ -13,6 +13,16 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, LabelEncoder, OrdinalEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score, f1_score, classification_report, mean_squared_error, r2_score
+
+# Monkeypatch for scikit-learn >= 1.2 compatibility with TPOT
+import sklearn.metrics
+if not hasattr(sklearn.metrics, 'SCORERS'):
+    try:
+        from sklearn.metrics import get_scorer_names
+        sklearn.metrics.SCORERS = {name: name for name in get_scorer_names()}
+    except ImportError:
+        pass
+
 from tpot import TPOTClassifier, TPOTRegressor
 from src.mlflow_utils import safe_set_experiment
 

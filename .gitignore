@@ -1,19 +1,32 @@
-mlruns
-models
-*.db
-__pycache__
-*.log
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data Lake (handled by DVC or managed manually)
+data_lake/
 *.csv
-*.txt
-reference/
-# Electron
-node_modules/
-dist/
-*.exe
-*.dmg
-*.AppImage
-*.deb
-*.rpm
-electron/assets/icon.ico
-electron/assets/icon.icns
-tpot_models/*
+*.xlsx
+*.xls
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Environment
+.venv/
+venv/
+env/
+.env
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+models/
+.dvc/
+*pytest*
+*dvc*
+*.txt*
