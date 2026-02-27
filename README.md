@@ -26,6 +26,7 @@ O Multi-AutoML Interface é uma aplicação web/desktop que simplifica o uso de 
 
 ### 📊 **MLOps Integrado:**
 - **MLflow tracking** completo
+- **Data Lake versioning** automático com DVC
 - **Experiment logging** automático
 - **Model registry** centralizado
 - **Performance metrics** detalhadas
@@ -38,7 +39,7 @@ O Multi-AutoML Interface é uma aplicação web/desktop que simplifica o uso de 
 - **Local development**
 
 ### 🎛️ **Interface Avançada:**
-- **Upload de dados** intuitivo
+- **Upload de múltiplos datasets** (Treino, Validação, Teste)
 - **Configuração avançada** de parâmetros
 - **Monitoramento em tempo real**
 - **Visualização de resultados**
@@ -127,8 +128,9 @@ docker-compose up
 
 #### **1. Upload de Dados:**
 - Formatos suportados: CSV, Excel
-- Dados tabulares estruturados
+- **Múltiplos splits suportados**: Treino (obrigatório), Validação (opcional) e Teste (opcional)
 - Detecção automática de tipos
+- **Data Lake Automático**: Ao processar os dados, são copiados para a pasta `data_lake/` e versionados via DVC, com Hashes gerados para controle de versionamento.
 
 #### **2. Configuração do Experimento:**
 - **Framework**: AutoGluon, FLAML, H2O, TPOT

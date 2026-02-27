@@ -80,58 +80,99 @@ def create_feature_pipeline(df, target_column, text_columns=None, tfidf_max_feat
     
     return preprocessor, text_columns, categorical_columns, numerical_columns
 
-def prepare_data_for_tpot(df, target_column, test_size=0.2, random_state=42):
+def prepare_data_for_tpot(df, target_column, test_data=None, test_size=0.2, random_state=42):
     """Prepare data for TPOT training"""
     # Drop rows with missing target
     df_clean = df.dropna(subset=[target_column]).copy()
-    
-    # Split features and target
-    X = df_clean.drop(columns=[target_column])
-    y = df_clean[target_column].copy()
     
     # Handle missing values in features
     # For text columns, fill with empty string
     # For numerical columns, fill with median
     # For categorical columns, fill with mode
-    for col in X.columns:
-        if X[col].dtype == 'object':
-            X[col] = X[col].fillna('').astype(str)
-        else:
-            X[col] = X[col].fillna(X[col].median())
+    for col in df_clean.columns:
+        if col != target_column:
+            if df_clean[col].dtype == 'object':
+                df_clean[col] = df_clean[col].fillna('').astype(str)
+            else:
+                df_clean[col] = df_clean[col].fillna(df_clean[col].median())
     
     # Convert all object columns to string to avoid mixed types
-    for col in X.select_dtypes(include=['object']).columns:
-        X[col] = X[col].astype(str)
+    for col in df_clean.select_dtypes(include=['object']).columns:
+        if col != target_column:
+            df_clean[col] = df_clean[col].astype(str)
+            
+    # Process test_data if provided
+    if test_data is not None:
+        if target_column not in test_data.columns:
+            raise ValueError(f"A coluna alvo '{target_column}' não foi encontrada nos dados de Teste.")
+        test_clean = test_data.dropna(subset=[target_column]).copy()
+        for col in test_clean.columns:
+            if col != target_column:
+                if test_clean[col].dtype == 'object':
+                    test_clean[col] = test_clean[col].fillna('').astype(str)
+                else:
+                    test_clean[col] = test_clean[col].fillna(test_clean[col].median())
+        for col in test_clean.select_dtypes(include=['object']).columns:
+            if col != target_column:
+                test_clean[col] = test_clean[col].astype(str)
+    
+    # Split features and target
+    X_train = df_clean.drop(columns=[target_column])
+    y_train = df_clean[target_column].copy()
+    
+    if test_data is not None:
+        X_test = test_clean.drop(columns=[target_column])
+        y_test = test_clean[target_column].copy()
     
     # Handle target encoding for classification
-    problem_type = detect_problem_type(y)
-    if problem_type == 'classification' and y.dtype == 'object':
+    problem_type = detect_problem_type(y_train)
+    label_encoder = None
+    if problem_type == 'classification' and y_train.dtype == 'object':
         label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
-    else:
-        label_encoder = None
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y if problem_type == 'classification' else None
-    )
+        y_train = label_encoder.fit_transform(y_train)
+        if test_data is not None:
+            # Handle unknown labels in test by assigning them to a special class or throwing error
+            # For simplicity in AutoML we fit_transform on train and transform on test, catching unknown label cases if needed
+            try:
+                y_test = label_encoder.transform(y_test)
+            except ValueError:
+                # If there are new labels in test, handle them gracefully by forcing a combined fit
+                combined_y = pd.concat([df_clean[target_column], test_clean[target_column]])
+                label_encoder.fit(combined_y)
+                y_train = label_encoder.transform(df_clean[target_column])
+                y_test = label_encoder.transform(test_clean[target_column])
+                
+    # Split data if test_data is not explicitly provided
+    if test_data is None:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_train, y_train, test_size=test_size, random_state=random_state, stratify=y_train if problem_type == 'classification' else None
+        )
     
     return X_train, X_test, y_train, y_test, problem_type, label_encoder
 
-def train_tpot_model(df, target_column, run_name, generations=5, population_size=20, cv=5, 
-                    scoring=None, max_time_mins=30, max_eval_time_mins=5, random_state=42, 
-                    verbosity=2, n_jobs=-1, config_dict='TPOT sparse',
-                    tfidf_max_features=500, tfidf_ngram_range=(1, 2)):
+def train_tpot_model(df, target_column, run_name, 
+                     valid_data=None, test_data=None,
+                     generations=5, population_size=20, cv=5, 
+                     scoring=None, max_time_mins=30, max_eval_time_mins=5, random_state=42, 
+                     verbosity=2, n_jobs=-1, config_dict='TPOT sparse',
+                     tfidf_max_features=500, tfidf_ngram_range=(1, 2)):
     """
     Train TPOT model with MLflow tracking
     """
     try:
+        # TPOT handles validation automatically via CV. If validation is passed, concatenate to train for larger pool
+        if valid_data is not None:
+             if target_column not in valid_data.columns:
+                 raise ValueError(f"A coluna alvo '{target_column}' não foi encontrada nos dados de Validação.")
+             df = pd.concat([df, valid_data], ignore_index=True)
+             mlflow.log_param("has_validation_data", True)
+             
         # Setup experiment
         safe_set_experiment("TPOT_Experiments")
         
         # Prepare data
         X_train, X_test, y_train, y_test, problem_type, label_encoder = prepare_data_for_tpot(
-            df, target_column, random_state=random_state
+            df, target_column, test_data=test_data, random_state=random_state
         )
         
         # Create feature pipeline

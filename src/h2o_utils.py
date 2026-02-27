@@ -108,6 +108,7 @@ def prepare_data_for_h2o(train_data: pd.DataFrame, target: str):
     return h2o_frame, train_data_clean
 
 def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str, 
+                   valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                    max_runtime_secs: int = 300, max_models: int = 10, 
                    nfolds: int = 3, balance_classes: bool = True, seed: int = 42,
                    sort_metric: str = "AUTO", exclude_algos: list = None):
@@ -158,10 +159,33 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 exclude_algos=exclude_algos or []
             )
             
+            # Preparar dados de teste e validação se presentes
+            h2o_valid = None
+            if valid_data is not None:
+                if target not in valid_data.columns:
+                    raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Validação.")
+                valid_data = valid_data.dropna(subset=[target])
+                h2o_valid, _ = prepare_data_for_h2o(valid_data, target)
+                mlflow.log_param("has_validation_data", True)
+                
+            h2o_test = None
+            if test_data is not None:
+                if target not in test_data.columns:
+                    raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Teste.")
+                test_data = test_data.dropna(subset=[target])
+                h2o_test, _ = prepare_data_for_h2o(test_data, target)
+                mlflow.log_param("has_test_data", True)
+            
             # Treinar modelo
             logger.info("Iniciando treinamento H2O AutoML...")
             start_time = time.time()
-            aml.train(x=features, y=target, training_frame=h2o_frame)
+            train_kwargs = {"x": features, "y": target, "training_frame": h2o_frame}
+            if h2o_valid is not None:
+                train_kwargs["validation_frame"] = h2o_valid
+            if h2o_test is not None:
+                train_kwargs["leaderboard_frame"] = h2o_test
+                
+            aml.train(**train_kwargs)
             training_duration = time.time() - start_time
             
             logger.info(f"Treinamento concluído em {training_duration:.2f} segundos")

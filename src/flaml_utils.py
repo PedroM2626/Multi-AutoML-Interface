@@ -10,7 +10,9 @@ from src.mlflow_utils import safe_set_experiment
 
 logger = logging.getLogger(__name__)
 
-def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42):
+def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, 
+                      valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
+                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42):
     """
     Trains a FLAML model and logs results to MLflow.
     """
@@ -39,6 +41,20 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
         X_train = train_data.drop(columns=[target])
         y_train = train_data[target]
         
+        X_val, y_val = None, None
+        if valid_data is not None:
+            if target not in valid_data.columns:
+                raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Validação.")
+            valid_data = valid_data.dropna(subset=[target])
+            X_val = valid_data.drop(columns=[target])
+            y_val = valid_data[target]
+            mlflow.log_param("has_validation_data", True)
+            
+        if test_data is not None:
+             if target not in test_data.columns:
+                 raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Teste.")
+             mlflow.log_param("has_test_data", True)
+        
         automl = AutoML()
         
         # Note: We are NOT using low_cost_partial_config because it causes 
@@ -55,6 +71,10 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, time
             "n_jobs": 1,
             "verbose": 0, # Reduzir verbosidade interna para evitar poluição, o progresso vai para flaml.log
         }
+        
+        if X_val is not None:
+            settings["X_val"] = X_val
+            settings["y_val"] = y_val
         
         # Train model
         logging.info("Executando busca de hiperparâmetros (automl.fit)...")

@@ -1,0 +1,5 @@
+outs:
+- md5: c2d29cc8557a0458f98f8d9f557f317a
+  size: 439120
+  hash: md5
+  path: sentiment validation_1772219898.csv

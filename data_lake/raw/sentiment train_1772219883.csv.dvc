@@ -1,0 +1,5 @@
+outs:
+- md5: 494d4cad9c7d0521a5b940336fed9bf1
+  size: 28500381
+  hash: md5
+  path: sentiment train_1772219883.csv

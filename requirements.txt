@@ -16,5 +16,5 @@ stopit==1.1.2
 scipy==1.15.3
 numpy==1.23.5
 requests==2.31.0
-tqdm==4.66.1
 joblib==1.4.0
+dvc==3.59.0

@@ -23,7 +23,7 @@ for module in modules_to_reload:
     if module in sys.modules:
         importlib.reload(sys.modules[module])
 
-from src.data_utils import load_data, get_data_summary
+from src.data_utils import load_data, get_data_summary, save_to_data_lake, init_dvc, get_data_lake_files, get_dvc_hash
 from src.autogluon_utils import train_model as train_autogluon, load_model_from_mlflow as load_autogluon
 from src.flaml_utils import train_flaml_model, load_flaml_model
 from src.h2o_utils import train_h2o_model, load_h2o_model
@@ -52,47 +52,146 @@ if 'log_queue' not in st.session_state:
 st.title("🚀 AutoML Multi-Framework Interface")
 
 # Sidebar navigation
+st.sidebar.title("Navegação")
 menu = st.sidebar.selectbox("Menu", ["Upload de Dados", "Treinamento", "Predição", "Histórico (MLflow)"])
 
-if menu == "Upload de Dados":
-    st.header("📂 Upload de Dados")
-    uploaded_file = st.file_uploader("Escolha um arquivo CSV ou Excel", type=["csv", "xlsx", "xls"])
+st.sidebar.markdown("---")
+st.sidebar.header("🔗 Integração DagsHub (Opcional)")
+use_dagshub = st.sidebar.checkbox("Ativar DagsHub")
+
+if use_dagshub:
+    dagshub_user = st.sidebar.text_input("Usuário DagsHub")
+    dagshub_repo = st.sidebar.text_input("Nome do Repositório")
+    dagshub_token = st.sidebar.text_input("Token de Acesso (DagsHub)", type="password")
     
-    if uploaded_file is not None:
-        try:
-            df = load_data(uploaded_file)
-            st.session_state['df'] = df
-            st.success("Arquivo carregado com sucesso!")
-            
-            st.subheader("Visualização dos Dados")
-            st.dataframe(df.head())
-            
-            st.subheader("Resumo dos Dados")
-            summary = get_data_summary(df)
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Linhas", summary['rows'])
-            col2.metric("Colunas", summary['columns'])
-            
-            st.write("Tipos de Dados e Valores Ausentes:")
-            summary_df = pd.DataFrame({
-                "Tipo": summary['dtypes'],
-                "Ausentes": summary['missing_values']
-            })
-            st.table(summary_df)
-            
-        except Exception as e:
-            st.error(f"Erro ao carregar o arquivo: {e}")
+    if st.sidebar.button("Conectar ao DagsHub"):
+        if dagshub_user and dagshub_repo and dagshub_token:
+            try:
+                import dagshub
+                import os
+                os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
+                os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
+                dagshub.init(repo_owner=dagshub_user, repo_name=dagshub_repo, mlflow=True)
+                st.sidebar.success("Conectado com sucesso ao DagsHub!")
+            except ImportError:
+                st.sidebar.error("Biblioteca dagshub não encontrada. Adicione 'dagshub' ao requirements.txt e instale.")
+            except Exception as e:
+                st.sidebar.error(f"Erro ao conectar: {e}")
+        else:
+            st.sidebar.warning("Preencha todos os campos do DagsHub.")
+st.sidebar.markdown("---")
+
+if menu == "Upload de Dados":
+    st.header("📂 Upload de Dados e Data Lake")
+    
+    st.markdown("Faça o upload de novos arquivos para o Data Lake. Eles ficarão disponíveis para uso na aba de Treinamento e Predição.")
+    uploaded_file = st.file_uploader("Novo Arquivo CSV/Excel", type=["csv", "xlsx", "xls"])
+    filename_prefix = st.text_input("Prefixo do arquivo salvo no Data Lake", value="dataset")
+        
+    if st.button("Processar e Salvar no Data Lake"):
+        if uploaded_file is not None:
+            try:
+                with st.spinner("Inicializando Data Lake e processando dados..."):
+                    init_dvc()
+                    df = load_data(uploaded_file)
+                    t_path, t_tag, t_hash = save_to_data_lake(df, filename_prefix)
+                    st.success(f"Arquivo carregado e versionado no Data Lake com DVC! Hash gerado: {t_hash}")
+                    
+                st.subheader("Visualização dos Dados Carregados")
+                st.dataframe(df.head())
+                
+                st.subheader("Resumo dos Dados")
+                summary = get_data_summary(df)
+                s_col1, s_col2 = st.columns(2)
+                s_col1.metric("Linhas", summary['rows'])
+                s_col2.metric("Colunas", summary['columns'])
+                
+                st.write("Tipos de Dados e Valores Ausentes:")
+                summary_df = pd.DataFrame({
+                    "Tipo": summary['dtypes'],
+                    "Ausentes": summary['missing_values']
+                })
+                st.table(summary_df)
+                
+            except Exception as e:
+                st.error(f"Erro ao carregar arquivo: {e}")
+        else:
+            st.error("Nenhum arquivo selecionado!")
 
 elif menu == "Treinamento":
     st.header("🧠 Treinamento de Modelo")
     
+    available_files = get_data_lake_files()
+    
+    if not available_files:
+        st.warning("Nenhum dataset encontrado no Data Lake. Por favor, adicione na aba 'Upload de Dados' primeiro.")
+        st.stop()
+        
+    st.subheader("1. Seleção de Datasets do Data Lake")
+    
+    # UI mapping filenames
+    file_options = ["Nenhum"] + [os.path.basename(f) for f in available_files]
+    file_paths_map = {os.path.basename(f): f for f in available_files}
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        train_file_selection = st.selectbox("Treino (Obrigatório)", file_options[1:])
+    with col2:
+        valid_file_selection = st.selectbox("Validação (Opcional)", file_options)
+    with col3:
+        test_file_selection = st.selectbox("Teste/Holdout (Opcional)", file_options)
+        
+    if train_file_selection:
+        try:
+            # Load Train
+            train_path = file_paths_map[train_file_selection]
+            df = load_data(train_path)
+            
+            # Fetch Hash
+            t_hash_full, t_hash_short = get_dvc_hash(train_path)
+            dvc_hashes = {"dvc_train_hash": t_hash_short}
+            
+            # Load Valid
+            valid_df = None
+            if valid_file_selection != "Nenhum":
+                valid_path = file_paths_map[valid_file_selection]
+                valid_df = load_data(valid_path)
+                v_hash_full, v_hash_short = get_dvc_hash(valid_path)
+                dvc_hashes["dvc_valid_hash"] = v_hash_short
+                
+            # Load Test
+            test_df = None
+            if test_file_selection != "Nenhum":
+                test_path = file_paths_map[test_file_selection]
+                test_df = load_data(test_path)
+                te_hash_full, te_hash_short = get_dvc_hash(test_path)
+                dvc_hashes["dvc_test_hash"] = te_hash_short
+                
+            # Store globally
+            st.session_state['df'] = df
+            st.session_state['valid_df'] = valid_df
+            st.session_state['test_df'] = test_df
+            st.session_state['dvc_hashes'] = dvc_hashes
+            
+        except Exception as e:
+            st.error(f"Erro ao carregar datasets do Data Lake: {e}")
+            
+    st.markdown("---")
+    st.subheader("2. Configuração do AutoML")
+    
     if st.session_state['df'] is not None:
         df = st.session_state['df']
+        valid_df = st.session_state.get('valid_df', None)
+        test_df = st.session_state.get('test_df', None)
+        
         columns = df.columns.tolist()
         
         framework = st.selectbox("Selecione o Framework AutoML", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
         target = st.selectbox("Selecione a coluna alvo (Target)", columns)
         run_name = st.text_input("Nome da Run", value=f"{framework.lower()}_run_{int(time.time())}")
+        
+        # Datasets info
+        st.info(f"Datasets ativos - Treino: {len(df)} linhas | Validação: {'N/A' if valid_df is None else str(len(valid_df)) + ' linhas'} | Teste: {'N/A' if test_df is None else str(len(test_df)) + ' linhas'}")
         
         # Framework specific options
         st.subheader(f"Configurações para {framework}")
@@ -232,14 +331,15 @@ elif menu == "Treinamento":
                 with redirect_stdout(LogIO()), redirect_stderr(LogIO()):
                     try:
                         if framework == "AutoGluon":
-                            res_predictor, res_run_id = train_autogluon(df, target, run_name, time_limit, presets, seed)
+                            res_predictor, res_run_id = train_autogluon(df, target, run_name, valid_df, test_df, time_limit, presets, seed)
                             result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
                         elif framework == "FLAML":
-                            res_automl, res_run_id = train_flaml_model(df, target, run_name, time_budget, task, metric, estimator_list, seed)
+                            res_automl, res_run_id = train_flaml_model(df, target, run_name, valid_df, test_df, time_budget, task, metric, estimator_list, seed)
                             result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
                         elif framework == "H2O AutoML":
                             res_automl, res_run_id = train_h2o_model(
                                 df, target, run_name, 
+                                valid_data=valid_df, test_data=test_df,
                                 max_runtime_secs=max_runtime_secs, 
                                 max_models=max_models, 
                                 nfolds=nfolds, 
@@ -252,6 +352,7 @@ elif menu == "Treinamento":
                         elif framework == "TPOT":
                             res_tpot, res_pipeline, res_run_id, res_info = train_tpot_model(
                                 df, target, run_name,
+                                valid_data=valid_df, test_data=test_df,
                                 generations=generations,
                                 population_size=population_size,
                                 cv=cv,
@@ -352,6 +453,16 @@ elif menu == "Treinamento":
                     st.session_state['run_id'] = final_result["run_id"]
                     st.session_state['model_type'] = final_result["type"]
                     st.success(f"Treinamento finalizado com sucesso! Run ID: {final_result['run_id']}")
+                    
+                    # Log DVC hashes to MLflow run
+                    if 'dvc_hashes' in st.session_state and st.session_state['dvc_hashes']:
+                        try:
+                            with mlflow.start_run(run_id=final_result["run_id"]):
+                                mlflow.log_params(st.session_state['dvc_hashes'])
+                            st.info("🧬 Metadados do Data Lake (DVC) atrelados à Run com sucesso!")
+                        except Exception as e:
+                            st.warning(f"Não foi possível salvar hashes DVC no MLflow: {e}")
+                            
                 else:
                     st.error(f"O treinamento falhou: {final_result['error']}")
 
@@ -404,12 +515,12 @@ elif menu == "Treinamento":
                         predictor = final_result['predictor']
                         st.subheader("🏆 Resultados do AutoGluon")
                         
-                        best_model = predictor.get_model_best()
-                        st.success(f"O melhor modelo encontrado foi: **{best_model}**")
-                        
                         st.subheader("Leaderboard Final")
                         leaderboard = predictor.leaderboard(silent=True)
                         st.dataframe(leaderboard)
+                        
+                        best_model = leaderboard.iloc[0]['model'] if not leaderboard.empty else "Modelo principal"
+                        st.success(f"O melhor modelo encontrado foi: **{best_model}**")
                         
                         with st.expander("⚙️ Detalhes de Treinamento (AutoGluon Info)"):
                             try:
