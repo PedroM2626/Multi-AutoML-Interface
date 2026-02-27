@@ -22,6 +22,7 @@ O Multi-AutoML Interface é uma aplicação web/desktop que simplifica o uso de 
 - **AutoGluon** (Amazon) - Performance excepcional
 - **FLAML** (Microsoft) - Veloz e eficiente
 - **H2O AutoML** (Enterprise) - Robusto e completo
+- **TPOT** (Open Source) - Pipelines gerados por Algoritmos Genéticos
 
 ### 📊 **MLOps Integrado:**
 - **MLflow tracking** completo
@@ -54,7 +55,7 @@ O Multi-AutoML Interface é uma aplicação web/desktop que simplifica o uso de 
 │ • Streamlit     │◄──►│ • Python         │◄──►│ • AutoGluon     │
 │ • Electron      │    │ • FastAPI        │    │ • FLAML         │
 │ • React         │    │ • MLflow         │    │ • H2O AutoML    │
-│ • Custom UI     │    │ • Logging        │    │ • Scikit-learn  │
+│ • Custom UI     │    │ • Logging        │    │ • TPOT          │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
@@ -130,9 +131,9 @@ docker-compose up
 - Detecção automática de tipos
 
 #### **2. Configuração do Experimento:**
-- **Framework**: AutoGluon, FLAML, H2O
+- **Framework**: AutoGluon, FLAML, H2O, TPOT
 - **Target variable**: Coluna alvo
-- **Parâmetros avançados**: seed, tempo, folds, etc.
+- **Parâmetros avançados**: seed, tempo, folds, max features textuais (TF-IDF), CV, etc.
 
 #### **3. Treinamento:**
 - **Monitoramento em tempo real**
@@ -186,6 +187,19 @@ docker-compose up
     'nfolds': 5,
     'balance_classes': True,
     'sort_metric': 'AUTO'
+}
+```
+
+#### **TPOT:**
+```python
+{
+    'generations': 5,
+    'population_size': 20,
+    'cv': 5,
+    'max_time_mins': 30,
+    'config_dict': 'TPOT sparse',
+    'tfidf_max_features': 500,
+    'tfidf_ngram_range': (1, 2)
 }
 ```
 
@@ -283,6 +297,7 @@ npm run build-linux
 | **AutoGluon** | ⚡⚡⚡ | 🏆🏆 | 🏆🏆 | 🏆🏆🏆 |
 | **FLAML** | ⚡⚡⚡⚡ | 🏆🏆 | 🏆🏆🏆 | 🏆🏆 |
 | **H2O** | ⚡⚡ | 🏆🏆🏆 | 🏆 | 🏆 |
+| **TPOT** | ⚡ | 🏆🏆🏆 | 🏆🏆 | 🏆 |
 
 ### 📈 **Métricas de Performance:**
 
@@ -298,6 +313,7 @@ H2O: 4.2 min, 94.0% accuracy
 AutoGluon: ~2GB RAM
 FLAML: ~1.5GB RAM
 H2O: ~3GB RAM
+TPOT: ~1GB RAM (Otimizado)
 ```
 
 ---
@@ -335,12 +351,11 @@ export H2O_MAX_MEM_SIZE="8G"
 # Ou reduzir dataset
 ```
 
-#### **"MLflow connection error":**
+#### **"MLflow connection error" / "Missing mlruns":**
 ```bash
-# Verificar se MLflow está rodando
+# Na nova versão, o diretório mlruns/.trash é cicatrizado e recriado automaticamente caso seja rompido.
+# Para outros problemas:
 mlflow server --host 0.0.0.0 --port 5000
-
-# Verificar firewall
 ```
 
 ---
@@ -383,7 +398,8 @@ Multi-AutoML-Interface/
 │   ├── 📄 autogluon_utils.py  # AutoGluon integration
 │   ├── 📄 flaml_utils.py      # FLAML integration
 │   ├── 📄 h2o_utils.py        # H2O integration
-│   ├── 📄 mlflow_utils.py     # MLflow helpers
+│   ├── 📄 tpot_utils.py       # TPOT integration 
+│   ├── 📄 mlflow_utils.py     # MLflow helpers e auto-healing
 │   ├── 📄 mlflow_cache.py     # Cache otimizado
 │   ├── 📄 data_utils.py       # Data processing
 │   └── 📄 log_utils.py        # Logging utilities
@@ -458,6 +474,7 @@ Este projeto está licenciado sob a **MIT License** - veja o arquivo [LICENSE](L
 - **AutoGluon** - Amazon Web Services
 - **FLAML** - Microsoft Research  
 - **H2O AutoML** - H2O.ai
+- **TPOT** - Rhodes Lab
 - **MLflow** - Databricks
 
 ### 🛠️ **Tecnologias:**
@@ -477,7 +494,6 @@ Este projeto está licenciado sob a **MIT License** - veja o arquivo [LICENSE](L
 ## 🗺️ **Roadmap Futuro**
 
 ### 🚀 **Próximas Features**
-- [ ] **TPOT integration** (algoritmos genéticos)
 - [ ] **Auto-sklearn** (meta-learning)
 - [ ] **Model explainability** (SHAP, LIME)
 - [ ] **Advanced visualizations**

@@ -16,3 +16,4 @@ dist/
 *.rpm
 electron/assets/icon.ico
 electron/assets/icon.icns
+tpot_models/*
