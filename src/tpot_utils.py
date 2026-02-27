@@ -73,7 +73,8 @@ def create_feature_pipeline(df, target_column, text_columns=None):
         transformers.append(('cat', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1), categorical_columns))
     
     if transformers:
-        preprocessor = ColumnTransformer(transformers, remainder='drop')
+        # TPOT requires dense arrays for most operations, so we force sparse_threshold=0
+        preprocessor = ColumnTransformer(transformers, remainder='drop', sparse_threshold=0)
     else:
         preprocessor = None
     
