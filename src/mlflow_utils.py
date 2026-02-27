@@ -10,6 +10,8 @@ def heal_mlruns(mlruns_path="mlruns"):
     Removes experiment directories that are missing meta.yaml to prevent MLflow crashes.
     """
     if not os.path.exists(mlruns_path):
+        os.makedirs(mlruns_path, exist_ok=True)
+        os.makedirs(os.path.join(mlruns_path, ".trash"), exist_ok=True)
         return
 
     for item in os.listdir(mlruns_path):
@@ -33,8 +35,9 @@ def safe_set_experiment(experiment_name):
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         mlruns_path = os.path.join(project_root, "mlruns")
         
-        # Garantir que o diretório existe
+        # Garantir que o diretório e a lixeira existam
         os.makedirs(mlruns_path, exist_ok=True)
+        os.makedirs(os.path.join(mlruns_path, ".trash"), exist_ok=True)
         
         # Configurar tracking URI
         normalized_path = mlruns_path.replace('\\', '/')
