@@ -15,6 +15,7 @@ modules_to_reload = [
     'src.autogluon_utils',
     'src.flaml_utils', 
     'src.h2o_utils',
+    'src.tpot_utils',
     'src.mlflow_cache'
 ]
 
@@ -26,6 +27,7 @@ from src.data_utils import load_data, get_data_summary
 from src.autogluon_utils import train_model as train_autogluon, load_model_from_mlflow as load_autogluon
 from src.flaml_utils import train_flaml_model, load_flaml_model
 from src.h2o_utils import train_h2o_model, load_h2o_model
+from src.tpot_utils import train_tpot_model, load_tpot_model
 from src.log_utils import setup_logging_to_queue, StdoutRedirector
 from src.mlflow_utils import heal_mlruns
 from src.mlflow_cache import mlflow_cache, get_cached_experiment_list
@@ -88,7 +90,7 @@ elif menu == "Treinamento":
         df = st.session_state['df']
         columns = df.columns.tolist()
         
-        framework = st.selectbox("Selecione o Framework AutoML", ["AutoGluon", "FLAML", "H2O AutoML"])
+        framework = st.selectbox("Selecione o Framework AutoML", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
         target = st.selectbox("Selecione a coluna alvo (Target)", columns)
         run_name = st.text_input("Nome da Run", value=f"{framework.lower()}_run_{int(time.time())}")
         
@@ -141,6 +143,35 @@ elif menu == "Treinamento":
                 
                 exclude_options = ['DeepLearning', 'GLM', 'GBM', 'DRF', 'XGBoost', 'GLRM']
                 exclude_algos = st.multiselect("Excluir algoritmos", exclude_options, help="Algoritmos para excluir do AutoML")
+        elif framework == "TPOT":
+            st.info("🧬 TPOT usa algoritmos genéticos para otimizar pipelines de machine learning.")
+            st.warning("⚠️ TPOT pode ser mais lento, mas muitas vezes encontra pipelines ótimos.")
+            
+            generations = st.slider("Gerações", 1, 20, 5, help="Número de gerações da evolução genética")
+            population_size = st.slider("Tamanho da população", 10, 100, 20, help="Tamanho da população em cada geração")
+            cv = st.slider("Folds de validação cruzada", 2, 10, 5, help="Número de folds para validação cruzada")
+            max_time_mins = st.slider("Tempo máximo (minutos)", 5, 120, 30, help="Tempo máximo de treinamento em minutos")
+            max_eval_time_mins = st.slider("Tempo máximo por avaliação (minutos)", 1, 20, 5, help="Tempo máximo por avaliação de pipeline")
+            verbosity = st.slider("Nível de detalhe do log", 0, 3, 2, help="Nível de verbosidade do TPOT")
+            n_jobs = st.slider("Número de jobs paralelos", -1, 8, -1, help="Número de processos paralelos (-1 para usar todos)")
+            
+            # Opções avançadas TPOT
+            with st.expander("⚙️ Opções Avançadas TPOT"):
+                config_dict = st.selectbox("Configuração do TPOT", [
+                    'TPOT light', 'TPOT MDR', 'TPOT sparse', 'TPOT NN'
+                ], help="Configuração predefinida do TPOT para diferentes tipos de problemas")
+                
+                # Detecção automática do problema
+                problem_type = 'classification' if df[target].nunique() <= 20 or df[target].dtype == 'object' else 'regression'
+                st.info(f"🎯 Tipo de problema detectado: **{problem_type}**")
+                
+                # Métricas baseadas no tipo de problema
+                if problem_type == 'classification':
+                    scoring_options = ['accuracy', 'balanced_accuracy', 'f1_macro', 'f1_micro', 'f1_weighted', 'roc_auc_ovr', 'roc_auc_ovo', 'precision_macro', 'recall_macro']
+                else:
+                    scoring_options = ['neg_mean_squared_error', 'neg_root_mean_squared_error', 'neg_mean_absolute_error', 'r2', 'explained_variance']
+                
+                scoring = st.selectbox("Métrica de otimização", scoring_options, help="Métrica usada para otimizar os pipelines")
 
         if st.button("Iniciar Treinamento"):
             st.subheader("📺 Monitoramento em Tempo Real")
@@ -177,7 +208,7 @@ elif menu == "Treinamento":
             logger.addHandler(handler)
             logger.setLevel(logging.INFO)
             
-            for lib in ['flaml', 'autogluon', 'mlflow', 'h2o']:
+            for lib in ['flaml', 'autogluon', 'mlflow', 'h2o', 'tpot']:
                 l = logging.getLogger(lib)
                 l.addHandler(handler)
                 l.setLevel(logging.INFO)
@@ -214,6 +245,21 @@ elif menu == "Treinamento":
                                 exclude_algos=exclude_algos
                             )
                             result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "h2o", "success": True})
+                        elif framework == "TPOT":
+                            res_tpot, res_pipeline, res_run_id, res_info = train_tpot_model(
+                                df, target, run_name,
+                                generations=generations,
+                                population_size=population_size,
+                                cv=cv,
+                                scoring=scoring,
+                                max_time_mins=max_time_mins,
+                                max_eval_time_mins=max_eval_time_mins,
+                                random_state=seed,
+                                verbosity=verbosity,
+                                n_jobs=n_jobs,
+                                config_dict=config_dict
+                            )
+                            result_queue.put({"predictor": res_tpot, "pipeline": res_pipeline, "run_id": res_run_id, "info": res_info, "type": "tpot", "success": True})
                     except Exception as e:
                         import traceback
                         error_msg = f"ERRO CRÍTICO NO TREINAMENTO: {str(e)}\n{traceback.format_exc()}"
@@ -440,6 +486,44 @@ elif menu == "Treinamento":
                                 st.info(f"• Métricas registradas no MLflow")
                             except:
                                 pass
+                    
+                    elif final_result['type'] == "tpot":
+                        tpot = final_result['predictor']
+                        pipeline = final_result['pipeline']
+                        info = final_result['info']
+                        
+                        st.subheader("🧬 Resultados do TPOT AutoML")
+                        
+                        # Informações gerais
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Tipo de Problema", info['problem_type'].title())
+                        col2.metric("Gerações", info['generations'])
+                        col3.metric("População", info['population_size'])
+                        col4.metric("Features", info['n_features'])
+                        
+                        # Métricas
+                        if info['problem_type'] == 'classification':
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Accuracy", f"{info.get('accuracy', 0):.4f}")
+                            col2.metric("F1 Macro", f"{info.get('f1_macro', 0):.4f}")
+                            col3.metric("F1 Weighted", f"{info.get('f1_weighted', 0):.4f}")
+                        else:
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("RMSE", f"{info.get('rmse', 0):.4f}")
+                            col2.metric("R²", f"{info.get('r2', 0):.4f}")
+                            col3.metric("MSE", f"{info.get('mse', 0):.4f}")
+                        
+                        # Pipeline otimizado
+                        with st.expander("🧬 Pipeline Otimizado"):
+                            st.code(str(tpot.fitted_pipeline_), language="python")
+                        
+                        # Informações detalhadas
+                        with st.expander("📊 Informações Detalhadas"):
+                            st.json(info)
+                        
+                        # Tempo de treinamento
+                        st.info(f"⏱️ **Tempo de Treinamento:** {info['training_duration']:.2f} segundos")
+                        st.info(f"🎯 **Métrica de Otimização:** {info['scoring']}")
 
             except Exception as e:
                 import traceback
@@ -459,7 +543,7 @@ elif menu == "Predição":
     
     if load_option == "Carregar do MLflow":
         col1, col2 = st.columns(2)
-        m_type = col1.selectbox("Tipo do Modelo", ["AutoGluon", "FLAML", "H2O AutoML"])
+        m_type = col1.selectbox("Tipo do Modelo", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
         run_id_input = col2.text_input("Run ID")
         
         if st.button("Carregar Modelo"):
@@ -473,6 +557,9 @@ elif menu == "Predição":
                 elif m_type == "H2O AutoML":
                     st.session_state['predictor'] = load_h2o_model(run_id_input)
                     st.session_state['model_type'] = "h2o"
+                elif m_type == "TPOT":
+                    st.session_state['predictor'] = load_tpot_model(run_id_input)
+                    st.session_state['model_type'] = "tpot"
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao carregar: {e}")
