@@ -189,8 +189,7 @@ def train_tpot_model(df, target_column, run_name, generations=5, population_size
                     random_state=random_state,
                     verbosity=verbosity,
                     n_jobs=n_jobs,
-                    config_dict=config_dict,
-                    timeout=10  # Add timeout for individual evaluations
+                    config_dict=config_dict
                 )
             else:
                 tpot = TPOTRegressor(
@@ -203,8 +202,7 @@ def train_tpot_model(df, target_column, run_name, generations=5, population_size
                     random_state=random_state,
                     verbosity=verbosity,
                     n_jobs=n_jobs,
-                    config_dict=config_dict,
-                    timeout=10  # Add timeout for individual evaluations
+                    config_dict=config_dict
                 )
             
             # Log parameters
@@ -248,8 +246,7 @@ def train_tpot_model(df, target_column, run_name, generations=5, population_size
                     random_state=random_state,
                     verbosity=1,
                     n_jobs=1,
-                    config_dict='TPOT light',
-                    timeout=5
+                    config_dict='TPOT light'
                 )
                 
                 tpot.fit(X_train_processed, y_train)
