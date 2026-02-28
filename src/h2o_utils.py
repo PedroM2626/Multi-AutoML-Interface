@@ -369,8 +369,6 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
     except Exception as e:
         logger.error(f"Error during H2O training: {e}")
         raise
-    finally:
-        cleanup_h2o()
 
 def load_h2o_model(run_id: str):
     """
