@@ -10,18 +10,33 @@ import seaborn as sns
 import importlib
 import queue
 
-# Forçar reload dos módulos para pegar as alterações mais recentes
-modules_to_reload = [
-    'src.autogluon_utils',
-    'src.flaml_utils', 
-    'src.h2o_utils',
-    'src.tpot_utils',
-    'src.mlflow_cache'
-]
+# Otimização por Cache de Desenvolvimento (opcional via URL ?dev=true)
+dev_mode = st.query_params.get("dev", "false").lower() == "true"
+if dev_mode:
+    st.sidebar.info("🛠️ Modo Dev: Reload ativo")
+    modules_to_reload = [
+        'src.autogluon_utils',
+        'src.flaml_utils', 
+        'src.h2o_utils',
+        'src.tpot_utils',
+        'src.mlflow_cache'
+    ]
+    for module in modules_to_reload:
+        if module in sys.modules:
+            importlib.reload(sys.modules[module])
 
-for module in modules_to_reload:
-    if module in sys.modules:
-        importlib.reload(sys.modules[module])
+# Funções com Cache para Performance
+@st.cache_data(show_spinner="Carregando dados...")
+def cached_load_data(file_path_or_obj):
+    return load_data(file_path_or_obj)
+
+@st.cache_data
+def cached_get_data_summary(df):
+    return get_data_summary(df)
+
+@st.cache_data(ttl=60) # Cache de 1 minuto para lista de arquivos
+def cached_get_data_lake_files():
+    return get_data_lake_files()
 
 from src.data_utils import load_data, get_data_summary, save_to_data_lake, init_dvc, get_data_lake_files, get_dvc_hash
 from src.autogluon_utils import train_model as train_autogluon, load_model_from_mlflow as load_autogluon
@@ -93,15 +108,16 @@ if menu == "Upload de Dados":
             try:
                 with st.spinner("Inicializando Data Lake e processando dados..."):
                     init_dvc()
-                    df = load_data(uploaded_file)
+                    df = cached_load_data(uploaded_file)
                     t_path, t_tag, t_hash = save_to_data_lake(df, filename_prefix)
+                    st.cache_data.clear() # Limpa cache pois entrou dado novo
                     st.success(f"Arquivo carregado e versionado no Data Lake com DVC! Hash gerado: {t_hash}")
                     
                 st.subheader("Visualização dos Dados Carregados")
                 st.dataframe(df.head())
                 
                 st.subheader("Resumo dos Dados")
-                summary = get_data_summary(df)
+                summary = cached_get_data_summary(df)
                 s_col1, s_col2 = st.columns(2)
                 s_col1.metric("Linhas", summary['rows'])
                 s_col2.metric("Colunas", summary['columns'])
@@ -121,7 +137,7 @@ if menu == "Upload de Dados":
 elif menu == "Treinamento":
     st.header("🧠 Treinamento de Modelo")
     
-    available_files = get_data_lake_files()
+    available_files = cached_get_data_lake_files()
     
     if not available_files:
         st.warning("Nenhum dataset encontrado no Data Lake. Por favor, adicione na aba 'Upload de Dados' primeiro.")
@@ -145,7 +161,7 @@ elif menu == "Treinamento":
         try:
             # Load Train
             train_path = file_paths_map[train_file_selection]
-            df = load_data(train_path)
+            df = cached_load_data(train_path)
             
             # Fetch Hash
             t_hash_full, t_hash_short = get_dvc_hash(train_path)
@@ -155,7 +171,7 @@ elif menu == "Treinamento":
             valid_df = None
             if valid_file_selection != "Nenhum":
                 valid_path = file_paths_map[valid_file_selection]
-                valid_df = load_data(valid_path)
+                valid_df = cached_load_data(valid_path)
                 v_hash_full, v_hash_short = get_dvc_hash(valid_path)
                 dvc_hashes["dvc_valid_hash"] = v_hash_short
                 
@@ -163,7 +179,7 @@ elif menu == "Treinamento":
             test_df = None
             if test_file_selection != "Nenhum":
                 test_path = file_paths_map[test_file_selection]
-                test_df = load_data(test_path)
+                test_df = cached_load_data(test_path)
                 te_hash_full, te_hash_short = get_dvc_hash(test_path)
                 dvc_hashes["dvc_test_hash"] = te_hash_short
                 
