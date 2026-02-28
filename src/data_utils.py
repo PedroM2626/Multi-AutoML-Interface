@@ -16,7 +16,7 @@ def load_data(file):
     elif filename.endswith(('.xls', '.xlsx')):
         return pd.read_excel(file)
     else:
-        raise ValueError("Formato de arquivo não suportado. Use CSV ou Excel.")
+        raise ValueError("Unsupported file format. Please use CSV or Excel.")
 
 def get_data_summary(df):
     """

@@ -114,7 +114,7 @@ def prepare_data_for_tpot(df, target_column, test_data=None, test_size=0.2, rand
     # Process test_data if provided
     if test_data is not None:
         if target_column not in test_data.columns:
-            raise ValueError(f"A coluna alvo '{target_column}' não foi encontrada nos dados de Teste.")
+            raise ValueError(f"Target column '{target_column}' not found in Test data.")
         test_clean = test_data.dropna(subset=[target_column]).copy()
         for col in test_clean.columns:
             if col != target_column:
@@ -173,7 +173,7 @@ def train_tpot_model(df, target_column, run_name,
         # TPOT handles validation automatically via CV. If validation is passed, concatenate to train for larger pool
         if valid_data is not None:
              if target_column not in valid_data.columns:
-                 raise ValueError(f"A coluna alvo '{target_column}' não foi encontrada nos dados de Validação.")
+                 raise ValueError(f"Target column '{target_column}' not found in Validation data.")
              df = pd.concat([df, valid_data], ignore_index=True)
              mlflow.log_param("has_validation_data", True)
              
@@ -231,12 +231,12 @@ def train_tpot_model(df, target_column, run_name,
             else:
                 scoring = 'neg_mean_squared_error'
         
-        # Certifica que não há nenhuma run ativa solta que possa dar erro ao começar
+        # Ensure there are no loose active runs that could cause errors on start
         while mlflow.active_run():
             mlflow.end_run()
             
         with mlflow.start_run(run_name=run_name) as run:
-            logger.info(f"Iniciando treinamento TPOT para a run: {run_name}")
+            logger.info(f"Starting TPOT training for run: {run_name}")
             
             # Choose TPOT class based on problem type
             if problem_type == 'classification':
@@ -290,13 +290,13 @@ def train_tpot_model(df, target_column, run_name,
                 tpot.fit(X_train_processed, y_train)
                 training_duration = time.time() - start_time
                 
-                logger.info(f"Treinamento concluído em {training_duration:.2f} segundos")
+                logger.info(f"Training completed in {training_duration:.2f} seconds")
                 
             except Exception as tpot_error:
-                logger.error(f"Erro durante treinamento TPOT: {tpot_error}")
+                logger.error(f"Error during TPOT training: {tpot_error}")
                 
                 # Try with simpler configuration
-                logger.info("Tentando com configuração mais simples...")
+                logger.info("Trying with simpler configuration...")
                 tpot = TPOTClassifier(
                     generations=1,
                     population_size=5,
@@ -312,7 +312,7 @@ def train_tpot_model(df, target_column, run_name,
                 
                 tpot.fit(X_train_processed, y_train)
                 training_duration = time.time() - start_time
-                logger.info(f"Treinamento simplificado concluído em {training_duration:.2f} segundos")
+                logger.info(f"Simplified training completed in {training_duration:.2f} seconds")
             
             # Predictions
             y_pred = tpot.predict(X_test_processed)
@@ -359,7 +359,7 @@ def train_tpot_model(df, target_column, run_name,
                     mlflow.log_artifact(report_path)
                     
                 except Exception as e:
-                    logger.warning(f"Não foi possível gerar relatório de classificação: {e}")
+                    logger.warning(f"Could not generate classification report: {e}")
             
             else:  # Regression
                 mse = mean_squared_error(y_test, y_pred)
@@ -416,7 +416,7 @@ def train_tpot_model(df, target_column, run_name,
             pipeline_path = f"tpot_models/best_pipeline_{run_name}.py"
             os.makedirs("tpot_models", exist_ok=True)
             tpot.export(pipeline_path)
-            logger.info(f"Pipeline exportado para {pipeline_path}")
+            logger.info(f"Pipeline exported to {pipeline_path}")
             
             # Save model info
             info_path = f"tpot_models/model_info_{run_name}.txt"
@@ -432,12 +432,12 @@ def train_tpot_model(df, target_column, run_name,
             # Log the fitted pipeline
             mlflow.sklearn.log_model(final_pipeline, "model", registered_model_name=f"TPOT_{run_name}")
             
-            logger.info("Modelo TPOT registrado no MLflow com sucesso")
+            logger.info("TPOT model successfully registered in MLflow")
             
             return tpot, final_pipeline, run.info.run_id, model_info
             
     except Exception as e:
-        logger.error(f"Erro durante treinamento TPOT: {e}")
+        logger.error(f"Error during TPOT training: {e}")
         raise
 
 def load_tpot_model(run_id, model_path="model"):
@@ -446,7 +446,7 @@ def load_tpot_model(run_id, model_path="model"):
         model = mlflow.sklearn.load_model(f"runs:/{run_id}/{model_path}")
         return model
     except Exception as e:
-        logger.error(f"Erro ao carregar modelo TPOT: {e}")
+        logger.error(f"Error loading TPOT model: {e}")
         raise
 
 def predict_with_tpot(model, data, preprocessor=None):
@@ -460,5 +460,5 @@ def predict_with_tpot(model, data, preprocessor=None):
         predictions = model.predict(data_processed)
         return predictions
     except Exception as e:
-        logger.error(f"Erro durante predição TPOT: {e}")
+        logger.error(f"Error during TPOT prediction: {e}")
         raise

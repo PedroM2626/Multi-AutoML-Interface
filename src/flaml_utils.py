@@ -17,7 +17,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
     Trains a FLAML model and logs results to MLflow.
     """
     safe_set_experiment("FLAML_Experiments")
-    logging.info(f"Iniciando treinamento FLAML para a run: {run_name}")
+    logging.info(f"Starting FLAML training for run: {run_name}")
     
     # Ensure flaml logger is also at INFO level
     import flaml
@@ -28,7 +28,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
     with mlflow.start_run(run_name=run_name) as run:
         # Data cleaning: drop rows where target is NaN
         train_data = train_data.dropna(subset=[target])
-        logging.info(f"Dados prontos: {len(train_data)} linhas.")
+        logging.info(f"Data ready: {len(train_data)} rows.")
         
         # Log parameters
         mlflow.log_param("target", target)
@@ -44,7 +44,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
         X_val, y_val = None, None
         if valid_data is not None:
             if target not in valid_data.columns:
-                raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Validação.")
+                raise ValueError(f"Target column '{target}' not found in Validation data.")
             valid_data = valid_data.dropna(subset=[target])
             X_val = valid_data.drop(columns=[target])
             y_val = valid_data[target]
@@ -52,7 +52,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             
         if test_data is not None:
              if target not in test_data.columns:
-                 raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Teste.")
+                 raise ValueError(f"Target column '{target}' not found in Test data.")
              mlflow.log_param("has_test_data", True)
         
         automl = AutoML()
@@ -69,7 +69,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             "log_file_name": "flaml.log",
             "seed": seed,
             "n_jobs": 1,
-            "verbose": 0, # Reduzir verbosidade interna para evitar poluição, o progresso vai para flaml.log
+            "verbose": 0, # Reduce internal verbosity to avoid pollution, progress goes to flaml.log
         }
         
         if cv_folds > 0:
@@ -81,19 +81,19 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             settings["y_val"] = y_val
         
         # Train model
-        logging.info("Executando busca de hiperparâmetros (automl.fit)...")
+        logging.info("Executing hyperparameter search (automl.fit)...")
         try:
             automl.fit(X_train=X_train, y_train=y_train, **settings)
-            logging.info("Busca finalizada com sucesso.")
+            logging.info("Search finished successfully.")
         except StopIteration:
-            logging.info("Busca interrompida (limite de tempo atingido).")
+            logging.info("Search interrupted (time limit reached).")
             if not hasattr(automl, 'best_estimator') or automl.best_estimator is None:
-                raise RuntimeError("FLAML parou sem encontrar um modelo válido.")
+                raise RuntimeError("FLAML stopped without finding a valid model.")
         
         # Log metrics
         if hasattr(automl, 'best_loss'):
             mlflow.log_metric("best_loss", automl.best_loss)
-            logging.info(f"Melhor Loss final: {automl.best_loss:.4f}")
+            logging.info(f"Best final Loss: {automl.best_loss:.4f}")
         
         # Save best model
         model_path = os.path.join("models", f"flaml_{run_name}.pkl")
@@ -122,4 +122,4 @@ def load_flaml_model(run_id: str):
             if file.endswith(".pkl"):
                 with open(os.path.join(root, file), "rb") as f:
                     return pickle.load(f)
-    raise FileNotFoundError("Modelo FLAML não encontrado nos artefatos.")
+    raise FileNotFoundError("FLAML model not found in artifacts.")

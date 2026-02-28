@@ -35,12 +35,12 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         # Clean validation and test formats if present
         if valid_data is not None:
             if target not in valid_data.columns:
-                raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Validação. Certifique-se de que o arquivo de validação possui a mesma estrutura que o arquivo de treino.")
+                raise ValueError(f"Target column '{target}' not found in Validation data. Make sure it has the same structure as the training dataset.")
             valid_data = valid_data.dropna(subset=[target])
             mlflow.log_param("has_validation_data", True)
         if test_data is not None:
             if target not in test_data.columns:
-                raise ValueError(f"A coluna alvo '{target}' não foi encontrada nos dados de Teste. Certifique-se de que o test set possui a variável alvo.")
+                raise ValueError(f"Target column '{target}' not found in Test data. Make sure the test set includes the target variable.")
             test_data = test_data.dropna(subset=[target])
             mlflow.log_param("has_test_data", True)
             
@@ -59,8 +59,8 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
         
         # Log metrics (leaderboard)
-        # Se test_data for fornecido, a leaderboard e scorage fará uso rigoroso dele,
-        # senão fallback para o de treino (o autogluon usa valid internamente, mas leaderboard explicito ganha precisão)
+        # If test_data is provided, leaderboard and scoring will strictly use it,
+        # otherwise fallback to training data
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
         leaderboard = predictor.leaderboard(eval_data, silent=True)
         # Log the best model's score
