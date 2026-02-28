@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
-                time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42):
+                time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
     """
@@ -50,7 +50,10 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             "time_limit": time_limit, 
             "presets": presets
         }
-        if valid_data is not None:
+        if cv_folds > 0:
+            fit_args["num_bag_folds"] = cv_folds
+            
+        if valid_data is not None and cv_folds == 0:
             fit_args["tuning_data"] = valid_data
             
         predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)

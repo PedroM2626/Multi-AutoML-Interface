@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import importlib
 import queue
+from sklearn.model_selection import train_test_split
 
 # Otimização por Cache de Desenvolvimento (opcional via URL ?dev=true)
 dev_mode = st.query_params.get("dev", "false").lower() == "true"
@@ -193,7 +194,64 @@ elif menu == "Treinamento":
             st.error(f"Erro ao carregar datasets do Data Lake: {e}")
             
     st.markdown("---")
-    st.subheader("2. Configuração do AutoML")
+    st.subheader("2. Separação de Dados e Estratégia de Validação")
+    
+    cv_folds = 0
+    if st.session_state['df'] is not None:
+        df = st.session_state['df']
+        valid_df_session = st.session_state.get('valid_df', None)
+        test_df_session = st.session_state.get('test_df', None)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Conjunto de Teste Final**")
+            if test_df_session is None:
+                test_size_pct = st.slider("Porcentagem extraída para Teste (%)", 0, 50, 15, 5, help="Tamanho do conjunto retido para avaliação final do modelo.")
+            else:
+                st.success("Test-set providenciado através de arquivo dedicado no Data Lake.")
+                test_size_pct = 0
+                
+        with col2:
+            st.markdown("**Estratégia de Validação Interna**")
+            if valid_df_session is None:
+                val_strategy = st.radio("Método", ["Holdout Simples", "Cross-Validation"], horizontal=True, help="Holdout fatiará o Dataset fisicamente. CV instruirá as ferramentas a usarem Folds.")
+                if val_strategy == "Holdout Simples":
+                    val_size_pct = st.slider("Porcentagem extraída para Validação (%)", 0, 50, 20, 5)
+                else:
+                    cv_folds = st.slider("Quantidade de Folds (K)", 2, 10, 5)
+                    val_size_pct = 0
+            else:
+                st.success("Validation-set providenciado via arquivo no Data Lake.")
+                val_size_pct = 0
+                
+        # Apply Splits if needed and store on UI refresh safely
+        # We need a pristine copy or just track the original df length to not shrink infinitely on UI refreshes
+        # We'll use the current st.session_state['df'] as base, but this requires we cache original on selection.
+        if 'original_df' not in st.session_state or len(st.session_state['original_df']) != len(df) and ('has_split' not in st.session_state):
+             # Keep track of original selection payload
+             st.session_state['original_df'] = df.copy()
+             
+        base_df = st.session_state['original_df'].copy()
+        
+        if test_size_pct > 0:
+            base_df, fresh_test_df = train_test_split(base_df, test_size=(test_size_pct/100.0), random_state=42)
+            test_df_session = fresh_test_df
+            st.session_state['test_df'] = test_df_session
+            
+        if val_size_pct > 0:
+            if len(base_df) > 100: # Safe margin
+                base_df, fresh_val_df = train_test_split(base_df, test_size=(val_size_pct/100.0), random_state=42)
+                valid_df_session = fresh_val_df
+                st.session_state['valid_df'] = valid_df_session
+                
+        # Update current working df
+        df = base_df
+        st.session_state['active_df'] = df
+        st.session_state['cv_folds'] = cv_folds
+
+    st.markdown("---")
+    st.subheader("3. Configuração do AutoML")
     
     if st.session_state['df'] is not None:
         df = st.session_state['df']
@@ -249,7 +307,12 @@ elif menu == "Treinamento":
             
             max_runtime_secs = st.slider("Tempo máximo (segundos)", 60, 3600, 300)
             max_models = st.slider("Número máximo de modelos", 5, 50, 10)
-            nfolds = st.slider("Número de folds CV", 2, 10, 3)
+            if cv_folds == 0:
+                nfolds = st.slider("Número de folds CV (Nativos H2O)", 2, 10, 3)
+            else:
+                nfolds = cv_folds
+                st.info(f"O número de folds nativos do H2O está travado na variável global do formulário anterior ({cv_folds} folds).")
+                
             balance_classes = st.checkbox("Balancear classes", value=True)
             
             # Opções avançadas H2O
@@ -264,7 +327,11 @@ elif menu == "Treinamento":
             
             generations = st.slider("Gerações", 1, 20, 5, help="Número de gerações da evolução genética")
             population_size = st.slider("Tamanho da população", 10, 100, 20, help="Tamanho da população em cada geração")
-            cv = st.slider("Folds de validação cruzada", 2, 10, 5, help="Número de folds para validação cruzada")
+            if cv_folds == 0:
+                cv = st.slider("Folds Validação Cruzada (TPOT)", 2, 10, 5)
+            else:
+                cv = cv_folds
+                st.info(f"O número de folds do TPOT usará a configuração global ({cv_folds} folds).")
             max_time_mins = st.slider("Tempo máximo (minutos)", 5, 120, 30, help="Tempo máximo de treinamento em minutos")
             max_eval_time_mins = st.slider("Tempo máximo por avaliação (minutos)", 1, 20, 5, help="Tempo máximo por avaliação de pipeline")
             verbosity = st.slider("Nível de detalhe do log", 0, 3, 2, help="Nível de verbosidade do TPOT")
@@ -347,10 +414,10 @@ elif menu == "Treinamento":
                 with redirect_stdout(LogIO()), redirect_stderr(LogIO()):
                     try:
                         if framework == "AutoGluon":
-                            res_predictor, res_run_id = train_autogluon(df, target, run_name, valid_df, test_df, time_limit, presets, seed)
+                            res_predictor, res_run_id = train_autogluon(df, target, run_name, valid_df, test_df, time_limit, presets, seed, cv_folds)
                             result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
                         elif framework == "FLAML":
-                            res_automl, res_run_id = train_flaml_model(df, target, run_name, valid_df, test_df, time_budget, task, metric, estimator_list, seed)
+                            res_automl, res_run_id = train_flaml_model(df, target, run_name, valid_df, test_df, time_budget, task, metric, estimator_list, seed, cv_folds)
                             result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
                         elif framework == "H2O AutoML":
                             res_automl, res_run_id = train_h2o_model(

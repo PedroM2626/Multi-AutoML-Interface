@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, 
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
-                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42):
+                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0):
     """
     Trains a FLAML model and logs results to MLflow.
     """
@@ -72,6 +72,10 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             "verbose": 0, # Reduzir verbosidade interna para evitar poluição, o progresso vai para flaml.log
         }
         
+        if cv_folds > 0:
+            settings["eval_method"] = "cv"
+            settings["n_splits"] = cv_folds
+            
         if X_val is not None:
             settings["X_val"] = X_val
             settings["y_val"] = y_val
