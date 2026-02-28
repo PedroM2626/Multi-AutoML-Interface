@@ -36,6 +36,7 @@ O Multi-AutoML Interface é uma aplicação web/desktop que simplifica o uso de 
 - **Web interface** (Streamlit)
 - **Docker container** (produção)
 - **Desktop app** (Electron)
+- **Hugging Face Spaces** (Live Demo)
 - **Local development**
 
 ### 🎛️ **Interface Avançada:**
@@ -504,7 +505,7 @@ Este projeto está licenciado sob a **MIT License** - veja o arquivo [LICENSE](L
 ---
 
 ### 🌐 **Live Demo:**
-[Link para aplicação online]
+[Hugging Face Spaces - Multi-AutoML Interface](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 
 ---
 
