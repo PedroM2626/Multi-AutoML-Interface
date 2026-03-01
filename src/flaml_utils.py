@@ -106,6 +106,19 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
         mlflow.log_artifact(model_path, artifact_path="model")
         mlflow.log_param("model_type", "flaml")
         
+        # Generate and log consumption code sample
+        try:
+            from src.code_gen_utils import generate_consumption_code
+            code_sample = generate_consumption_code("flaml", run.info.run_id, target)
+            code_path = "consumption_sample.py"
+            with open(code_path, "w") as f:
+                f.write(code_sample)
+            mlflow.log_artifact(code_path)
+            if os.path.exists(code_path):
+                os.remove(code_path)
+        except Exception as e:
+            logger.warning(f"Failed to generate consumption code: {e}")
+            
         # Log training log as artifact
         if os.path.exists("flaml.log"):
             mlflow.log_artifact("flaml.log")

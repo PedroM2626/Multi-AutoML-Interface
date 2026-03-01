@@ -541,6 +541,16 @@ elif menu == "Training":
                             st.info("🧬 Data Lake (DVC) metadata successfully attached to Run!")
                         except Exception as e:
                             st.warning(f"Could not save DVC hashes to MLflow: {e}")
+
+                    # Display Consumption Code Sample
+                    try:
+                        from src.code_gen_utils import generate_consumption_code
+                        st.subheader("💻 Model Consumption Sample")
+                        code_sample = generate_consumption_code(final_result["type"], final_result["run_id"], target)
+                        st.code(code_sample, language="python")
+                        st.info("💡 This code is also saved as 'consumption_sample.py' in the MLflow run artifacts.")
+                    except Exception as e:
+                        st.warning(f"Could not display consumption code: {e}")
                             
                 else:
                     st.error(f"Training failed: {final_result['error']}")
@@ -754,6 +764,8 @@ elif menu == "Prediction":
                 elif m_type == "TPOT":
                     st.session_state['predictor'] = load_tpot_model(run_id_input)
                     st.session_state['model_type'] = "tpot"
+                
+                st.session_state['run_id'] = run_id_input
                 st.success("Model loaded successfully!")
             except Exception as e:
                 st.error(f"Loading error: {e}")
@@ -761,8 +773,17 @@ elif menu == "Prediction":
     if st.session_state['predictor'] is not None:
         predictor = st.session_state['predictor']
         m_type = st.session_state['model_type']
+        run_id = st.session_state.get('run_id', 'N/A')
         
         st.info(f"Active model: {m_type}")
+        
+        with st.expander("💻 View Model Consumption Code"):
+            try:
+                from src.code_gen_utils import generate_consumption_code
+                code_sample = generate_consumption_code(m_type, run_id, "target")
+                st.code(code_sample, language="python")
+            except Exception as e:
+                st.warning(f"Could not generate code sample: {e}")
         
         predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
         

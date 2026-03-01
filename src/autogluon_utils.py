@@ -79,6 +79,19 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         mlflow.log_artifacts(model_path, artifact_path="model")
         mlflow.log_param("model_type", "autogluon")
         
+        # Generate and log consumption code sample
+        try:
+            from src.code_gen_utils import generate_consumption_code
+            code_sample = generate_consumption_code("autogluon", run.info.run_id, target)
+            code_path = "consumption_sample.py"
+            with open(code_path, "w") as f:
+                f.write(code_sample)
+            mlflow.log_artifact(code_path)
+            if os.path.exists(code_path):
+                os.remove(code_path)
+        except Exception as e:
+            logger.warning(f"Failed to generate consumption code: {e}")
+        
         return predictor, run.info.run_id
 
 def load_model_from_mlflow(run_id: str):

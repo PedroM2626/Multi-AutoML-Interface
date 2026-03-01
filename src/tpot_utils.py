@@ -432,6 +432,19 @@ def train_tpot_model(df, target_column, run_name,
             # Log the fitted pipeline
             mlflow.sklearn.log_model(final_pipeline, "model", registered_model_name=f"TPOT_{run_name}")
             
+            # Generate and log consumption code sample
+            try:
+                from src.code_gen_utils import generate_consumption_code
+                code_sample = generate_consumption_code("tpot", run.info.run_id, target_column)
+                code_path = "consumption_sample.py"
+                with open(code_path, "w") as f:
+                    f.write(code_sample)
+                mlflow.log_artifact(code_path)
+                if os.path.exists(code_path):
+                    os.remove(code_path)
+            except Exception as e:
+                logger.warning(f"Failed to generate consumption code: {e}")
+
             logger.info("TPOT model successfully registered in MLflow")
             
             return tpot, final_pipeline, run.info.run_id, model_info
