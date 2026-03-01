@@ -919,6 +919,33 @@ elif menu == "History (MLflow)":
                         st.success(f"Successfully registered model '{reg_name}' (Version {reg_info.version})")
                     except Exception as e:
                         st.error(f"Registration error: {e}")
+                
+                # Model API Deployment Generator
+                st.subheader("🚀 One-Click API Deployment")
+                api_col1, api_col2 = st.columns([2, 1])
+                with api_col1:
+                    model_to_deploy = st.selectbox("Select run to deploy as API", selected_run_ids)
+                
+                if st.button("Generate FastAPI Deployment Package"):
+                    try:
+                        from src.code_gen_utils import generate_api_deployment
+                        
+                        # Find the model_type and target for this run
+                        run_info = runs[runs['run_id'] == model_to_deploy].iloc[0]
+                        run_model_type = run_info.get('params.model_type', 'unknown')
+                        run_target = run_info.get('params.target', 'target')
+                        
+                        deploy_dir = f"deploy_{model_to_deploy[:8]}"
+                        
+                        generate_api_deployment(run_model_type, model_to_deploy, run_target, output_dir=deploy_dir)
+                        st.success(f"✅ Deployment package generated successfully in folder: `{deploy_dir}/`")
+                        with st.expander("Show instructions"):
+                            st.write("1. Open your terminal in the generated folder.")
+                            st.code(f"cd {deploy_dir}", language="bash")
+                            st.write("2. Build and run via Docker (Recommended):")
+                            st.code(f"docker build -t ml-api:{model_to_deploy[:8]} .\ndocker run -p 8000:8000 ml-api:{model_to_deploy[:8]}", language="bash")
+                    except Exception as e:
+                        st.error(f"Failed to generate API deployment: {e}")
 
             st.markdown("---")
             st.subheader("📋 All Runs Data")
