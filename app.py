@@ -261,7 +261,8 @@ elif menu == "Training":
         columns = df.columns.tolist()
         
         framework = st.selectbox("Select AutoML Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
-        target = st.selectbox("Select Target Column", columns)
+        target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
+        st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
         
         # Datasets info
@@ -785,13 +786,45 @@ elif menu == "Prediction":
             except Exception as e:
                 st.warning(f"Could not generate code sample: {e}")
         
-        predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
+        input_mode = st.radio("Input Mode", ["File Upload", "Manual Input"], horizontal=True)
         
-        if predict_file is not None:
-            predict_df = load_data(predict_file)
-            st.dataframe(predict_df.head())
+        if input_mode == "File Upload":
+            predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
+            if predict_file is not None:
+                predict_df = load_data(predict_file)
+                st.dataframe(predict_df.head())
+                execute_pred = st.button("Execute Prediction")
+        else:
+            st.subheader("📝 Manual Entry")
+            # Try to get features from session state DF first
+            features = []
+            if 'df' in st.session_state and st.session_state['df'] is not None:
+                # Assuming all columns except target are features
+                target_col = st.session_state.get('target', None)
+                features = [c for c in st.session_state['df'].columns if c != target_col]
+            else:
+                st.warning("Feature list unknown (Training data not in session). Please upload a file once to identify features, or use File Upload.")
+                features = []
             
-            if st.button("Execute Prediction"):
+            if features:
+                manual_data = {}
+                cols = st.columns(min(len(features), 3))
+                for i, feat in enumerate(features):
+                    with cols[i % 3]:
+                        # Basic guess of type based on training data
+                        dtype = st.session_state['df'][feat].dtype
+                        if pd.api.types.is_numeric_dtype(dtype):
+                            manual_data[feat] = st.number_input(feat, value=float(st.session_state['df'][feat].median()))
+                        else:
+                            options = st.session_state['df'][feat].unique().tolist()
+                            manual_data[feat] = st.selectbox(feat, options)
+                
+                predict_df = pd.DataFrame([manual_data])
+                execute_pred = st.button("Confirm Manual Prediction")
+            else:
+                execute_pred = False
+
+        if execute_pred:
                 try:
                     # Validate predictor payload
                     if predictor is None:
@@ -845,6 +878,50 @@ elif menu == "History (MLflow)":
         runs = mlflow_cache.get_cached_all_runs(exp_name)
         
         if not runs.empty:
+            # Clean up columns for better display
+            display_runs = runs.copy()
+            
+            st.subheader("🏁 Run Selection & Comparison")
+            
+            # Allow selecting runs for comparison
+            selected_run_ids = st.multiselect("Select runs to compare", runs['run_id'].tolist(), help="Select multiple runs to see a metric comparison chart.")
+            
+            if selected_run_ids:
+                comparison_df = runs[runs['run_id'].isin(selected_run_ids)]
+                
+                # Identify metric columns
+                metric_cols = [col for col in comparison_df.columns if col.startswith('metrics.')]
+                
+                if metric_cols:
+                    st.write("### 📈 Metric Comparison")
+                    # Prepare data for plotting
+                    plot_data = comparison_df.set_index('run_id')[metric_cols]
+                    # Remove 'metrics.' prefix for cleaner labels
+                    plot_data.columns = [c.replace('metrics.', '') for c in plot_data.columns]
+                    
+                    st.bar_chart(plot_data)
+                else:
+                    st.info("No metrics found for the selected runs.")
+                
+                # Model Registration
+                st.subheader("📑 Model Registration")
+                reg_col1, reg_col2 = st.columns([2, 1])
+                with reg_col1:
+                    model_to_reg = st.selectbox("Select run to register", selected_run_ids)
+                with reg_col2:
+                    reg_name = st.text_input("Registration Name", value="best_model")
+                
+                if st.button("Register Model in MLflow Registry"):
+                    try:
+                        # Extract the actual run object or just use ID
+                        model_uri = f"runs:/{model_to_reg}/model"
+                        reg_info = mlflow.register_model(model_uri, reg_name)
+                        st.success(f"Successfully registered model '{reg_name}' (Version {reg_info.version})")
+                    except Exception as e:
+                        st.error(f"Registration error: {e}")
+
+            st.markdown("---")
+            st.subheader("📋 All Runs Data")
             st.dataframe(runs)
             
             # Cache statistics insight

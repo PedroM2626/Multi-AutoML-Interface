@@ -18,3 +18,4 @@ numpy==1.23.5
 requests==2.31.0
 joblib==1.4.0
 dvc==3.59.0
+dagshub==0.3.26
