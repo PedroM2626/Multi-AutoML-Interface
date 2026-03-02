@@ -692,7 +692,24 @@ elif menu == "Experiments":
                     elif fw_type == "h2o" and predictor:
                         if predictor.leader:
                             st.success(f"Best model: **{predictor.leader.model_id}**")
-                            st.dataframe(predictor.leaderboard.as_data_frame())
+                            
+                            # Cache converted leaderboard to avoid H2O temporary file lock issues on Windows
+                            lb_cache_key = f"lb_df_{entry.key}"
+                            if lb_cache_key not in st.session_state or st.sidebar.button("🔄 Refresh H2O Results", key=f"ref_{entry.key}"):
+                                try:
+                                    # H2O's as_data_frame() creates a temporary CSV, which can fail on Windows 
+                                    # if frequent reruns or overlapping calls occur.
+                                    st.session_state[lb_cache_key] = predictor.leaderboard.as_data_frame()
+                                except Exception as lb_err:
+                                    st.warning(f"Could not convert H2O leaderboard: {lb_err}")
+                                    if st.button("Retry Leaderboard Conversion", key=f"retry_{entry.key}"):
+                                        st.rerun()
+                                    st.session_state[lb_cache_key] = None
+                            
+                            if st.session_state.get(lb_cache_key) is not None:
+                                st.dataframe(st.session_state[lb_cache_key])
+                            else:
+                                st.info("H2O Leaderboard data frame is unavailable. Try the retry button above if the training just finished.")
 
                 elif entry.status == "failed":
                     st.error(f"❌ Training failed: {entry.result.get('error', 'Unknown error') if entry.result else 'Unknown error'}")
