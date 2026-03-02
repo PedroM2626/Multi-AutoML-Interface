@@ -47,8 +47,11 @@ from src.tpot_utils import train_tpot_model, load_tpot_model
 from src.log_utils import setup_logging_to_queue, StdoutRedirector
 from src.mlflow_utils import heal_mlruns
 from src.mlflow_cache import mlflow_cache, get_cached_experiment_list
+from src.experiment_manager import get_or_create_manager, ExperimentEntry
+from src.training_worker import run_training_worker
 import mlflow
 import time
+import threading
 
 st.set_page_config(page_title="AutoML Visual Interface", layout="wide")
 
@@ -65,11 +68,31 @@ if 'model_type' not in st.session_state:
 if 'log_queue' not in st.session_state:
     st.session_state['log_queue'] = queue.Queue()
 
+# Initialise the experiment manager singleton
+exp_manager = get_or_create_manager(st.session_state)
+
 st.title("🚀 AutoML Multi-Framework Interface")
 
-# Sidebar navigation
-st.sidebar.title("Navigation")
-menu = st.sidebar.selectbox("Menu", ["Data Upload", "Training", "Prediction", "History (MLflow)"])
+# Initialize MLflow experiment and tracking
+try:
+    from src.mlflow_utils import safe_set_experiment
+    safe_set_experiment("Multi_AutoML_Project")
+except Exception as e:
+    st.error(f"Error initializing MLflow: {e}")
+
+# Sidebar - Stats & Status
+st.sidebar.title("📊 Training Status")
+
+# Badge for running experiments (cached for 5s to avoid script-wide slowdown)
+curr_time = time.time()
+if '_last_count_time' not in st.session_state or curr_time - st.session_state['_last_count_time'] > 5:
+    st.session_state['_running_count'] = sum(1 for e in exp_manager.get_all() if e.status == "running")
+    st.session_state['_last_count_time'] = curr_time
+
+_running_count = st.session_state['_running_count']
+_running_label = f" 🟢 {_running_count}" if _running_count else ""
+menu = st.sidebar.selectbox("Menu", ["Data Upload", "Training", f"Experiments{_running_label}", "Prediction", "History (MLflow)"])
+menu = menu.split(" 🟢")[0]  # Normalize label so page logic still matches
 
 st.sidebar.markdown("---")
 st.sidebar.header("🔗 DagsHub Integration (Optional)")
@@ -356,390 +379,327 @@ elif menu == "Training":
                 
                 scoring = st.selectbox("Optimization Metric", scoring_options, help="Metric used to optimize the pipelines")
 
-        if st.button("Start Training"):
-            st.subheader("📺 Real-time Monitoring")
-            
-            col_logs, col_chart = st.columns([1, 1])
-            
-            with col_logs:
-                st.write("📋 Training Logs")
-                log_placeholder = st.empty()
-            
-            with col_chart:
-                st.write("📈 Performance Evolution")
-                chart_placeholder = st.empty()
-            
-            # Shared state for thread communication
-            import threading
-            training_done = threading.Event()
-            log_queue = queue.Queue()
-            result_queue = queue.Queue()
-            
-            # Custom Log Handler for the thread
-            class ThreadLogHandler(logging.Handler):
-                def emit(self, record):
-                    msg = self.format(record)
-                    log_queue.put(msg)
-            
-            # Setup logger to capture all framework output
-            logger = logging.getLogger()
-            for h in logger.handlers[:]:
-                logger.removeHandler(h)
-                
-            handler = ThreadLogHandler()
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
-            
-            for lib in ['flaml', 'autogluon', 'mlflow', 'h2o', 'tpot']:
-                l = logging.getLogger(lib)
-                l.addHandler(handler)
-                l.setLevel(logging.INFO)
-            
-            # Training function to run in thread
-            def run_training():
-                # Redirect stdout and stderr to capture everything
-                import io
-                from contextlib import redirect_stdout, redirect_stderr
-                
-                class LogIO(io.StringIO):
-                    def write(self, s):
-                        if s.strip():
-                            log_queue.put(s.strip())
-                        return super().write(s)
+        st.markdown("---")
+        st.subheader("4. Launch Experiment")
 
-                with redirect_stdout(LogIO()), redirect_stderr(LogIO()):
-                    try:
-                        if framework == "AutoGluon":
-                            res_predictor, res_run_id = train_autogluon(df, target, run_name, valid_df, test_df, time_limit, presets, seed, cv_folds)
-                            result_queue.put({"predictor": res_predictor, "run_id": res_run_id, "type": "autogluon", "success": True})
-                        elif framework == "FLAML":
-                            res_automl, res_run_id = train_flaml_model(df, target, run_name, valid_df, test_df, time_budget, task, metric, estimator_list, seed, cv_folds)
-                            result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "flaml", "success": True})
-                        elif framework == "H2O AutoML":
-                            res_automl, res_run_id = train_h2o_model(
-                                df, target, run_name, 
-                                valid_data=valid_df, test_data=test_df,
-                                max_runtime_secs=max_runtime_secs, 
-                                max_models=max_models, 
-                                nfolds=nfolds, 
-                                balance_classes=balance_classes, 
-                                seed=seed, 
-                                sort_metric=sort_metric, 
-                                exclude_algos=exclude_algos
-                            )
-                            result_queue.put({"predictor": res_automl, "run_id": res_run_id, "type": "h2o", "success": True})
-                        elif framework == "TPOT":
-                            res_tpot, res_pipeline, res_run_id, res_info = train_tpot_model(
-                                df, target, run_name,
-                                valid_data=valid_df, test_data=test_df,
-                                generations=generations,
-                                population_size=population_size,
-                                cv=cv,
-                                scoring=scoring,
-                                max_time_mins=max_time_mins,
-                                max_eval_time_mins=max_eval_time_mins,
-                                random_state=seed,
-                                verbosity=verbosity,
-                                n_jobs=n_jobs,
-                                config_dict=config_dict,
-                                tfidf_max_features=tfidf_max_features,
-                                tfidf_ngram_range=tfidf_ngram_range
-                            )
-                            result_queue.put({"predictor": res_tpot, "pipeline": res_pipeline, "run_id": res_run_id, "info": res_info, "type": "tpot", "success": True})
-                    except Exception as e:
-                        import traceback
-                        error_msg = f"CRITICAL TRAINING ERROR: {str(e)}\n{traceback.format_exc()}"
-                        log_queue.put(error_msg)
-                        result_queue.put({"success": False, "error": str(e)})
-                    finally:
-                        training_done.set()
-                        logger.removeHandler(handler)
+        if st.button("🚀 Start Training", type="primary"):
+            import time as _t
+            _key = f"{framework.lower()}_{int(_t.time())}"
 
-            # Start training
-            try:
-                thread = threading.Thread(target=run_training)
-                thread.start()
-                
-                # UI Update Loop
-                all_logs = []
-                performance_history = []
-                last_pos = 0
-                
-                # Clear old flaml.log if exists
-                if os.path.exists("flaml.log"):
-                    try:
-                        os.remove("flaml.log")
-                    except:
-                        pass
+            # Build kwargs dict for the trainer
+            if framework == "AutoGluon":
+                _fn = train_autogluon
+                _kwargs = dict(train_data=df, target=target, run_name=run_name,
+                               valid_data=valid_df, test_data=test_df,
+                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds)
+                _fw_key = "autogluon"
+            elif framework == "FLAML":
+                _fn = train_flaml_model
+                _kwargs = dict(train_data=df, target=target, run_name=run_name,
+                               valid_data=valid_df, test_data=test_df,
+                               time_budget=time_budget, task=task, metric=metric,
+                               estimator_list=estimator_list, seed=seed, cv_folds=cv_folds)
+                _fw_key = "flaml"
+            elif framework == "H2O AutoML":
+                _fn = train_h2o_model
+                _kwargs = dict(train_data=df, target=target, run_name=run_name,
+                               valid_data=valid_df, test_data=test_df,
+                               max_runtime_secs=max_runtime_secs, max_models=max_models,
+                               nfolds=nfolds, balance_classes=balance_classes,
+                               seed=seed, sort_metric=sort_metric, exclude_algos=exclude_algos)
+                _fw_key = "h2o"
+            else:  # TPOT
+                _fn = train_tpot_model
+                _kwargs = dict(df=df, target_column=target, run_name=run_name,
+                               valid_data=valid_df, test_data=test_df,
+                               generations=generations, population_size=population_size,
+                               cv=cv, scoring=scoring, max_time_mins=max_time_mins,
+                               max_eval_time_mins=max_eval_time_mins,
+                               random_state=seed, verbosity=verbosity, n_jobs=n_jobs,
+                               config_dict=config_dict, tfidf_max_features=tfidf_max_features,
+                               tfidf_ngram_range=tfidf_ngram_range)
+                _fw_key = "tpot"
 
-                while not training_done.is_set():
-                    # 1. Capture logs from the queue (Standard logging/stdout)
-                    new_logs = False
-                    while not log_queue.empty():
-                        log_line = log_queue.get()
-                        # Filter out the annoying FLAML low-cost warning from UI logs
-                        if "low-cost partial config" in log_line.lower():
-                            continue
-                            
-                        if log_line not in all_logs:
-                            all_logs.append(log_line)
-                            new_logs = True
-                    
-                    # 2. Capture logs from flaml.log file (Iterative progress)
-                    if os.path.exists("flaml.log"):
-                        try:
-                            with open("flaml.log", "r") as f:
-                                f.seek(last_pos)
-                                new_lines = f.readlines()
-                                last_pos = f.tell()
-                                if new_lines:
-                                    for line in new_lines:
-                                        clean_line = line.strip()
-                                        # Filter warning from file logs too
-                                        if "low-cost partial config" in clean_line.lower():
-                                            continue
-                                            
-                                        if clean_line and clean_line not in all_logs:
-                                            all_logs.append(clean_line)
-                                            new_logs = True
-                                            
-                                            # 3. Parse performance metrics
-                                            if any(kw in clean_line.lower() for kw in ["loss", "accuracy", "score"]):
-                                                import re
-                                                numbers = re.findall(r"[-+]?\d*\.\d+|\d+", clean_line)
-                                                if numbers:
-                                                    try:
-                                                        val = float(numbers[-1])
-                                                        if 0 <= abs(val) <= 1000:
-                                                            performance_history.append(val)
-                                                            chart_placeholder.line_chart(performance_history)
-                                                    except:
-                                                        pass
-                        except:
-                            pass
+            _entry = ExperimentEntry(
+                key=_key,
+                metadata={
+                    "framework": framework,
+                    "framework_key": _fw_key,
+                    "run_name": run_name,
+                    "target": target,
+                    "config_snapshot": {k: v for k, v in _kwargs.items()
+                                         if k not in ("train_data", "df", "valid_data",
+                                                       "valid_df", "test_data", "test_df")}
+                }
+            )
 
-                    if new_logs:
-                        # Display only the most relevant recent logs
-                        log_placeholder.code("\n".join(all_logs[-20:]))
-                    
-                    time.sleep(0.5)
-                
-                # Get final results from queue
-                final_result = result_queue.get()
-                
-                if final_result["success"]:
-                    st.session_state['predictor'] = final_result["predictor"]
-                    st.session_state['run_id'] = final_result["run_id"]
-                    st.session_state['model_type'] = final_result["type"]
-                    st.success(f"Training completed successfully! Run ID: {final_result['run_id']}")
-                    
-                    # Log DVC hashes to MLflow run
-                    if 'dvc_hashes' in st.session_state and st.session_state['dvc_hashes']:
-                        try:
-                            with mlflow.start_run(run_id=final_result["run_id"]):
-                                mlflow.log_params(st.session_state['dvc_hashes'])
-                            st.info("🧬 Data Lake (DVC) metadata successfully attached to Run!")
-                        except Exception as e:
-                            st.warning(f"Could not save DVC hashes to MLflow: {e}")
+            _t_obj = threading.Thread(
+                target=run_training_worker,
+                args=(_entry, _fn, _kwargs),
+                daemon=True
+            )
+            _entry.thread = _t_obj
+            exp_manager.add(_entry)
+            _t_obj.start()
 
-                    # Display Consumption Code Sample
-                    try:
-                        from src.code_gen_utils import generate_consumption_code
-                        st.subheader("💻 Model Consumption Sample")
-                        code_sample = generate_consumption_code(final_result["type"], final_result["run_id"], target)
-                        st.code(code_sample, language="python")
-                        st.info("💡 This code is also saved as 'consumption_sample.py' in the MLflow run artifacts.")
-                    except Exception as e:
-                        st.warning(f"Could not display consumption code: {e}")
-                            
-                else:
-                    st.error(f"Training failed: {final_result['error']}")
-
-                # Show all logs at the end
-                while not log_queue.empty():
-                    all_logs.append(log_queue.get())
-                
-                if all_logs:
-                    with st.expander("View Full Training Logs"):
-                        st.code("\n".join(all_logs))
-                
-                # Post-training visualizations
-                if final_result["success"]:
-                    if final_result['type'] == "flaml":
-                        predictor = final_result['predictor']
-                        
-                        st.subheader("🏆 Best Model (FLAML)")
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Best Estimator", predictor.best_estimator)
-                        col2.metric("Best Loss", f"{predictor.best_loss:.4f}")
-                        col3.metric("Best Iteration", predictor.best_iteration)
-                        
-                        with st.expander("⚙️ Best Configuration (Hyperparameters)"):
-                            st.json(predictor.best_config)
-                            
-                        if hasattr(predictor, 'best_config_per_estimator') and predictor.best_config_per_estimator:
-                            with st.expander("📊 Best Configurations per Estimator"):
-                                st.json(predictor.best_config_per_estimator)
-                            
-                        if hasattr(predictor, 'feature_importances_') and predictor.feature_importances_ is not None:
-                            try:
-                                fig, ax = plt.subplots()
-                                importances = predictor.feature_importances_
-                                if hasattr(predictor, 'feature_names_in_'):
-                                    feature_names = predictor.feature_names_in_
-                                else:
-                                    feature_names = df.drop(columns=[target]).columns
-                                
-                                if len(importances) == len(feature_names):
-                                    feat_importances = pd.Series(importances, index=feature_names)
-                                    feat_importances.nlargest(10).plot(kind='barh', ax=ax)
-                                    plt.title("Top 10 Feature Importances (FLAML)")
-                                    st.pyplot(fig)
-                                else:
-                                    st.info(f"Feature importance available, but columns mismatch ({len(importances)} vs {len(feature_names)}).")
-                            except Exception as feat_err:
-                                st.warning(f"Error generating importance chart: {feat_err}")
-                    elif final_result['type'] == "autogluon":
-                        predictor = final_result['predictor']
-                        st.subheader("🏆 AutoGluon Results")
-                        
-                        st.subheader("Final Leaderboard")
-                        leaderboard = predictor.leaderboard(silent=True)
-                        st.dataframe(leaderboard)
-                        
-                        best_model = leaderboard.iloc[0]['model'] if not leaderboard.empty else "Modelo principal"
-                        st.success(f"Best model found: **{best_model}**")
-                        
-                        with st.expander("⚙️ Training Details (AutoGluon Info)"):
-                            try:
-                                info = predictor.info()
-                                st.json(info)
-                            except:
-                                st.write("Detailed info not available for this model.")
-                        
-                        if st.checkbox("Generate Feature Importance (AutoGluon)"):
-                            with st.spinner("Calculating importance (this may take a while)..."):
-                                try:
-                                    fi = predictor.feature_importance(df)
-                                    st.dataframe(fi)
-                                    fig, ax = plt.subplots()
-                                    fi['importance'].nlargest(10).plot(kind='barh', ax=ax)
-                                    plt.title("Feature Importance (AutoGluon)")
-                                    st.pyplot(fig)
-                                except Exception as e:
-                                    st.error(f"Error calculating importance: {e}")
-                    
-                    elif final_result['type'] == "h2o":
-                        automl = final_result['predictor']
-                        st.subheader("🏆 H2O AutoML Results")
-                        
-                        # Verify if H2O is still connected before accessing the model
-                        try:
-                            best_model = automl.leader
-                            if best_model is not None:
-                                st.success(f"Best model found: **{best_model.model_id}**")
-                                
-                                st.subheader("Final Leaderboard")
-                                try:
-                                    leaderboard = automl.leaderboard.as_data_frame()
-                                    st.dataframe(leaderboard)
-                                except Exception as e:
-                                    st.warning(f"Could not display leaderboard: {e}")
-                                    # Fallback to textual representation
-                                    try:
-                                        st.text(str(automl.leaderboard.head(10)))
-                                    except:
-                                        st.info("Leaderboard unavailable (H2O connection closed)")
-                                
-                                with st.expander("⚙️ Best Model Details (H2O)"):
-                                    try:
-                                        model_params = {
-                                            "model_id": best_model.model_id,
-                                            "algo": best_model.algo,
-                                            "model_type": best_model._model_json["output"]["model_category"]
-                                        }
-                                        st.json(model_params)
-                                    except Exception as e:
-                                        st.warning(f"Could not retrieve model details: {e}")
-                            else:
-                                st.warning("⚠️ No models were trained during this execution.")
-                                st.info("This might happen when:")
-                                st.info("• The max runtime is severely constrained for the dataset size")
-                                st.info("• The data format was rejected by the active algorithms")
-                                st.info("• Bad algorithm exclusion constraints")
-                                
-                                # Try showing fallback info
-                                try:
-                                    st.subheader("📊 Training Information")
-                                    st.info(f"• Type: H2O AutoML")
-                                    st.info(f"• Run ID: {final_result['run_id']}")
-                                    st.info(f"• Status: Completed, but without trained models")
-                                    st.info(f"• Recommendation: Increase maximum runtime or decrease data constraints")
-                                except:
-                                    pass
-                        except Exception as e:
-                            st.error(f"⚠️ Could not access H2O model details: {e}")
-                            st.info("This commonly happens when the H2O local cluster terminates after training. Check MLflow UI for saved metrics!")
-                            
-                            # Fallback training info
-                            try:
-                                st.info(f"📊 **Training Information:**")
-                                st.info(f"• Type: H2O AutoML")
-                                st.info(f"• Run ID: {final_result['run_id']}")
-                                st.info(f"• Status: Completed successfully")
-                                st.info(f"• Metrics properly recorded in MLflow")
-                            except:
-                                pass
-                    
-                    elif final_result['type'] == "tpot":
-                        tpot = final_result['predictor']
-                        pipeline = final_result['pipeline']
-                        info = final_result['info']
-                        
-                        st.subheader("🧬 TPOT AutoML Results")
-                        
-                        # General information
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Problem Type", info['problem_type'].title())
-                        col2.metric("Generations", info['generations'])
-                        col3.metric("Population", info['population_size'])
-                        col4.metric("Features", info['n_features'])
-                        
-                        # Metrics
-                        if info['problem_type'] == 'classification':
-                            col1, col2, col3 = st.columns(3)
-                            col1.metric("Accuracy", f"{info.get('accuracy', 0):.4f}")
-                            col2.metric("F1 Macro", f"{info.get('f1_macro', 0):.4f}")
-                            col3.metric("F1 Weighted", f"{info.get('f1_weighted', 0):.4f}")
-                        else:
-                            col1, col2, col3 = st.columns(3)
-                            col1.metric("RMSE", f"{info.get('rmse', 0):.4f}")
-                            col2.metric("R²", f"{info.get('r2', 0):.4f}")
-                            col3.metric("MSE", f"{info.get('mse', 0):.4f}")
-                        
-                        # Optimized pipeline
-                        with st.expander("🧬 Optimized Pipeline"):
-                            st.code(str(tpot.fitted_pipeline_), language="python")
-                        
-                        # Detailed information
-                        with st.expander("📊 Detailed Information"):
-                            st.json(info)
-                        
-                        # Training time
-                        st.info(f"⏱️ **Training Duration:** {info['training_duration']:.2f} seconds")
-                        st.info(f"🎯 **Optimization Metric:** {info['scoring']}")
-
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                st.error(f"Error during training: {e}")
-                with st.expander("View error details (Traceback)"):
-                    st.code(error_details)
-            finally:
-                pass
+            st.success(f"🚀 Experiment **{run_name}** queued! Navigate to the **Experiments** tab to monitor progress.")
+            st.info("You can start another training right away or switch tabs — training runs in the background.")
     else:
         st.warning("Please upload or select Data Lake training sets first.")
+
+elif menu == "Experiments":
+    st.header("🧪 Experiments Dashboard")
+    
+    # Helper for cached MLflow data
+    def get_run_data_cached(run_id):
+        cache_key = f"ml_run_{run_id}"
+        if cache_key not in st.session_state or time.time() - st.session_state[f"{cache_key}_time"] > 30:
+            try:
+                import mlflow
+                data = mlflow.get_run(run_id)
+                st.session_state[cache_key] = data
+                st.session_state[f"{cache_key}_time"] = time.time()
+                return data
+            except Exception:
+                return st.session_state.get(cache_key)
+        return st.session_state.get(cache_key)
+
+    def get_artifacts_cached(run_id):
+        cache_key = f"ml_arts_{run_id}"
+        if cache_key not in st.session_state or time.time() - st.session_state[f"{cache_key}_time"] > 60:
+            try:
+                import mlflow
+                arts = mlflow.MlflowClient().list_artifacts(run_id)
+                st.session_state[cache_key] = arts
+                st.session_state[f"{cache_key}_time"] = time.time()
+                return arts
+            except Exception:
+                return st.session_state.get(cache_key)
+        return st.session_state.get(cache_key)
+
+    # Wrap the entire dashboard in a fragment for non-blocking auto-refresh
+    @st.fragment(run_every="3s")
+    def render_experiment_dashboard():
+        # Refresh all experiment statuses inside the fragment
+        exp_manager.refresh_all()
+        all_exps = exp_manager.get_all()
+
+        if not all_exps:
+            st.info("No experiments launched yet. Go to the **Training** tab to start one.")
+            return
+
+        # Summary Metrics
+        n_running   = sum(1 for e in all_exps if e.status == "running")
+        n_completed = sum(1 for e in all_exps if e.status == "completed")
+        n_failed    = sum(1 for e in all_exps if e.status == "failed")
+        n_cancelled = sum(1 for e in all_exps if e.status == "cancelled")
+
+        s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+        s_col1.metric("🟢 Running",   n_running)
+        s_col2.metric("✅ Completed", n_completed)
+        s_col3.metric("❌ Failed",    n_failed)
+        s_col4.metric("🚫 Cancelled", n_cancelled)
+
+        # Maintenance Section
+        with st.expander("🛠️ Maintenance & Storage Management"):
+            m_col1, m_col2 = st.columns(2)
+            with m_col1:
+                if st.button("🧹 Clear Local Models Folder", use_container_width=True, help="Deletes all folders inside /models. Safe if runs were synced to MLflow."):
+                    try:
+                        import shutil
+                        if os.path.exists("models"):
+                            shutil.rmtree("models")
+                            os.makedirs("models")
+                            st.success("Local models cleared!")
+                        else:
+                            st.info("Models folder is already empty.")
+                    except Exception as me:
+                        st.error(f"Cleanup error: {me}")
+            
+            with m_col2:
+                if st.button("🔥 Reset Local MLflow (mlruns)", use_container_width=True, help="DANGER: Deletes the local mlruns folder. All local experiment history will be lost."):
+                    try:
+                        import shutil
+                        if os.path.exists("mlruns"):
+                            shutil.rmtree("mlruns")
+                            st.success("Local MLflow history reset!")
+                        else:
+                            st.info("mlruns folder not found.")
+                    except Exception as re:
+                        st.error(f"Reset error: {re}")
+            
+            # Disk space check (Simplified)
+            try:
+                import shutil
+                total, used, free = shutil.disk_usage(".")
+                free_gb = free // (2**30)
+                if free_gb < 2:
+                    st.warning(f"⚠️ Low Disk Space: Only {free_gb} GB remaining. Please clear models or mlruns.")
+                else:
+                    st.caption(f"Disk Space: {free_gb} GB free.")
+            except:
+                pass
+
+        st.markdown("---")
+
+        for entry in all_exps:
+            fw   = entry.metadata.get("framework", "Unknown")
+            rname = entry.metadata.get("run_name", entry.key)
+            icon  = entry.status_icon()
+            elapsed = entry.elapsed_str()
+            
+            # Run_id from result (may not be available yet)
+            run_id = None
+            if entry.result and entry.result.get("run_id"):
+                run_id = entry.result["run_id"]
+
+            title = f"{icon} **{rname}** — {fw} — {elapsed}"
+            subtitle = f"[{entry.status.upper()}]"
+            
+            # Show a pulsing heart emoji if it was updated recently to show it's alive
+            if entry.status == "running" and time.time() - getattr(entry, 'last_update', 0) < 5:
+                subtitle += " — 💓 Active Log"
+            
+            with st.expander(f"{title} {subtitle}", expanded=(entry.status == "running")):
+                # --- Action buttons ---
+                act_col1, act_col2, act_col3, act_col4 = st.columns([2, 1, 1, 1])
+
+                with act_col1:
+                    if run_id:
+                        st.code(f"Run ID: {run_id}", language=None)
+                    else:
+                        st.caption(f"Key: {entry.key}")
+
+                with act_col2:
+                    if entry.status == "running":
+                        if st.button("⛔ Cancel", key=f"cancel_{entry.key}"):
+                            exp_manager.cancel(entry.key)
+                            st.rerun()
+
+                with act_col3:
+                    if entry.status in ("completed", "cancelled", "failed"):
+                        if st.button("🗑️ Delete", key=f"delete_{entry.key}"):
+                            exp_manager.delete(entry.key)
+                            st.rerun()
+
+                with act_col4:
+                    if entry.status == "completed" and entry.result and entry.result.get("predictor"):
+                        if st.button("🔮 Load to Predict", key=f"load_{entry.key}"):
+                            st.session_state['predictor']  = entry.result["predictor"]
+                            st.session_state['model_type'] = entry.result.get("type", "unknown")
+                            st.session_state['run_id']     = entry.result.get("run_id")
+                            st.success("Model loaded! Switch to the Prediction tab.")
+
+                # --- Tabs inside the card ---
+                tab_logs, tab_metrics, tab_mlflow, tab_code = st.tabs([
+                    "📋 Logs", "📈 Metrics", "🔍 MLflow Details", "💻 Consumption Code"
+                ])
+
+                with tab_logs:
+                    log_text = "\n".join(entry.all_logs[-60:]) if entry.all_logs else "(No logs yet)"
+                    st.code(log_text, language=None)
+
+                with tab_metrics:
+                    if entry.status == "completed" and run_id:
+                        try:
+                            run_data = get_run_data_cached(run_id)
+                            if run_data:
+                                metrics = run_data.data.metrics
+                                if metrics:
+                                    st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in metrics.items()]))
+                                    import matplotlib.pyplot as _plt
+                                    fig, ax = _plt.subplots(figsize=(8, max(2, len(metrics) * 0.4)))
+                                    ax.barh(list(metrics.keys()), list(metrics.values()))
+                                    ax.set_title("Metrics")
+                                    st.pyplot(fig)
+                                    _plt.close(fig)
+                                else:
+                                    st.info("No metrics logged to MLflow yet.")
+                            else:
+                                st.info("Run data from MLflow is spinning up...")
+                        except Exception as me:
+                            st.warning(f"Could not load metrics: {me}")
+                    elif entry.status == "running":
+                        st.info("Training in progress — metrics will appear here.")
+                    else:
+                        st.info("No metrics available.")
+
+                with tab_mlflow:
+                    if run_id:
+                        try:
+                            run_data = get_run_data_cached(run_id)
+                            if run_data:
+                                st.subheader("⚙️ Parameters")
+                                if run_data.data.params:
+                                    st.dataframe(pd.DataFrame([{"Parameter": k, "Value": v} for k, v in run_data.data.params.items()]))
+                                
+                                st.subheader("📊 Metrics")
+                                if run_data.data.metrics:
+                                    st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in run_data.data.metrics.items()]))
+
+                                st.subheader("📦 Artifacts")
+                                try:
+                                    artifacts = get_artifacts_cached(run_id)
+                                    if artifacts:
+                                        for art in artifacts:
+                                            st.write(f"• `{art.path}` ({art.file_size or 'dir'} bytes)")
+                                    else:
+                                        st.info("No artifacts logged yet.")
+                                except Exception as ae:
+                                    st.warning(f"Could not list artifacts: {ae}")
+                            else:
+                                st.info("MLflow data is being fetched...")
+                        except Exception as re:
+                            st.warning(f"Could not load MLflow details: {re}")
+                    else:
+                        st.info("MLflow Run ID not available yet.")
+
+                with tab_code:
+                    if run_id:
+                        try:
+                            from src.code_gen_utils import generate_consumption_code, generate_api_deployment
+                            fw_key = entry.metadata.get("framework_key", "unknown")
+                            target_col = entry.metadata.get("target", "target")
+                            code_snippet = generate_consumption_code(fw_key, run_id, target_col)
+                            st.code(code_snippet, language="python")
+                            
+                            st.markdown("---")
+                            deploy_dir = f"deploy_{entry.key}"
+                            if st.button(f"🚀 Generate FastAPI Deployment", key=f"deploy_{entry.key}"):
+                                generate_api_deployment(fw_key, run_id, target_col, output_dir=deploy_dir)
+                                st.success(f"✅ Deployment package at `{deploy_dir}/`")
+                        except Exception as ce:
+                            st.warning(f"Could not generate code: {ce}")
+                    else:
+                        st.info("Consumption code will appear here after training completes.")
+
+                # Framework Results
+                if entry.status == "completed" and entry.result and entry.result.get("success"):
+                    st.markdown("---")
+                    st.subheader("🏆 Training Results")
+                    fw_type = entry.result.get("type", "")
+                    predictor = entry.result.get("predictor")
+
+                    if fw_type == "autogluon" and predictor:
+                        try:
+                            lb = predictor.leaderboard(silent=True)
+                            st.dataframe(lb)
+                        except Exception as e:
+                            st.warning(f"Results error: {e}")
+                    elif fw_type == "flaml" and predictor:
+                        st.metric("Best Estimator", predictor.best_estimator)
+                        st.json(predictor.best_config)
+                    elif fw_type == "h2o" and predictor:
+                        if predictor.leader:
+                            st.success(f"Best model: **{predictor.leader.model_id}**")
+                            st.dataframe(predictor.leaderboard.as_data_frame())
+
+                elif entry.status == "failed":
+                    st.error(f"❌ Training failed: {entry.result.get('error', 'Unknown error') if entry.result else 'Unknown error'}")
+
+    # Invoke the fragment
+    render_experiment_dashboard()
+
 
 elif menu == "Prediction":
     st.header("🔮 Prediction")

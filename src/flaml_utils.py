@@ -1,4 +1,5 @@
 import os
+import threading
 import pandas as pd
 import mlflow
 import shutil
@@ -12,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, 
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
-                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto', estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0):
+                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
+                      estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
+                      stop_event=None):
     """
     Trains a FLAML model and logs results to MLflow.
     """
@@ -25,7 +28,14 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
     flaml_logger = logging.getLogger('flaml')
     flaml_logger.setLevel(logging.INFO)
     
-    with mlflow.start_run(run_name=run_name) as run:
+    # Ensure no leaked runs in this thread
+    try:
+        if mlflow.active_run():
+            mlflow.end_run()
+    except:
+        pass
+
+    with mlflow.start_run(run_name=run_name, nested=True) as run:
         # Data cleaning: drop rows where target is NaN
         train_data = train_data.dropna(subset=[target])
         logging.info(f"Data ready: {len(train_data)} rows.")
@@ -80,6 +90,18 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             settings["X_val"] = X_val
             settings["y_val"] = y_val
         
+        # Start a watcher thread to respect stop_event
+        _cancel_watcher = None
+        if stop_event is not None:
+            def _watch():
+                stop_event.wait()
+                try:
+                    automl._state.time_budget = 0  # Signal FLAML to stop
+                except Exception:
+                    pass
+            _cancel_watcher = threading.Thread(target=_watch, daemon=True)
+            _cancel_watcher.start()
+
         # Train model
         logging.info("Executing hyperparameter search (automl.fit)...")
         try:
@@ -89,6 +111,9 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             logging.info("Search interrupted (time limit reached).")
             if not hasattr(automl, 'best_estimator') or automl.best_estimator is None:
                 raise RuntimeError("FLAML stopped without finding a valid model.")
+        
+        if stop_event and stop_event.is_set():
+            raise StopIteration("Training cancelled by user")
         
         # Log metrics
         if hasattr(automl, 'best_loss'):

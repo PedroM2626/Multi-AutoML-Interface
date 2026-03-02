@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
-                time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0):
+                time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0,
+                stop_event=None):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
     """
@@ -17,7 +18,14 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
     
     safe_set_experiment("AutoGluon_Experiments")
     
-    with mlflow.start_run(run_name=run_name) as run:
+    # Ensure no leaked runs in this thread
+    try:
+        if mlflow.active_run():
+            mlflow.end_run()
+    except:
+        pass
+
+    with mlflow.start_run(run_name=run_name, nested=True) as run:
         # Data cleaning: drop rows where target is NaN
         train_data = train_data.dropna(subset=[target])
         
@@ -58,7 +66,10 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             
         predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
         
-        # Log metrics (leaderboard)
+        # Check if cancelled before continuing
+        if stop_event and stop_event.is_set():
+            raise StopIteration("Training cancelled by user")
+        
         # If test_data is provided, leaderboard and scoring will strictly use it,
         # otherwise fallback to training data
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
@@ -70,14 +81,30 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         # Save leaderboard as artifact
         leaderboard_path = "leaderboard.csv"
         leaderboard.to_csv(leaderboard_path, index=False)
-        mlflow.log_artifact(leaderboard_path)
-        if os.path.exists(leaderboard_path):
-            os.remove(leaderboard_path)
+        try:
+            mlflow.log_artifact(leaderboard_path)
+        except Exception as e:
+            logger.warning(f"Failed to log leaderboard artifact: {e}")
+        finally:
+            if os.path.exists(leaderboard_path):
+                os.remove(leaderboard_path)
         
         # Log AutoGluon model directory as a generic artifact
-        # This avoids all ModuleNotFoundError issues with mlflow.autogluon
-        mlflow.log_artifacts(model_path, artifact_path="model")
-        mlflow.log_param("model_type", "autogluon")
+        # We use a try-except here because disk space issues frequently occur during artifact copy
+        try:
+            mlflow.log_artifacts(model_path, artifact_path="model")
+            mlflow.log_param("model_type", "autogluon")
+            logger.info(f"AutoGluon artifacts logged successfully for {run_name}")
+            
+            # CRITICAL: Delete local model folder after successful MLflow logging to save disk space
+            # Only do this if it was logged successfully to the tracking server/local mlruns
+            if os.path.exists(model_path):
+                shutil.rmtree(model_path)
+                logger.info(f"Cleaned up local model folder: {model_path}")
+        except Exception as e:
+            logger.error(f"Failed to log model artifacts to MLflow (likely disk space): {e}")
+            # Do NOT delete model_path here so the user can potentially recover it manually
+            # if the MLflow log failed.
         
         # Generate and log consumption code sample
         try:

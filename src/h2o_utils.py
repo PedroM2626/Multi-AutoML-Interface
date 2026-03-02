@@ -111,7 +111,8 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                    valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                    max_runtime_secs: int = 300, max_models: int = 10, 
                    nfolds: int = 3, balance_classes: bool = True, seed: int = 42,
-                   sort_metric: str = "AUTO", exclude_algos: list = None):
+                   sort_metric: str = "AUTO", exclude_algos: list = None,
+                   stop_event=None):
     """
     Trains H2O AutoML model and registers in MLflow
     """
@@ -125,7 +126,14 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
     h2o_instance = initialize_h2o()
     
     try:
-        with mlflow.start_run(run_name=run_name) as run:
+        # Ensure no leaked runs in this thread
+        try:
+            if mlflow.active_run():
+                mlflow.end_run()
+        except:
+            pass
+
+        with mlflow.start_run(run_name=run_name, nested=True) as run:
             # Prepare data
             h2o_frame, clean_data = prepare_data_for_h2o(train_data, target)
             
@@ -158,6 +166,23 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 sort_metric=sort_metric,
                 exclude_algos=exclude_algos or []
             )
+
+            # Watcher thread for graceful cancellation
+            import threading
+            _cancel_watcher = None
+            if stop_event is not None:
+                def _h2o_watch():
+                    stop_event.wait()
+                    try:
+                        import h2o as _h2o
+                        jobs = _h2o.cluster().jobs()
+                        for job in jobs:
+                            if job.status == 'RUNNING':
+                                job.cancel()
+                    except Exception:
+                        pass
+                _cancel_watcher = threading.Thread(target=_h2o_watch, daemon=True)
+                _cancel_watcher.start()
             
             # Prepare test and validation data if present
             h2o_valid = None

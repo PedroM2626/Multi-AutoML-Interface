@@ -165,7 +165,8 @@ def train_tpot_model(df, target_column, run_name,
                      generations=5, population_size=20, cv=5, 
                      scoring=None, max_time_mins=30, max_eval_time_mins=5, random_state=42, 
                      verbosity=2, n_jobs=-1, config_dict='TPOT sparse',
-                     tfidf_max_features=500, tfidf_ngram_range=(1, 2)):
+                     tfidf_max_features=500, tfidf_ngram_range=(1, 2),
+                     stop_event=None):
     """
     Train TPOT model with MLflow tracking
     """
@@ -232,10 +233,13 @@ def train_tpot_model(df, target_column, run_name,
                 scoring = 'neg_mean_squared_error'
         
         # Ensure there are no loose active runs that could cause errors on start
-        while mlflow.active_run():
-            mlflow.end_run()
+        try:
+            while mlflow.active_run():
+                mlflow.end_run()
+        except:
+            pass
             
-        with mlflow.start_run(run_name=run_name) as run:
+        with mlflow.start_run(run_name=run_name, nested=True) as run:
             logger.info(f"Starting TPOT training for run: {run_name}")
             
             # Choose TPOT class based on problem type
