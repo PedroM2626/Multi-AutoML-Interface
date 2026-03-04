@@ -58,6 +58,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             valid_data = valid_data.dropna(subset=[target])
             X_val = valid_data.drop(columns=[target])
             y_val = valid_data[target]
+
             mlflow.log_param("has_validation_data", True)
             
         if test_data is not None:
@@ -72,7 +73,6 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
         # The 'No low-cost partial config given' message is just an INFO warning from FLAML.
 
         settings = {
-            "time_budget": time_budget,
             "metric": metric,
             "task": task,
             "estimator_list": estimator_list,
@@ -81,6 +81,8 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             "n_jobs": 1,
             "verbose": 0, # Reduce internal verbosity to avoid pollution, progress goes to flaml.log
         }
+        if time_budget is not None:
+            settings["time_budget"] = time_budget
         
         if cv_folds > 0:
             settings["eval_method"] = "cv"

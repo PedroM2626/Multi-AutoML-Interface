@@ -30,3 +30,7 @@ models/
 *pytest*
 *dvc*
 *.txt*
+
+*out*
+*.tsv
+*.json
