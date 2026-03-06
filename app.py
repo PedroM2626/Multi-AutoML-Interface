@@ -1546,7 +1546,7 @@ elif menu == "Prediction":
     
     if load_option == "Load from MLflow runs":
         col1, col2 = st.columns(2)
-        m_type = col1.selectbox("Model Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
+        m_type = col1.selectbox("Model Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"])
         run_id_input = col2.text_input("Run ID")
         
         if st.button("Load Model"):
@@ -1567,6 +1567,33 @@ elif menu == "Prediction":
                     from src.tpot_utils import load_tpot_model
                     st.session_state['predictor'] = load_tpot_model(run_id_input)
                     st.session_state['model_type'] = "tpot"
+                elif m_type == "PyCaret":
+                    import mlflow, joblib, os
+                    from pycaret.classification import load_model as _pc_load
+                    local_path = mlflow.artifacts.download_artifacts(run_id=run_id_input, artifact_path="model")
+                    mpath = None
+                    for root, _, files in os.walk(local_path):
+                        for f in files:
+                            if f.endswith(".pkl"):
+                                mpath = os.path.join(root, f).replace(".pkl", "")
+                                break
+                    if mpath is None:
+                        raise FileNotFoundError("PyCaret .pkl not found.")
+                    st.session_state['predictor'] = _pc_load(mpath)
+                    st.session_state['model_type'] = "pycaret"
+                elif m_type == "Lale":
+                    import mlflow, joblib, os
+                    local_path = mlflow.artifacts.download_artifacts(run_id=run_id_input, artifact_path="model")
+                    bundle = None
+                    for root, _, files in os.walk(local_path):
+                        for f in files:
+                            if f.endswith(".pkl"):
+                                bundle = joblib.load(os.path.join(root, f))
+                                break
+                    if bundle is None:
+                        raise FileNotFoundError("Lale .pkl not found.")
+                    st.session_state['predictor'] = bundle
+                    st.session_state['model_type'] = "lale"
                 
                 st.session_state['run_id'] = run_id_input
                 st.success("Model loaded successfully!")
@@ -1590,6 +1617,10 @@ elif menu == "Prediction":
         
         input_mode = st.radio("Input Mode", ["File Upload", "Manual Input"], horizontal=True)
         
+        # execute_pred and predict_df must always be defined to avoid NameError
+        execute_pred = False
+        predict_df = None
+
         if input_mode == "File Upload":
             predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
             if predict_file is not None:
@@ -1624,30 +1655,48 @@ elif menu == "Prediction":
                 
                 predict_df = pd.DataFrame([manual_data])
                 execute_pred = st.button("Confirm Manual Prediction")
-            else:
-                execute_pred = False
+            # (else: no features — execute_pred stays False)
 
-        if execute_pred:
+        if execute_pred and predict_df is not None:
                 try:
-                    # Validate predictor payload
                     if predictor is None:
                         st.error("No model is loaded. Please train or load a model first.")
                         st.stop()
-                    
+
                     if m_type == "autogluon":
                         predictions = predictor.predict(predict_df)
                     elif m_type == "h2o":
                         from src.h2o_utils import predict_with_h2o
                         predictions = predict_with_h2o(predictor, predict_df)
-                    else: # flaml
+                    elif m_type == "pycaret":
+                        from pycaret.classification import predict_model as _pc_pred
+                        preds_df = _pc_pred(predictor, data=predict_df)
+                        label_col = "prediction_label" if "prediction_label" in preds_df.columns else preds_df.columns[-1]
+                        predictions = preds_df[label_col]
+                    elif m_type == "lale":
+                        import joblib, numpy as np
+                        # predictor is a bundle dict: {model, col_encoders, y_encoder}
+                        if isinstance(predictor, dict):
+                            _model = predictor["model"]
+                            _col_enc = predictor.get("col_encoders", {})
+                            _y_enc   = predictor.get("y_encoder", None)
+                        else:
+                            _model, _col_enc, _y_enc = predictor, {}, None
+                        _df = predict_df.copy()
+                        for col, enc in _col_enc.items():
+                            if col in _df.columns:
+                                _df[col] = enc.transform(_df[[col]]).ravel()
+                        raw = _model.predict(_df.values)
+                        predictions = _y_enc.inverse_transform(raw) if _y_enc else raw
+                    else:  # flaml / tpot
                         predictions = predictor.predict(predict_df)
-                    
+
                     result_df = predict_df.copy()
                     result_df['Predictions'] = predictions
-                    
+
                     st.success("Predictions concluded!")
                     st.dataframe(result_df)
-                    
+
                     csv = result_df.to_csv(index=False).encode('utf-8')
                     st.download_button("Download predictions CSV", csv, "predictions.csv", "text/csv")
                 except Exception as e:
