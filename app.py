@@ -1615,13 +1615,13 @@ elif menu == "Prediction":
             except Exception as e:
                 st.warning(f"Could not generate code sample: {e}")
         
-        input_mode = st.radio("Input Mode", ["File Upload", "Manual Input"], horizontal=True)
+        input_mode = st.radio("Input Mode", ["Batch Prediction (CSV/Excel)", "Real-time Prediction (Manual Entry)"], horizontal=True)
         
         # execute_pred and predict_df must always be defined to avoid NameError
         execute_pred = False
         predict_df = None
 
-        if input_mode == "File Upload":
+        if input_mode == "Batch Prediction (CSV/Excel)":
             predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
             if predict_file is not None:
                 from src.data_utils import load_data
@@ -1663,14 +1663,21 @@ elif menu == "Prediction":
                         st.error("No model is loaded. Please train or load a model first.")
                         st.stop()
 
+                    # Always drop the target column if the user uploaded it
+                    target_col = st.session_state.get('target', None)
+                    if target_col and target_col in predict_df.columns:
+                        pred_input_df = predict_df.drop(columns=[target_col])
+                    else:
+                        pred_input_df = predict_df.copy()
+
                     if m_type == "autogluon":
-                        predictions = predictor.predict(predict_df)
+                        predictions = predictor.predict(pred_input_df)
                     elif m_type == "h2o":
                         from src.h2o_utils import predict_with_h2o
-                        predictions = predict_with_h2o(predictor, predict_df)
+                        predictions = predict_with_h2o(predictor, pred_input_df)
                     elif m_type == "pycaret":
                         from pycaret.classification import predict_model as _pc_pred
-                        preds_df = _pc_pred(predictor, data=predict_df)
+                        preds_df = _pc_pred(predictor, data=pred_input_df)
                         label_col = "prediction_label" if "prediction_label" in preds_df.columns else preds_df.columns[-1]
                         predictions = preds_df[label_col]
                     elif m_type == "lale":
@@ -1682,7 +1689,7 @@ elif menu == "Prediction":
                             _y_enc   = predictor.get("y_encoder", None)
                         else:
                             _model, _col_enc, _y_enc = predictor, {}, None
-                        _df = predict_df.copy()
+                        _df = pred_input_df.copy()
                         # Ensure only features that were present during training are used
                         # and apply encoders
                         for col, enc in _col_enc.items():
@@ -1702,9 +1709,41 @@ elif menu == "Prediction":
                         raw = _model.predict(_df.values)
                         predictions = _y_enc.inverse_transform(raw) if _y_enc else raw
                     else:  # flaml / tpot
-                        predictions = predictor.predict(predict_df)
+                        predictions = predictor.predict(pred_input_df)
+                    
+                    # --- POST-PROCESSING: Decode numeric IDs to class names ---
+                    try:
+                        target_session = st.session_state.get('target', None)
+                        if target_session and 'df' in st.session_state and st.session_state['df'] is not None:
+                            train_df_ref = st.session_state['df']
+                            if target_session in train_df_ref.columns:
+                                trg_series = train_df_ref[target_session]
+                                if trg_series.dtype == object or str(trg_series.dtype) == 'category':
+                                    pred_s = pd.Series(predictions)
+                                    # If the model output numeric IDs but target was string:
+                                    if pd.api.types.is_numeric_dtype(pred_s):
+                                        from sklearn.preprocessing import LabelEncoder
+                                        le = LabelEncoder()
+                                        le.fit(trg_series.astype(str))
+                                        
+                                        decoded = []
+                                        for p in pred_s:
+                                            try:
+                                                idx = int(p)
+                                                if 0 <= idx < len(le.classes_):
+                                                    decoded.append(le.inverse_transform([idx])[0])
+                                                else:
+                                                    decoded.append(p)
+                                            except:
+                                                decoded.append(p)
+                                        predictions = decoded
+                    except Exception as dec_err:
+                        # Non-fatal decoding error
+                        import logging
+                        logging.warning(f"Could not decode class names: {dec_err}")
+                    # ----------------------------------------------------------
 
-                    result_df = predict_df.copy()
+                    result_df = pred_input_df.copy()
                     result_df['Predictions'] = predictions
 
                     st.success("Predictions concluded!")
