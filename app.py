@@ -866,8 +866,8 @@ elif menu == "Training":
         
         task_fw_map = {
             "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-            "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"],
-            "Time Series Forecasting": ["AutoGluon", "FLAML"],
+            "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+            "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
             "Ranking": ["FLAML"]
         }
         available_frameworks = task_fw_map.get(task_type, ["FLAML"])
@@ -1083,12 +1083,21 @@ elif menu == "Training":
                 
                 scoring = st.selectbox("Optimization Metric", scoring_options, help="Metric used to optimize the pipelines")
         elif framework == "PyCaret":
-            st.info("⚙️ PyCaret automates complex end-to-end classification pipelines.")
+            st.info("⚙️ PyCaret automates complex end-to-end pipelines.")
             use_time_limit = st.checkbox("Enable Tuning Iterator Limit", value=True, help="Limits tuning iterations based on a pseudo-time limiter.")
             if use_time_limit:
                  time_limit = st.slider("Time limit equivalent (seconds) - impacts n_iter", 60, 1200, 300)
             else:
                  time_limit = None
+                 
+            fh = 1
+            seasonal_period = 1
+            if task_type == "Time Series Forecasting":
+                 st.markdown("#### 📈 Time Series Configuration")
+                 fh = st.number_input("Forecasting Horizon (fh)", min_value=1, value=12, help="Number of steps into the future to predict")
+                 seasonal_period = st.number_input("Seasonal Period", min_value=1, value=12, help="Seasonal frequency (e.g., 12 for monthly data, 7 for daily)")
+                 st.session_state['pycaret_fh'] = fh
+                 st.session_state['pycaret_sp'] = seasonal_period
         elif framework == "Lale":
             st.info("🌳 Lale extends scikit-learn with Hyperopt topology optimizations.")
             use_time_limit = st.checkbox("Enable Tune Limit", value=True, help="Max evals limitation during optimization")
@@ -1132,15 +1141,21 @@ elif menu == "Training":
             elif framework == "PyCaret":
                 from src.pycaret_utils import run_pycaret_experiment
                 _fn = run_pycaret_experiment
+                
+                # Fetch TS params if applicable
+                _fh = st.session_state.get('pycaret_fh', 12) if task_type == 'Time Series Forecasting' else None
+                _sp = st.session_state.get('pycaret_sp', 12) if task_type == 'Time Series Forecasting' else None
+                
                 _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
                                val_df=valid_df, time_limit=time_limit,
+                               task_type=task_type, fh=_fh, seasonal_period=_sp,
                                log_queue=None)  # patched below after _entry creation
                 _fw_key = "pycaret"
             elif framework == "Lale":
                 from src.lale_utils import run_lale_experiment
                 _fn = run_lale_experiment
                 _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
-                               val_df=valid_df, time_limit=time_limit,
+                               val_df=valid_df, time_limit=time_limit, task_type=task_type,
                                log_queue=None)  # patched below after _entry creation
                 _fw_key = "lale"
             else:  # TPOT

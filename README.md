@@ -17,6 +17,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **Integrated MLOps** with complete tracking via MLflow
 - **Unified interface** for training, evaluation, and prediction
 - **Flexible deployment** (web, Docker, desktop)
+- **Support for Multiple ML Tasks**: Classification, Regression, and Time Series Forecasting.
 - **Detailed metrics and logging**
 
 ---
@@ -41,6 +42,8 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **🚀 One-Click API Deployment**: Generate a complete FastAPI + Docker package for any model in seconds.
 - **Storage Management**: Automatically cleans up local model files after MLflow sync.
 - **Advanced Prediction**: Batch processing via file upload or **Manual Entry Form**.
+- **Unified ML Task Selector**: Choose between Classification, Regression, and Time Series Forecasting.
+- **Dynamic Framework Filtering**: View only the AutoML engines that support your selected task.
 
 ### 🖥️ **Multi-Deploy:**
 - **Web interface** (Streamlit)
@@ -146,9 +149,9 @@ docker-compose up
 - **Automatic Data Lake**: When processing data, it is copied to the `data_lake/` folder and versioned via DVC, generating hashes for version control.
 
 #### **2. Experiment Configuration:**
-- **Framework**: AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale
-- **Target variable**: Target column
-- **Advanced parameters**: seed, time limits, folds, max textual features (TF-IDF), CV, etc.
+- **Task Type**: Classification, Regression, or Time Series Forecasting (supported by specific frameworks).
+- **Framework**: AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale (filtered by task).
+- **Advanced parameters**: seed, time limits, folds, max textual features (TF-IDF), CV, forecasting horizon (TS), etc.
 
 #### **3. Training & Monitoring:**
 - **Experiments Tab**: All training runs appear in a dedicated dashboard.
@@ -230,6 +233,8 @@ docker-compose up
 ```python
 {
     'time_limit': 1200, # mapped to PyCaret n_iter tuning budget
+    'task_type': 'Classification' | 'Regression' | 'Time Series Forecasting',
+    'fh': 12, # Forecasting Horizon (Time Series only)
 }
 ```
 
@@ -237,6 +242,7 @@ docker-compose up
 ```python
 {
     'time_limit': 1200, # mapped to Hyperopt max_evals bounds
+    'task_type': 'Classification' | 'Regression',
 }
 ```
 
@@ -460,11 +466,9 @@ Multi-AutoML-Interface/
 │   ├── 📄 preload.js          # Security bridge
 │   ├── 📄 renderer.js         # UI enhancements
 │   └── 📁 assets/             # Icons and resources
-├── 📄 app.py                  # Streamlit main app
-├── 📄 requirements.txt        # Python dependencies
-├── 📄 package.json            # Node.js dependencies
 ├── 🐳 Dockerfile              # Docker configuration
 ├── 🐳 docker-compose.yml      # Multi-service setup
+├── 📄 requirements.txt        # Python dependencies
 └── 📄 README.md               # This file
 ```
 

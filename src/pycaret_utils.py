@@ -9,7 +9,6 @@ from typing import Dict, Any, Optional
 import mlflow
 
 from src.mlflow_utils import safe_set_experiment
-from pycaret.classification import setup, compare_models, pull, tune_model, blend_models, save_model
 
 
 def run_pycaret_experiment(
@@ -19,15 +18,31 @@ def run_pycaret_experiment(
     time_limit: Optional[int],
     log_queue: queue.Queue,
     stop_event=None,
-    val_df: Optional[pd.DataFrame] = None
+    val_df: Optional[pd.DataFrame] = None,
+    task_type: str = "Classification",
+    **kwargs
 ) -> Dict[str, Any]:
     """
-    Run PyCaret experiment for classification.
-    PyCaret manages its own MLflow internally; we wrap it and pull the run ID after.
+    Run PyCaret experiment.
+    Dynamically loads classification, regression, or time_series depending on task_type.
     """
     logger = logging.getLogger("pycaret")
-    logger.info(f"Starting PyCaret experiment: {run_name}")
+    logger.info(f"Starting PyCaret experiment: {run_name} (Task: {task_type})")
     logger.info(f"Dataset shape: {train_df.shape}, Target: {target_col}")
+
+    # Dynamic imports based on task_type
+    if task_type == "Regression":
+        from pycaret.regression import setup, compare_models, pull, tune_model, blend_models, save_model
+        sort_metric = "R2"
+        include_models = ["lr", "rf", "et", "lightgbm"]
+    elif task_type == "Time Series Forecasting":
+        from pycaret.time_series import setup, compare_models, pull, tune_model, blend_models, save_model
+        sort_metric = "MASE"
+        include_models = ["naive", "snaive", "arima", "ets"]
+    else:
+        from pycaret.classification import setup, compare_models, pull, tune_model, blend_models, save_model
+        sort_metric = "F1"
+        include_models = ["lr", "nb", "rf", "et", "lightgbm"]
 
     # Always end any dangling MLflow run to avoid conflicts
     try:
@@ -43,25 +58,30 @@ def run_pycaret_experiment(
 
     try:
         # 2. PyCaret Setup
-        # We let PyCaret use log_experiment=False and handle MLflow ourselves
-        # to avoid the "Run already active" conflict.
         logger.info("Step: Setting up PyCaret environment...")
+        
+        setup_kwargs = {
+            "data": train_df,
+            "target": target_col,
+            "session_id": 42,
+            "verbose": False,
+            "fold": 3,
+            "log_experiment": False,
+            "system_log": False,
+            "n_jobs": 1
+        }
+        
+        if task_type == "Time Series Forecasting":
+            setup_kwargs["fh"] = kwargs.get("fh", 12)
+            setup_kwargs["seasonal_period"] = kwargs.get("seasonal_period", 12)
+        else:
+            setup_kwargs["test_data"] = val_df
+            setup_kwargs["normalize"] = True
+            setup_kwargs["index"] = False
+            setup_kwargs["feature_selection"] = False
+            setup_kwargs["memory"] = False
 
-        clf_setup = setup(
-            data=train_df,
-            target=target_col,
-            test_data=val_df,
-            session_id=42,
-            verbose=False,
-            fold=3,
-            normalize=True,
-            index=False,
-            feature_selection=False,
-            log_experiment=False,   # disable PyCaret's internal mlflow to avoid conflicts
-            system_log=False,
-            memory=False,
-            n_jobs=1
-        )
+        clf_setup = setup(**setup_kwargs)
 
         if stop_event and stop_event.is_set():
             raise StopIteration("Experiment cancelled after setup.")
@@ -72,16 +92,16 @@ def run_pycaret_experiment(
             logger.info(f"MLflow Run ID: {run_id}")
             mlflow.log_param("framework", "pycaret")
             mlflow.log_param("model_type", "pycaret")
+            mlflow.log_param("task_type", task_type)
 
             # 4. Model Comparison
             logger.info("Step: Comparing models...")
-            include_models = ["lr", "nb", "rf", "et", "lightgbm"]
             n_select = 3
-            logger.info(f"Including models: {include_models}")
+            logger.info(f"Including models: {include_models} (Sorting by {sort_metric})")
 
             best_models = compare_models(
                 n_select=n_select,
-                sort="F1",
+                sort=sort_metric,
                 verbose=False,
                 include=include_models
             )
@@ -100,18 +120,23 @@ def run_pycaret_experiment(
 
             best_model = best_models[0]
 
-            # 5. Tuning
+            # 5. Tuning (Time Series tuning might require different params, keeping generic)
             logger.info("Step: Tuning best model...")
             n_iter = 10 if time_limit is None or time_limit >= 300 else 5
-            tuned_model = tune_model(
-                best_model,
-                optimize="F1",
-                n_iter=n_iter,
-                search_library="scikit-learn",
-                search_algorithm="random",
-                verbose=False,
-                choose_better=True
-            )
+            
+            # search_library="scikit-learn" shouldn't be passed to pycaret.time_series
+            tune_kwargs = {
+                "estimator": best_model,
+                "optimize": sort_metric,
+                "n_iter": n_iter,
+                "verbose": False,
+                "choose_better": True
+            }
+            if task_type != "Time Series Forecasting":
+                tune_kwargs["search_library"] = "scikit-learn"
+                tune_kwargs["search_algorithm"] = "random"
+
+            tuned_model = tune_model(**tune_kwargs)
 
             if stop_event and stop_event.is_set():
                 raise StopIteration("Experiment cancelled after tuning.")
@@ -121,7 +146,7 @@ def run_pycaret_experiment(
                 logger.info("Step: Blending top models...")
                 final_model = blend_models(
                     estimator_list=best_models,
-                    optimize="F1",
+                    optimize=sort_metric,
                     verbose=False
                 )
             else:
@@ -173,3 +198,4 @@ def run_pycaret_experiment(
             mlflow.end_run()
         except Exception:
             pass
+

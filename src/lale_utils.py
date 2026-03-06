@@ -20,7 +20,7 @@ from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 from src.mlflow_utils import safe_set_experiment
 
 
-def _preprocess_for_lale(X: pd.DataFrame, y: pd.Series):
+def _preprocess_for_lale(X: pd.DataFrame, y: pd.Series, task_type: str = "Classification"):
     """
     Encode non-numeric features so that sklearn estimators can handle them.
     Returns (X_encoded, y_encoded, encoders) where encoders can be used for inverse transforms.
@@ -40,11 +40,12 @@ def _preprocess_for_lale(X: pd.DataFrame, y: pd.Series):
         if X[col].isna().any():
             X[col] = X[col].fillna(X[col].median() if pd.api.types.is_numeric_dtype(X[col]) else 0)
 
-    # Encode target if string
+    # Encode target if classification (Regression target should remain continuous)
     y_encoder = None
-    if y.dtype == object or str(y.dtype) == 'category':
-        y_encoder = LabelEncoder()
-        y = pd.Series(y_encoder.fit_transform(y), name=y.name)
+    if task_type != "Regression":
+        if y.dtype == object or str(y.dtype) == 'category':
+            y_encoder = LabelEncoder()
+            y = pd.Series(y_encoder.fit_transform(y), name=y.name)
 
     return X, y, col_encoders, y_encoder
 
@@ -56,14 +57,16 @@ def run_lale_experiment(
     time_limit: Optional[int],
     log_queue: queue.Queue,
     stop_event=None,
-    val_df: Optional[pd.DataFrame] = None
+    val_df: Optional[pd.DataFrame] = None,
+    task_type: str = "Classification",
+    **kwargs
 ) -> Dict[str, Any]:
     """
-    Run Lale experiment using scikit-learn compatible classification via Hyperopt.
+    Run Lale experiment using scikit-learn compatible pipelines via Hyperopt.
     Handles text/categorical features with automatic encoding.
     """
     logger = logging.getLogger("lale")
-    logger.info(f"Starting Lale experiment: {run_name}")
+    logger.info(f"Starting Lale experiment: {run_name} (Task: {task_type})")
     logger.info(f"Dataset shape: {train_df.shape}, Target: {target_col}")
 
     # Drop NaNs on target
@@ -73,8 +76,12 @@ def run_lale_experiment(
 
     # Pre-process: encode categoricals/text for sklearn compatibility
     logger.info("Step: Encoding categorical/text features...")
-    X, y, col_encoders, y_encoder = _preprocess_for_lale(X_raw, y_raw)
-    logger.info(f"Features after encoding: {list(X.columns)} | Classes: {y.unique()[:5].tolist()}")
+    X, y, col_encoders, y_encoder = _preprocess_for_lale(X_raw, y_raw, task_type)
+    
+    unique_classes_log = ""
+    if task_type != "Regression":
+       unique_classes_log = f" | Classes: {y.unique()[:5].tolist()}"
+    logger.info(f"Features after encoding: {list(X.columns)}{unique_classes_log}")
 
     # Validate MLflow tracking
     safe_set_experiment("Multi_AutoML_Project")
@@ -95,13 +102,24 @@ def run_lale_experiment(
             mlflow.log_param("model_type", "lale")
             mlflow.log_param("n_features", X.shape[1])
             mlflow.log_param("n_samples", X.shape[0])
+            mlflow.log_param("task_type", task_type)
 
             # 1. Pipeline Definition (only numeric-friendly preprocessors)
             logger.info("Step: Defining Lale Planned Pipeline...")
-            planned_pipeline = (
-                (MinMaxScaler | PCA) >>
-                (LogisticRegression | RandomForestClassifier)
-            )
+            
+            if task_type == "Regression":
+                from lale.lib.sklearn import LinearRegression, RandomForestRegressor
+                planned_pipeline = (
+                    (MinMaxScaler | PCA) >>
+                    (LinearRegression | RandomForestRegressor)
+                )
+                scoring_metric = "r2"
+            else:
+                planned_pipeline = (
+                    (MinMaxScaler | PCA) >>
+                    (LogisticRegression | RandomForestClassifier)
+                )
+                scoring_metric = "accuracy"
 
             if stop_event and stop_event.is_set():
                 raise StopIteration("Experiment cancelled before Hyperopt setup.")
@@ -117,7 +135,7 @@ def run_lale_experiment(
                 estimator=planned_pipeline,
                 max_evals=max_evals,
                 cv=3,
-                scoring="accuracy",
+                scoring=scoring_metric,
                 show_progressbar=False,
                 verbose=True,   # show per-trial info so we can debug failures
                 **time_args
@@ -141,7 +159,7 @@ def run_lale_experiment(
                 best_score = 0.0
 
             elapsed_time = time.time() - start_time
-            logger.info(f"Best Score (CV accuracy): {best_score:.4f}")
+            logger.info(f"Best Score (CV {scoring_metric}): {best_score:.4f}")
             logger.info(f"Optimization time: {elapsed_time:.1f}s")
 
             # 4. Save Model
@@ -149,10 +167,10 @@ def run_lale_experiment(
             model_dir = "models"
             os.makedirs(model_dir, exist_ok=True)
             model_path = os.path.join(model_dir, f"{run_name}_lale_model.pkl")
-            joblib.dump({"model": best_model, "col_encoders": col_encoders, "y_encoder": y_encoder}, model_path)
+            joblib.dump({"model": best_model, "col_encoders": col_encoders, "y_encoder": y_encoder, "task_type": task_type}, model_path)
 
             # Log metrics
-            mlflow.log_metric("best_cv_accuracy", best_score)
+            mlflow.log_metric(f"best_cv_{scoring_metric}", best_score)
             mlflow.log_metric("optimization_time", elapsed_time)
             mlflow.log_param("max_evals", max_evals)
             mlflow.log_artifact(model_path, artifact_path="model")
@@ -160,7 +178,7 @@ def run_lale_experiment(
             logger.info("Lale experiment completed successfully.")
 
             # 5. Prepare return bundle
-            bundle = {"model": best_model, "col_encoders": col_encoders, "y_encoder": y_encoder}
+            bundle = {"model": best_model, "col_encoders": col_encoders, "y_encoder": y_encoder, "task_type": task_type}
 
             return {
                 "success": True,
@@ -168,7 +186,7 @@ def run_lale_experiment(
                 "run_id": run_id,
                 "type": "lale",
                 "model_path": model_path,
-                "metrics": {"best_cv_accuracy": best_score}
+                "metrics": {f"best_cv_{scoring_metric}": best_score}
             }
 
     except StopIteration as si:

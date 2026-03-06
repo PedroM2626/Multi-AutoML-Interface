@@ -6,9 +6,17 @@ def generate_consumption_code(model_type: str, run_id: str, target_column: str) 
     Generates a Python code snippet to load and run predictions with the trained model.
     Supports: autogluon, flaml, h2o, tpot, pycaret, lale.
     """
+    try:
+        client = mlflow.tracking.MlflowClient()
+        run = client.get_run(run_id)
+        task_type = run.data.params.get("task_type", "Classification")
+    except Exception:
+        task_type = "Classification"
+
     base_code = f"""# Sample code to consume the trained model
 # Run ID: {run_id}
 # Model Type: {model_type}
+# Task Type: {task_type}
 
 import os
 import pandas as pd
@@ -94,9 +102,16 @@ model = mlflow.sklearn.load_model("runs:/{run_id}/model")
 """
 
     elif model_type == "pycaret":
+        if task_type == "Regression":
+            pc_module = "pycaret.regression"
+        elif task_type == "Time Series Forecasting":
+            pc_module = "pycaret.time_series"
+        else:
+            pc_module = "pycaret.classification"
+
         return base_code + f"""
 import joblib
-from pycaret.classification import load_model, predict_model
+from {pc_module} import load_model, predict_model
 
 # 1. Download model artifact from MLflow
 local_path = mlflow.artifacts.download_artifacts(run_id="{run_id}", artifact_path="model")
@@ -115,9 +130,9 @@ if model_path is None:
 model = load_model(model_path)
 
 # 3. Predict
-# data = pd.read_csv("your_data.csv")  # must NOT contain target column
+# data = pd.read_csv("your_data.csv")  # For classification/regression, must NOT contain target column
 # predictions = predict_model(model, data=data)
-# print(predictions[["prediction_label", "prediction_score"]])
+# print(predictions)
 """
 
     elif model_type == "lale":
@@ -223,9 +238,23 @@ def _predict(df):
     elif model_type == "pycaret":
         return f"""
 import os, mlflow, joblib
-from pycaret.classification import load_model, predict_model
 import pandas as pd
 _local = mlflow.artifacts.download_artifacts(run_id="{run_id}", artifact_path="model")
+
+try:
+    client = mlflow.tracking.MlflowClient()
+    run = client.get_run("{run_id}")
+    task_type = run.data.params.get("task_type", "Classification")
+except Exception:
+    task_type = "Classification"
+
+if task_type == "Regression":
+    from pycaret.regression import load_model, predict_model
+elif task_type == "Time Series Forecasting":
+    from pycaret.time_series import load_model, predict_model
+else:
+    from pycaret.classification import load_model, predict_model
+
 _mpath = None
 for root, _, files in os.walk(_local):
     for f in files:
@@ -238,7 +267,13 @@ model = load_model(_mpath)
 
 def _predict(df):
     preds = predict_model(model, data=df)
-    return preds["prediction_label"].tolist()
+    if task_type == "Classification" and "prediction_label" in preds.columns:
+        return preds["prediction_label"].tolist()
+    else:
+        # For regression or time series, it might return 'prediction_label' or just predictions
+        if "prediction_label" in preds.columns:
+            return preds["prediction_label"].tolist()
+        return preds.iloc[:, 0].tolist()
 """
     elif model_type == "lale":
         return f"""
