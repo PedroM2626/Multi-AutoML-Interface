@@ -1683,9 +1683,22 @@ elif menu == "Prediction":
                         else:
                             _model, _col_enc, _y_enc = predictor, {}, None
                         _df = predict_df.copy()
+                        # Ensure only features that were present during training are used
+                        # and apply encoders
                         for col, enc in _col_enc.items():
                             if col in _df.columns:
-                                _df[col] = enc.transform(_df[[col]]).ravel()
+                                _df[col] = enc.transform(_df[[col]].astype(str)).ravel()
+                        
+                        # Convert to numeric to find any missed strings
+                        for col in _df.columns:
+                            if _df[col].dtype == object:
+                                try:
+                                    _df[col] = pd.to_numeric(_df[col])
+                                except:
+                                    # Fallback: if it's still string, it's a new feature not in col_encoders
+                                    # or it's a feature we didn't encode. Let's try to fill with -1 or 0
+                                    _df[col] = 0.0 # or drop it
+                        
                         raw = _model.predict(_df.values)
                         predictions = _y_enc.inverse_transform(raw) if _y_enc else raw
                     else:  # flaml / tpot

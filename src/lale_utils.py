@@ -159,9 +159,12 @@ def run_lale_experiment(
 
             logger.info("Lale experiment completed successfully.")
 
+            # 5. Prepare return bundle
+            bundle = {"model": best_model, "col_encoders": col_encoders, "y_encoder": y_encoder}
+
             return {
                 "success": True,
-                "predictor": best_model,
+                "predictor": bundle,
                 "run_id": run_id,
                 "type": "lale",
                 "model_path": model_path,

@@ -177,8 +177,7 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
             elif len(result) == 4:
                 tpot, pipeline, run_id, info = result
                 entry.result_queue.put({
-                    "success": True, "predictor": tpot, "pipeline": pipeline,
-                    "run_id": run_id, "info": info, "type": "tpot"
+                    "success": True, "predictor": pipeline, "run_id": run_id, "info": info, "type": "tpot"
                 })
             else:
                 entry.result_queue.put({
