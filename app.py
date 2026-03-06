@@ -860,7 +860,20 @@ elif menu == "Training":
         
         columns = df.columns.tolist()
         
-        framework = st.selectbox("Select AutoML Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"])
+        # Task Type Filtering
+        task_type = st.selectbox("Task Type", ["Classification", "Regression", "Time Series Forecasting", "Ranking"])
+        st.session_state['task_type'] = task_type
+        
+        task_fw_map = {
+            "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+            "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"],
+            "Time Series Forecasting": ["AutoGluon", "FLAML"],
+            "Ranking": ["FLAML"]
+        }
+        available_frameworks = task_fw_map.get(task_type, ["FLAML"])
+        
+        framework = st.selectbox("Select AutoML Framework", available_frameworks)
+        
         target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
         st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
@@ -976,10 +989,23 @@ elif menu == "Training":
                 time_budget = st.slider("Time budget (seconds)", 30, 3600, 60)
             else:
                 time_budget = None
-            task = st.selectbox("Task", ['classification', 'regression', 'ts_forecast', 'rank'])
+                
+            # Map global task_type to FLAML task
+            if task_type == 'Classification':
+                task = 'classification'
+            elif task_type == 'Regression':
+                task = 'regression'
+            elif task_type == 'Time Series Forecasting':
+                task = 'ts_forecast'
+            elif task_type == 'Ranking':
+                task = 'rank'
+            else:
+                task = 'classification'
+            
+            st.info(f"FLAML internal task synced to: **{task}**")
             
             # Smart metric selection for FLAML
-            num_classes = df[target].nunique()
+            num_classes = df[target].nunique() if target in df.columns else 2
             if task == 'classification':
                 if num_classes > 2:
                     st.warning(f"Multiclass problem detected ({num_classes} classes).")
