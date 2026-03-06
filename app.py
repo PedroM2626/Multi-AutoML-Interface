@@ -195,6 +195,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .fw-flaml     { background: linear-gradient(135deg,#0a1628,#0d2348); color:#7dd3fc; border:1px solid #1e4e8c; }
 .fw-h2o       { background: linear-gradient(135deg,#052e16,#064e24); color:#4ade80; border:1px solid #166534; }
 .fw-tpot      { background: linear-gradient(135deg,#2d0a4a,#3b0f63); color:#c084fc; border:1px solid #7e22ce; }
+.fw-pycaret   { background: linear-gradient(135deg,#2d0a1b,#3c0e25); color:#fbcfe8; border:1px solid #be185d; }
+.fw-lale      { background: linear-gradient(135deg,#0f1f2e,#1a3650); color:#bae6fd; border:1px solid #0284c7; }
 
 /* ── Pipeline Visualizer ─────────────────────────────────── */
 .pipeline-container {
@@ -479,6 +481,8 @@ def fw_badge_html(framework: str) -> str:
         "flaml":     ("FLAML",     "fw-flaml"),
         "h2o":       ("H2O",       "fw-h2o"),
         "tpot":      ("TPOT",      "fw-tpot"),
+        "pycaret":   ("PyCaret",   "fw-pycaret"),
+        "lale":      ("Lale",      "fw-lale"),
     }
     label, cls = label_map.get(key, (framework, ""))
     return f'<span class="fw-badge {cls}">{label}</span>'
@@ -544,7 +548,7 @@ st.sidebar.markdown("""
 <div class="sidebar-brand">
     <div class="sidebar-brand-logo">🚀</div>
     <div class="sidebar-brand-title">Multi-AutoML<br>Interface</div>
-    <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O · TPOT</div>
+    <div class="sidebar-brand-sub">AutoGluon · FLAML<br>H2O · TPOT · PyCaret · Lale</div>
 </div>""", unsafe_allow_html=True)
 
 # Badge for running experiments (cached for 5s to avoid script-wide slowdown)
@@ -856,7 +860,7 @@ elif menu == "Training":
         
         columns = df.columns.tolist()
         
-        framework = st.selectbox("Select AutoML Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT"])
+        framework = st.selectbox("Select AutoML Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"])
         target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
         st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
@@ -912,6 +916,26 @@ elif menu == "Training":
                     ("🧬 GA Search", "Genetic Algorithm evolves scikit-learn pipeline configs."),
                     ("🏆 Selection", "Selects highest-scoring pipeline from all generations."),
                     ("📤 Export", "Exports best pipeline as .py file with classification report."),
+                    ("📝 MLflow Log", "Saves model, metrics, params, and artifacts to MLflow."),
+                ]
+            },
+            "PyCaret": {
+                "color": "#fbcfe8", "icon": "⚙️",
+                "steps": [
+                    ("⚙️ Setup", "Data normalization, splits, implicit encoding."),
+                    ("⚖️ Compare", "Trains multiple baseline models to find the top candidates."),
+                    ("🔧 Tuning", "Optimizes hyperparameters of the best model."),
+                    ("🌪️ Blending", "Creates an ensemble of the best found models."),
+                    ("📝 MLflow Log", "Saves model, metrics, params, and artifacts to MLflow."),
+                ]
+            },
+            "Lale": {
+                "color": "#bae6fd", "icon": "🌳",
+                "steps": [
+                    ("⚙️ Planned Pipe", "Maps PCA/Scaler to SKLearn classifiers."),
+                    ("🔧 Hyperopt", "Executes intelligent bayesian HP tuning with Hyperopt."),
+                    ("🕒 Fit Opt.", "Trains models matching config iteratively."),
+                    ("🏆 Extract Model", "Selects best tuned scikit-learn pipeline compatible object."),
                     ("📝 MLflow Log", "Saves model, metrics, params, and artifacts to MLflow."),
                 ]
             },
@@ -1032,6 +1056,20 @@ elif menu == "Training":
                     scoring_options = ['neg_mean_squared_error', 'neg_root_mean_squared_error', 'neg_mean_absolute_error', 'r2', 'explained_variance']
                 
                 scoring = st.selectbox("Optimization Metric", scoring_options, help="Metric used to optimize the pipelines")
+        elif framework == "PyCaret":
+            st.info("⚙️ PyCaret automates complex end-to-end classification pipelines.")
+            use_time_limit = st.checkbox("Enable Tuning Iterator Limit", value=True, help="Limits tuning iterations based on a pseudo-time limiter.")
+            if use_time_limit:
+                 time_limit = st.slider("Time limit equivalent (seconds) - impacts n_iter", 60, 1200, 300)
+            else:
+                 time_limit = None
+        elif framework == "Lale":
+            st.info("🌳 Lale extends scikit-learn with Hyperopt topology optimizations.")
+            use_time_limit = st.checkbox("Enable Tune Limit", value=True, help="Max evals limitation during optimization")
+            if use_time_limit:
+                 time_limit = st.slider("Max internal search equivalent (seconds)", 60, 600, 120)
+            else:
+                 time_limit = None
 
         st.markdown("---")
         st.subheader("4. Launch Experiment")
@@ -1065,8 +1103,23 @@ elif menu == "Training":
                                nfolds=nfolds, balance_classes=balance_classes,
                                seed=seed, sort_metric=sort_metric, exclude_algos=exclude_algos)
                 _fw_key = "h2o"
+            elif framework == "PyCaret":
+                from src.pycaret_utils import run_pycaret_experiment
+                _fn = run_pycaret_experiment
+                _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
+                               val_df=valid_df, time_limit=time_limit,
+                               log_queue=None)  # patched below after _entry creation
+                _fw_key = "pycaret"
+            elif framework == "Lale":
+                from src.lale_utils import run_lale_experiment
+                _fn = run_lale_experiment
+                _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
+                               val_df=valid_df, time_limit=time_limit,
+                               log_queue=None)  # patched below after _entry creation
+                _fw_key = "lale"
             else:  # TPOT
                 from src.tpot_utils import train_tpot_model
+                _fn = train_tpot_model
                 _kwargs = dict(df=df, target_column=target, run_name=run_name,
                                valid_data=valid_df, test_data=test_df,
                                generations=generations, population_size=population_size,
@@ -1096,6 +1149,9 @@ elif menu == "Training":
                 daemon=True
             )
             _entry.thread = _t_obj
+            # Patch log_queue for frameworks that need it (assigned after _entry is created)
+            if "log_queue" in _kwargs and _kwargs["log_queue"] is None:
+                _kwargs["log_queue"] = _entry.log_queue
             exp_manager.add(_entry)
             _t_obj.start()
 

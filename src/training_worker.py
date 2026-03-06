@@ -2,29 +2,111 @@
 training_worker: thread entry point for every AutoML run.
 Captures stdout/stderr, feeds log_queue, puts result into result_queue,
 and respects the stop_event for graceful cancellation.
+
+Log isolation strategy (definitive):
+  - We attach a _QueueLogHandler to each relevant named library logger.
+  - Each handler has a _ThreadFilter that only accepts log records whose
+    record.thread matches the experiment thread's ID.
+  - This means messages from Thread A never land in Thread B's queue,
+    even though they share the same named logger objects.
+  - propagate is set to False to prevent double-delivery via the root logger.
+  - All are restored in the finally block.
+
+Stdout/Stderr isolation:
+  - redirect_stdout/redirect_stderr are process-global (they overwrite sys.stdout).
+  - We use a _ThreadAwareIO wrapper instead: it checks threading.current_thread()
+    on every write() call, so writes only reach the owning thread's queue.
 """
 import io
+import sys
 import logging
 import threading
 import traceback
-from contextlib import redirect_stdout, redirect_stderr
 
 from src.experiment_manager import ExperimentEntry
 
+_LIB_LOGGERS = [
+    'flaml', 'autogluon', 'mlflow', 'h2o', 'tpot',
+    'pycaret', 'lale', 'hyperopt', 'lightgbm', 'xgboost', 'catboost',
+]
 
-class _LogIO(io.StringIO):
-    """StringIO that feeds every write into a queue."""
-    def __init__(self, log_queue):
+
+# ---------------------------------------------------------------------------
+# Thread-aware stdout/stderr router (installed once, process-wide)
+# ---------------------------------------------------------------------------
+class _ThreadAwareIO(io.TextIOBase):
+    """
+    Drop-in replacement for sys.stdout / sys.stderr that routes each write()
+    to the queue registered for the current thread, or falls back to the
+    original stream.
+    """
+    def __init__(self, original_stream):
         super().__init__()
-        self.log_queue = log_queue
+        self._original = original_stream
+        self._lock = threading.Lock()
+        self._thread_queues: dict[int, "queue.Queue"] = {}
 
-    def write(self, s):
-        if s.strip():
-            self.log_queue.put(s.strip())
-        return super().write(s)
+    def register(self, thread_id: int, q):
+        with self._lock:
+            self._thread_queues[thread_id] = q
+
+    def unregister(self, thread_id: int):
+        with self._lock:
+            self._thread_queues.pop(thread_id, None)
+
+    def write(self, s: str) -> int:
+        if not isinstance(s, str):
+            try:
+                s = str(s)
+            except Exception:
+                return 0
+        tid = threading.current_thread().ident
+        with self._lock:
+            q = self._thread_queues.get(tid)
+        if q is not None:
+            if s.strip():
+                q.put(s.strip())
+        else:
+            # Fall back to original stream for threads not registered
+            try:
+                self._original.write(s)
+            except Exception:
+                pass
+        return len(s)
 
     def flush(self):
-        pass
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+
+    @property
+    def encoding(self):
+        return getattr(self._original, 'encoding', 'utf-8') or 'utf-8'
+
+    @property
+    def errors(self):
+        return getattr(self._original, 'errors', 'replace')
+
+
+# Install thread-aware routers once for the entire process
+_stdout_router = _ThreadAwareIO(sys.__stdout__)
+_stderr_router = _ThreadAwareIO(sys.__stderr__)
+sys.stdout = _stdout_router
+sys.stderr = _stderr_router
+
+
+# ---------------------------------------------------------------------------
+# Per-thread log handler with thread filter
+# ---------------------------------------------------------------------------
+class _ThreadFilter(logging.Filter):
+    """Only accepts log records emitted by a specific OS thread."""
+    def __init__(self, thread_id: int):
+        super().__init__()
+        self._thread_id = thread_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.thread == self._thread_id
 
 
 class _QueueLogHandler(logging.Handler):
@@ -32,7 +114,7 @@ class _QueueLogHandler(logging.Handler):
         super().__init__()
         self.log_queue = log_queue
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord):
         try:
             msg = self.format(record)
             self.log_queue.put(msg)
@@ -40,59 +122,76 @@ class _QueueLogHandler(logging.Handler):
             pass
 
 
+# ---------------------------------------------------------------------------
+# Worker entry point
+# ---------------------------------------------------------------------------
 def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
     """
     Thread target. Runs train_fn(**kwargs, stop_event=entry.stop_event),
-    keeps the entry status updated, and puts the final result dict in result_queue.
+    keeps the entry status updated, and puts the final result dict in
+    result_queue.
     """
-    # --- Logging capture setup ---
+    thread_id = threading.current_thread().ident
+
+    # --- Thread-aware stdout/stderr capture ---
+    _stdout_router.register(thread_id, entry.log_queue)
+    _stderr_router.register(thread_id, entry.log_queue)
+
+    # --- Per-thread logging handler (with thread filter) ---
     handler = _QueueLogHandler(entry.log_queue)
     handler.setFormatter(logging.Formatter('%(message)s'))
+    handler.addFilter(_ThreadFilter(thread_id))
 
-    root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
-    root_logger.setLevel(logging.INFO)
-
-    for lib in ['flaml', 'autogluon', 'mlflow', 'h2o', 'tpot']:
+    saved_propagate: dict[str, bool] = {}
+    for lib in _LIB_LOGGERS:
         lib_logger = logging.getLogger(lib)
+        saved_propagate[lib] = lib_logger.propagate
+        lib_logger.propagate = False  # prevents root from seeing AND double-deliver
         lib_logger.addHandler(handler)
-        lib_logger.setLevel(logging.INFO)
-
-    log_io = _LogIO(entry.log_queue)
+        if lib_logger.level == logging.NOTSET or lib_logger.level > logging.INFO:
+            lib_logger.setLevel(logging.INFO)
 
     entry.status = "running"
     entry.log_queue.put(f"[Worker] Starting training: {entry.metadata.get('run_name', entry.key)}")
 
     try:
-        with redirect_stdout(log_io), redirect_stderr(log_io):
-            # Inject stop_event into kwargs if the function accepts it
-            try:
-                import inspect
-                sig = inspect.signature(train_fn)
-                if 'stop_event' in sig.parameters:
-                    kwargs['stop_event'] = entry.stop_event
-            except Exception:
-                pass
+        # Inject stop_event into kwargs if the function accepts it
+        try:
+            import inspect
+            sig = inspect.signature(train_fn)
+            if 'stop_event' in sig.parameters:
+                kwargs['stop_event'] = entry.stop_event
+        except Exception:
+            pass
 
-            result = train_fn(**kwargs)
+        result = train_fn(**kwargs)
 
-        # result is expected to be a tuple or dict depending on the trainer
-        # Normalise into a standard dict
+        # Normalise result into a standard dict
         if isinstance(result, tuple):
-            # Most trainers return (predictor, run_id)
             if len(result) == 2:
                 predictor, run_id = result
-                entry.result_queue.put({"success": True, "predictor": predictor, "run_id": run_id, "type": entry.metadata.get("framework_key", "unknown")})
+                entry.result_queue.put({
+                    "success": True, "predictor": predictor, "run_id": run_id,
+                    "type": entry.metadata.get("framework_key", "unknown")
+                })
             elif len(result) == 4:
-                # TPOT: (tpot, pipeline, run_id, info)
                 tpot, pipeline, run_id, info = result
-                entry.result_queue.put({"success": True, "predictor": tpot, "pipeline": pipeline, "run_id": run_id, "info": info, "type": "tpot"})
+                entry.result_queue.put({
+                    "success": True, "predictor": tpot, "pipeline": pipeline,
+                    "run_id": run_id, "info": info, "type": "tpot"
+                })
             else:
-                entry.result_queue.put({"success": True, "predictor": result[0], "run_id": result[-1], "type": entry.metadata.get("framework_key", "unknown")})
+                entry.result_queue.put({
+                    "success": True, "predictor": result[0], "run_id": result[-1],
+                    "type": entry.metadata.get("framework_key", "unknown")
+                })
         elif isinstance(result, dict):
             entry.result_queue.put(result)
         else:
-            entry.result_queue.put({"success": True, "predictor": result, "run_id": None, "type": entry.metadata.get("framework_key", "unknown")})
+            entry.result_queue.put({
+                "success": True, "predictor": result, "run_id": None,
+                "type": entry.metadata.get("framework_key", "unknown")
+            })
 
     except StopIteration:
         entry.log_queue.put("[Worker] Training cancelled by user request.")
@@ -102,7 +201,14 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
         entry.log_queue.put(f"[Worker] CRITICAL ERROR: {e}\n{err_tb}")
         entry.result_queue.put({"success": False, "error": str(e), "traceback": err_tb})
     finally:
-        root_logger.removeHandler(handler)
-        for lib in ['flaml', 'autogluon', 'mlflow', 'h2o', 'tpot']:
-            logging.getLogger(lib).removeHandler(handler)
+        # Restore all lib loggers
+        for lib in _LIB_LOGGERS:
+            lib_logger = logging.getLogger(lib)
+            lib_logger.removeHandler(handler)
+            lib_logger.propagate = saved_propagate.get(lib, True)
+
+        # Unregister stdout/stderr routing for this thread
+        _stdout_router.unregister(thread_id)
+        _stderr_router.unregister(thread_id)
+
         entry.log_queue.put("[Worker] Thread finished.")

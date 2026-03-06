@@ -34,3 +34,5 @@ models/
 *out*
 *.tsv
 *.json
+
+references/*

@@ -163,6 +163,80 @@ _STEPS: dict[str, list[dict]] = {
             "description": "Persists model artifacts, parameters, and metrics to MLflow for tracking and versioning.",
         },
     ],
+    "pycaret": [
+        {
+            "label": "Environment Setup",
+            "icon": "⚙️",
+            "keywords": ["setting up pycaret", "dataset shape"],
+            "done_kw": ["comparing models", "step: comparing models..."],
+            "description": "Initializes the PyCaret setup, handling normalization, encoding, and train/test splits internally.",
+        },
+        {
+            "label": "Model Comparison",
+            "icon": "⚖️",
+            "keywords": ["comparing models", "including fast/robust models"],
+            "done_kw": ["tuning best model", "step: tuning best model..."],
+            "description": "Trains and evaluates a fast baseline of multiple estimators to find the top candidates.",
+        },
+        {
+            "label": "Hyperparameter Tuning",
+            "icon": "🔧",
+            "keywords": ["tuning best model", "step: tuning best model..."],
+            "done_kw": ["blending top models", "step: blending top models..."],
+            "description": "Applies randomized search to optimize hyperparameters of the best performing model.",
+        },
+        {
+            "label": "Model Blending",
+            "icon": "🌪️",
+            "keywords": ["blending top models", "step: blending top models..."],
+            "done_kw": ["saving model", "pycaret experiment completed"],
+            "description": "Creates an ensemble of the top models to improve generalized performance via voting/averaging.",
+        },
+        {
+            "label": "MLflow Logging",
+            "icon": "📝",
+            "keywords": ["saving model to", "pycaret experiment completed", "thread finished"],
+            "done_kw": ["thread finished"],
+            "description": "Persists model artifacts, parameters, and metrics to MLflow for tracking and versioning.",
+        },
+    ],
+    "lale": [
+        {
+            "label": "Pipeline Definition",
+            "icon": "⚙️",
+            "keywords": ["defining lale planned pipeline", "dataset shape"],
+            "done_kw": ["tuning with hyperopt", "step: tuning with hyperopt..."],
+            "description": "Maps a search space over transformers (PCA, Scalers) and estimators (LR, RF, KNN).",
+        },
+        {
+            "label": "Hyperopt Tuning",
+            "icon": "🔧",
+            "keywords": ["tuning with hyperopt", "step: tuning with hyperopt..."],
+            "done_kw": ["fitting lale optimizer", "step: fitting lale optimizer"],
+            "description": "Configures Tree-structured Parzen Estimators (TPE) algorithm for intelligent hyperparameter search.",
+        },
+        {
+            "label": "Fitting Optimizer",
+            "icon": "🕒",
+            "keywords": ["fitting lale optimizer", "step: fitting lale optimizer"],
+            "done_kw": ["saving model locally", "step: saving model locally"],
+            "description": "Executes identical cross-validation folds on generated pipelines within the set budget.",
+        },
+        {
+            "label": "Best Model Extraction",
+            "icon": "🏆",
+            "keywords": ["best pipeline structure:", "best f1 (macro) score"],
+            "done_kw": ["saving model locally", "step: saving model locally"],
+            "description": "Decodes the structure and metrics of the optimized pipeline graph.",
+        },
+        {
+            "label": "MLflow Logging",
+            "icon": "📝",
+            "keywords": ["saving model locally", "lale experiment completed", "thread finished"],
+            "done_kw": ["thread finished"],
+            "description": "Persists model artifacts, parameters, and metrics to MLflow for tracking and versioning.",
+        },
+    ],
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────
