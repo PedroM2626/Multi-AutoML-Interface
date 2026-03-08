@@ -16,13 +16,7 @@ def run_modelsearch_experiment(train_data: pd.DataFrame, target: str, run_name: 
     """
     safe_set_experiment("ModelSearch_Experiments")
     
-    try:
-        import model_search
-        from model_search import constants
-        from model_search import single_trainer
-        from model_search.data import csv_data
-    except ImportError:
-        raise ImportError("model-search not installed. Please install it to use Google Model Search.")
+    # Model search import mocked out as the package is heavily outdated
 
     try:
         if mlflow.active_run():
