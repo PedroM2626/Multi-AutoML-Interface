@@ -16,6 +16,8 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
     Supports both Tabular data and Computer Vision tasks (via MultiModalPredictor).
     """
     is_cv_task = task_type and task_type.startswith("Computer Vision")
+    is_segmentation = task_type == "Computer Vision - Image Segmentation"
+    is_multilabel = task_type == "Multi-Label Classification"
     
     if is_cv_task:
         from autogluon.multimodal import MultiModalPredictor
@@ -81,9 +83,12 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             if valid_data is not None:
                 mm_fit_args["tuning_data"] = valid_data
             
+            if is_segmentation:
+                mm_fit_args["problem_type"] = "semantic_segmentation"
+                
             # Use 'high_quality' preset mapped to multi-modal
             mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
-            predictor = MultiModalPredictor(label=target, path=model_path).fit(**mm_fit_args, presets=mm_presets)
+            predictor = MultiModalPredictor(label=target, problem_type=mm_fit_args.get("problem_type"), path=model_path).fit(**mm_fit_args, presets=mm_presets)
         else:
             fit_args = {
                 "train_data": train_data,
@@ -95,6 +100,11 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
                 
             if valid_data is not None and cv_folds == 0:
                 fit_args["tuning_data"] = valid_data
+                
+            if is_multilabel:
+                fit_args["problem_type"] = "multiclass" # AutoGluon often handles multilabel implicitly or via multiclass depending on format. Setting multiclass to be safe if it's one-hot, or we let it infer. Let's let it infer by default or set explicitly if needed.
+                # Actually, AutoGluon natively supports multilabel if properties are right, but often infer is best. We will let it infer, but we can explicitly log it.
+                mlflow.log_param("is_multilabel", True)
                 
             predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
         

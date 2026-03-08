@@ -964,18 +964,20 @@ elif menu == "Training":
         
         # Task Type Filtering
         task_type = st.selectbox("Task Type", [
-            "Classification", "Regression", "Time Series Forecasting", "Ranking",
-            "Computer Vision - Image Classification", "Computer Vision - Object Detection"
+            "Classification", "Regression", "Multi-Label Classification", "Time Series Forecasting", "Ranking",
+            "Computer Vision - Image Classification", "Computer Vision - Object Detection", "Computer Vision - Image Segmentation"
         ])
         st.session_state['task_type'] = task_type
         
         task_fw_map = {
             "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
             "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+            "Multi-Label Classification": ["AutoGluon", "FLAML"],
             "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
             "Ranking": ["FLAML"],
             "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras", "Model Search"],
-            "Computer Vision - Object Detection": ["AutoGluon", "AutoKeras"]
+            "Computer Vision - Object Detection": ["AutoGluon", "AutoKeras"],
+            "Computer Vision - Image Segmentation": ["AutoGluon", "AutoKeras"]
         }
         available_frameworks = task_fw_map.get(task_type, ["FLAML"])
         framework = st.selectbox("Select AutoML Framework", available_frameworks)

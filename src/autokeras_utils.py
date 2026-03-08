@@ -90,6 +90,10 @@ def run_autokeras_experiment(train_data: pd.DataFrame, target: str, run_name: st
         if task_type == "Computer Vision - Image Classification":
             clf = ak.ImageClassifier(overwrite=True, max_trials=max_trials, directory=model_path)
             clf.fit(train_ds, validation_data=val_ds, epochs=5) # Default short epoch
+        elif task_type == "Computer Vision - Image Segmentation":
+            # Experimental Image Segmenter inside AutoKeras
+            clf = ak.ImageSegmenter(overwrite=True, max_trials=max_trials, directory=model_path)
+            clf.fit(train_ds, validation_data=val_ds, epochs=5)
         else:
             # We don't natively support bounding boxes right now without specific parser
             raise NotImplementedError(f"AutoKeras task '{task_type}' requires bounding box labels not inherently present in the directory structure.")
