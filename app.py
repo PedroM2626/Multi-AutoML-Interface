@@ -546,9 +546,8 @@ except Exception as e:
 # ── Sidebar brand ──────────────────────────────────────────────────────────
 st.sidebar.markdown("""
 <div class="sidebar-brand">
-    <div class="sidebar-brand-logo">🚀</div>
     <div class="sidebar-brand-title">Multi-AutoML<br>Interface</div>
-    <div class="sidebar-brand-sub">AutoGluon · FLAML<br>H2O · TPOT · PyCaret · Lale</div>
+    <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O<br>TPOT · PyCaret · Lale<br>AutoKeras · Model Search</div>
 </div>""", unsafe_allow_html=True)
 
 # Badge for running experiments (cached for 5s to avoid script-wide slowdown)
