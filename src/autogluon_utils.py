@@ -10,11 +10,33 @@ logger = logging.getLogger(__name__)
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
                 time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0,
-                stop_event=None):
+                stop_event=None, task_type: str = "Classification"):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
+    Supports both Tabular data and Computer Vision tasks (via MultiModalPredictor).
     """
-    from autogluon.tabular import TabularPredictor
+    is_cv_task = task_type and task_type.startswith("Computer Vision")
+    
+    if is_cv_task:
+        from autogluon.multimodal import MultiModalPredictor
+        
+        def build_image_df(path_df):
+            if path_df is None or "Image_Directory" not in path_df.columns:
+                return path_df
+            img_dir = path_df.iloc[0]["Image_Directory"]
+            data = []
+            for root, _, files in os.walk(img_dir):
+                label = os.path.basename(root)
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        data.append({"image": os.path.join(root, file), target: label})
+            return pd.DataFrame(data)
+
+        train_data = build_image_df(train_data)
+        valid_data = build_image_df(valid_data)
+        test_data = build_image_df(test_data)
+    else:
+        from autogluon.tabular import TabularPredictor
     
     safe_set_experiment("AutoGluon_Experiments")
     
@@ -52,35 +74,49 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             test_data = test_data.dropna(subset=[target])
             mlflow.log_param("has_test_data", True)
             
-        # Train model
-        fit_args = {
-            "train_data": train_data,
-            "time_limit": time_limit, 
-            "presets": presets
-        }
-        if cv_folds > 0:
-            fit_args["num_bag_folds"] = cv_folds
+        if is_cv_task:
+            # AutoGluon MultiModal uses 'problem_type' classification/object_detection usually inferred from data
+            # fit() parameters are slightly different from TabularPredictor
+            mm_fit_args = {"train_data": train_data, "time_limit": time_limit}
+            if valid_data is not None:
+                mm_fit_args["tuning_data"] = valid_data
             
-        if valid_data is not None and cv_folds == 0:
-            fit_args["tuning_data"] = valid_data
-            
-        predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
+            # Use 'high_quality' preset mapped to multi-modal
+            mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
+            predictor = MultiModalPredictor(label=target, path=model_path).fit(**mm_fit_args, presets=mm_presets)
+        else:
+            fit_args = {
+                "train_data": train_data,
+                "time_limit": time_limit, 
+                "presets": presets
+            }
+            if cv_folds > 0:
+                fit_args["num_bag_folds"] = cv_folds
+                
+            if valid_data is not None and cv_folds == 0:
+                fit_args["tuning_data"] = valid_data
+                
+            predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
         
         # Check if cancelled before continuing
         if stop_event and stop_event.is_set():
             raise StopIteration("Training cancelled by user")
         
-        # If test_data is provided, leaderboard and scoring will strictly use it,
-        # otherwise fallback to training data
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
-        leaderboard = predictor.leaderboard(eval_data, silent=True)
-        # Log the best model's score
-        best_model_score = leaderboard.iloc[0]['score_val']
-        mlflow.log_metric("best_model_score", best_model_score)
         
-        # Save leaderboard as artifact
-        leaderboard_path = "leaderboard.csv"
-        leaderboard.to_csv(leaderboard_path, index=False)
+        if is_cv_task:
+            scores = predictor.evaluate(eval_data)
+            best_model_score = scores.get('accuracy', scores.get('roc_auc', 0.0))
+            mlflow.log_metrics(scores)
+            leaderboard_path = "leaderboard.csv"
+            pd.DataFrame([scores]).to_csv(leaderboard_path, index=False)
+        else:
+            leaderboard = predictor.leaderboard(eval_data, silent=True)
+            # Log the best model's score
+            best_model_score = leaderboard.iloc[0]['score_val']
+            mlflow.log_metric("best_model_score", best_model_score)
+            leaderboard_path = "leaderboard.csv"
+            leaderboard.to_csv(leaderboard_path, index=False)
         try:
             mlflow.log_artifact(leaderboard_path)
         except Exception as e:

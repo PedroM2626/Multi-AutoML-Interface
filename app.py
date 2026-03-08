@@ -604,23 +604,25 @@ if menu == "Data Upload":
         </div>
     </div>""", unsafe_allow_html=True)
 
-    upload_col, info_col = st.columns([2, 1])
-    with upload_col:
-        uploaded_file = st.file_uploader("Upload CSV or Excel File", type=["csv", "xlsx", "xls"])
-        filename_prefix = st.text_input("File prefix (name in Data Lake)", value="dataset")
-        upload_btn = st.button("💾 Process & Save to Data Lake", type="primary")
+    upload_tab, cv_upload_tab = st.tabs(["📄 Tabular Data (CSV/Excel)", "🖼️ Computer Vision Data (Images/ZIP)"])
+    
+    with upload_tab:
+        upload_col, info_col = st.columns([2, 1])
+        with upload_col:
+            uploaded_file = st.file_uploader("Upload CSV or Excel File", type=["csv", "xlsx", "xls"])
+            filename_prefix = st.text_input("File prefix (name in Data Lake)", value="dataset", key="prefix_tab")
+            upload_btn = st.button("💾 Process & Save Tabular Data", type="primary")
 
-    with info_col:
-        st.markdown("""
-        <div class="preview-card">
-            <h4>📖 About the Data Lake</h4>
-            <p>Files are versioned using DVC and stored with a content hash. The same dataset at different times can be compared by hash. All frameworks read from this shared storage.</p>
-        </div>""", unsafe_allow_html=True)
+        with info_col:
+            st.markdown("""
+            <div class="preview-card">
+                <h4>📖 About the Data Lake</h4>
+                <p>Files are versioned using DVC and stored with a content hash. The same dataset at different times can be compared by hash. All frameworks read from this shared storage.</p>
+            </div>""", unsafe_allow_html=True)
 
-    if upload_btn:
-        if uploaded_file is not None:
+        if upload_btn and uploaded_file is not None:
             try:
-                with st.spinner("Processing and versioning data…"):
+                with st.spinner("Processing and versioning tabular data…"):
                     from src.data_utils import init_dvc, save_to_data_lake
                     init_dvc()
                     df = cached_load_data(uploaded_file)
@@ -628,7 +630,66 @@ if menu == "Data Upload":
                     st.cache_data.clear()
 
                 st.success(f"✅ Saved to Data Lake! Hash: `{t_hash}`")
+                st.session_state['_just_uploaded'] = df
+            except Exception as e:
+                st.error(f"Error processing tabular data: {e}")
 
+    with cv_upload_tab:
+        cv_col, cv_info_col = st.columns([2, 1])
+        with cv_col:
+            st.info("Upload multiple images (PNG/JPG) or a single ZIP archive containing your images.")
+            uploaded_images = st.file_uploader("Upload Images or ZIP", type=["png", "jpg", "jpeg", "zip"], accept_multiple_files=True)
+            dataset_name = st.text_input("Computer Vision Dataset Name", value="image_dataset")
+            cv_upload_btn = st.button("📸 Extract & Save Image Dataset", type="primary")
+            
+        with cv_info_col:
+            st.markdown("""
+            <div class="preview-card">
+                <h4>🖼️ CV Datasets</h4>
+                <p>Images are stored in a dedicated <code>data_lake/images/</code> structured directory. Frameworks like AutoGluon and AutoKeras will automatically traverse these dirs for training.</p>
+            </div>""", unsafe_allow_html=True)
+
+        if cv_upload_btn and uploaded_images:
+            try:
+                with st.spinner("Processing and transferring images to Data Lake…"):
+                    from src.data_utils import process_image_upload
+                    is_zip = len(uploaded_images) == 1 and uploaded_images[0].name.endswith('.zip')
+                    cv_dir, full_hash, short_hash = process_image_upload(uploaded_images, dataset_name, is_zip)
+                    st.cache_data.clear()
+                st.success(f"✅ Image Dataset ready in Data Lake! Hash: `{short_hash}`")
+            except Exception as e:
+                st.error(f"Error processing images: {e}")
+
+    st.markdown("<hr/>", unsafe_allow_html=True)
+    st.subheader("2. Preview & Profiling")
+    
+    available_files = cached_get_data_lake_files()
+    if not available_files and st.session_state.get('_just_uploaded') is None:
+        st.info("Upload a file above to see its preview and profiling.")
+    else:
+        df = None
+        if st.session_state.get('_just_uploaded') is not None:
+            df = st.session_state['_just_uploaded']
+            st.info("Previewing most recently uploaded dataset. Select another file from the dropdown to dismiss this.")
+            prev_file = st.selectbox("Select file to preview", available_files, index=0 if available_files else None)
+            if prev_file:
+                try:
+                    from src.data_utils import load_data
+                    st.session_state.pop('_just_uploaded', None)
+                    df = load_data(os.path.join("data_lake", prev_file))
+                except Exception:
+                    pass
+        else:
+            prev_file = st.selectbox("Select file to preview", available_files)
+            if prev_file:
+                try:
+                    from src.data_utils import load_data
+                    df = load_data(os.path.join("data_lake", prev_file))
+                except Exception as e:
+                    st.error(f"Error loading preview file: {e}")
+                    
+        if df is not None:
+            try:
                 # ── Quick EDA panels ─────────────────────────────────────
                 st.markdown('<div class="section-header">📊 Dataset Overview</div>', unsafe_allow_html=True)
                 summary = cached_get_data_summary(df)
@@ -721,11 +782,8 @@ if menu == "Data Upload":
                         st.dataframe(df[[dist_col]].describe().T, use_container_width=True)
                     else:
                         st.info("No numeric columns found for distribution plot.")
-
             except Exception as e:
-                st.error(f"Error loading file: {e}")
-        else:
-            st.warning("Please select a file to upload.")
+                st.error(f"Error loading UI previews: {e}")
 
 
 elif menu == "Training":
@@ -800,50 +858,94 @@ elif menu == "Training":
         valid_df_session = st.session_state.get('valid_df', None)
         test_df_session = st.session_state.get('test_df', None)
         
+        split_strategy = st.radio(
+            "Data Split Strategy", 
+            ["Random", "Manual", "Chronological"], 
+            horizontal=True, 
+            help="Choose how the data will be separated for model evaluation."
+        )
+
+        val_size_pct = 0
+        test_size_pct = 0
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**Final Test Set**")
-            if test_df_session is None:
-                test_size_pct = st.slider("Percentage extracted for Test (%)", 0, 50, 15, 5, help="Size of the test set retained for final model evaluation.")
-            else:
+            st.markdown("**Test Set (Final Evaluation)**")
+            if test_df_session is not None:
                 st.success("Test-set provided through a dedicated Data Lake file.")
-                test_size_pct = 0
-                
-        with col2:
-            st.markdown("**Internal Validation Strategy**")
-            if valid_df_session is None:
-                val_strategy = st.radio("Method", ["Simple Holdout", "Cross-Validation"], horizontal=True, help="Holdout will physically split the Dataset. CV instructs engines to use Folds.")
-                if val_strategy == "Simple Holdout":
-                    val_size_pct = st.slider("Percentage extracted for Validation (%)", 0, 50, 20, 5)
-                else:
-                    cv_folds = st.slider("Number of Folds (K)", 2, 10, 5)
-                    val_size_pct = 0
             else:
+                if split_strategy == "Random":
+                    test_size_pct = st.slider("Test Percentage (%)", 0, 50, 10, 5)
+                elif split_strategy == "Chronological":
+                    test_size_pct = st.slider("Latest data for Test (%)", 0, 50, 10, 5)
+
+        with col2:
+            st.markdown("**Validation Strategy**")
+            if valid_df_session is not None:
                 st.success("Validation-set provided via file in Data Lake.")
-                val_size_pct = 0
+            else:
+                if split_strategy == "Random":
+                    val_method = st.radio("Method", ["Simple Holdout", "Cross-Validation"], horizontal=True)
+                    if val_method == "Simple Holdout":
+                        val_size_pct = st.slider("Validation Percentage (%)", 0, 50, 10, 5)
+                    else:
+                        cv_folds = st.slider("Number of Folds (K)", 2, 10, 5)
+                elif split_strategy == "Chronological":
+                    val_size_pct = st.slider("Preceding data for Validation (%)", 0, 50, 10, 5)
+        
+        manual_split_col = None
+        chrono_col = None
+        if split_strategy == "Manual":
+            manual_split_col = st.selectbox("Select Split Column (must contain 'train', 'val', 'test')", df.columns)
+        elif split_strategy == "Chronological":
+            chrono_col = st.selectbox("Select Time/Date Column to sort by", df.columns)
                 
-        # Apply Splits if needed and store on UI refresh safely
-        # We need a pristine copy or just track the original df length to not shrink infinitely on UI refreshes
-        # We'll use the current st.session_state['df'] as base, but this requires we cache original on selection.
+        # Apply Splits safely on pristine base
         if 'original_df' not in st.session_state or len(st.session_state['original_df']) != len(df) and ('has_split' not in st.session_state):
-             # Keep track of original selection payload
              st.session_state['original_df'] = df.copy()
              
         base_df = st.session_state['original_df'].copy()
         
-        if test_size_pct > 0:
-            from sklearn.model_selection import train_test_split
-            base_df, fresh_test_df = train_test_split(base_df, test_size=(test_size_pct/100.0), random_state=42)
-            test_df_session = fresh_test_df
+        if split_strategy == "Manual" and manual_split_col:
+            val_mask = base_df[manual_split_col].astype(str).str.lower().str.contains("val|valid")
+            test_mask = base_df[manual_split_col].astype(str).str.lower().str.contains("test")
+            train_mask = ~(val_mask | test_mask)
+            
+            valid_df_session = base_df[val_mask].copy() if val_mask.sum() > 0 else None
+            test_df_session = base_df[test_mask].copy() if test_mask.sum() > 0 else None
+            base_df = base_df[train_mask].copy()
+            st.session_state['valid_df'] = valid_df_session
             st.session_state['test_df'] = test_df_session
             
-        if val_size_pct > 0:
-            if len(base_df) > 100: # Safe margin
-                from sklearn.model_selection import train_test_split
-                base_df, fresh_val_df = train_test_split(base_df, test_size=(val_size_pct/100.0), random_state=42)
-                valid_df_session = fresh_val_df
+        elif split_strategy == "Chronological" and chrono_col:
+            base_df = base_df.sort_values(by=chrono_col).reset_index(drop=True)
+            total_len = len(base_df)
+            test_idx = int(total_len * (1 - test_size_pct/100.0))
+            val_idx = int(total_len * (1 - (test_size_pct + val_size_pct)/100.0))
+            
+            if test_size_pct > 0:
+                test_df_session = base_df.iloc[test_idx:].copy()
+                st.session_state['test_df'] = test_df_session
+            if val_size_pct > 0:
+                valid_df_session = base_df.iloc[val_idx:test_idx].copy()
                 st.session_state['valid_df'] = valid_df_session
+            base_df = base_df.iloc[:val_idx].copy()
+            
+        elif split_strategy == "Random":
+            from sklearn.model_selection import train_test_split
+            if test_size_pct > 0:
+                base_df, fresh_test_df = train_test_split(base_df, test_size=(test_size_pct/100.0), random_state=42)
+                test_df_session = fresh_test_df
+                st.session_state['test_df'] = test_df_session
+                
+            if val_size_pct > 0:
+                if len(base_df) > 100:
+                    # Adjust proportion relative to remaining data
+                    adj_val_pct = val_size_pct / (100 - test_size_pct)
+                    base_df, fresh_val_df = train_test_split(base_df, test_size=adj_val_pct, random_state=42)
+                    valid_df_session = fresh_val_df
+                    st.session_state['valid_df'] = valid_df_session
                 
         # Update current working df
         df = base_df
@@ -861,20 +963,27 @@ elif menu == "Training":
         columns = df.columns.tolist()
         
         # Task Type Filtering
-        task_type = st.selectbox("Task Type", ["Classification", "Regression", "Time Series Forecasting", "Ranking"])
+        task_type = st.selectbox("Task Type", [
+            "Classification", "Regression", "Time Series Forecasting", "Ranking",
+            "Computer Vision - Image Classification", "Computer Vision - Object Detection"
+        ])
         st.session_state['task_type'] = task_type
         
         task_fw_map = {
             "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
             "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
             "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
-            "Ranking": ["FLAML"]
+            "Ranking": ["FLAML"],
+            "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras", "Model Search"],
+            "Computer Vision - Object Detection": ["AutoGluon", "AutoKeras"]
         }
         available_frameworks = task_fw_map.get(task_type, ["FLAML"])
         
-        framework = st.selectbox("Select AutoML Framework", available_frameworks)
-        
-        target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
+        if task_type.startswith("Computer Vision"):
+            target = "label"
+            st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
+        else:
+            target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
         st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
 
@@ -1119,8 +1228,20 @@ elif menu == "Training":
                 _fn = train_autogluon
                 _kwargs = dict(train_data=df, target=target, run_name=run_name,
                                valid_data=valid_df, test_data=test_df,
-                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds)
+                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds, task_type=task_type)
                 _fw_key = "autogluon"
+            elif framework == "AutoKeras":
+                from src.autokeras_utils import run_autokeras_experiment
+                _fn = run_autokeras_experiment
+                _kwargs = dict(train_data=df, target=target, run_name=run_name,
+                               valid_data=valid_df, task_type=task_type, time_limit=time_limit)
+                _fw_key = "autokeras"
+            elif framework == "Model Search":
+                from src.modelsearch_utils import run_modelsearch_experiment
+                _fn = run_modelsearch_experiment
+                _kwargs = dict(train_data=df, target=target, run_name=run_name,
+                               valid_data=valid_df, task_type=task_type)
+                _fw_key = "model_search"
             elif framework == "FLAML":
                 from src.flaml_utils import train_flaml_model
                 _fn = train_flaml_model
