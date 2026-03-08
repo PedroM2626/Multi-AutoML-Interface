@@ -27,7 +27,7 @@ from src.experiment_manager import ExperimentEntry
 
 _LIB_LOGGERS = [
     'flaml', 'autogluon', 'mlflow', 'h2o', 'tpot',
-    'pycaret', 'lale', 'hyperopt', 'lightgbm', 'xgboost', 'catboost',
+    'pycaret', 'lale', 'hyperopt', 'lightgbm', 'xgboost', 'catboost', 'model_search'
 ]
 
 

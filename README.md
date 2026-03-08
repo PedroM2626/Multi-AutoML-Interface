@@ -1,6 +1,6 @@
 # 🚀 Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-3.2.0-blue)
+![Version](https://img.shields.io/badge/version-3.4.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -17,7 +17,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **Integrated MLOps** with complete tracking via MLflow
 - **Unified interface** for training, evaluation, and prediction
 - **Flexible deployment** (web, Docker, desktop)
-- **Support for Multiple ML Tasks**: Classification, Regression, and Time Series Forecasting.
+- **Support for Multiple ML Tasks**: Classification, Regression, Multi-Label Classification, Time Series Forecasting, Computer Vision (Image Classification, Object Detection, Image Segmentation).
 - **Detailed metrics and logging**
 
 ---
@@ -42,7 +42,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **🚀 One-Click API Deployment**: Generate a complete FastAPI + Docker package for any model in seconds.
 - **Storage Management**: Automatically cleans up local model files after MLflow sync.
 - **Advanced Prediction**: Batch processing via file upload or **Manual Entry Form**.
-- **Unified ML Task Selector**: Choose between Classification, Regression, and Time Series Forecasting.
+- **Unified ML Task Selector**: Choose between Classification, Regression, Multi-Label Classification, Time Series Forecasting, and Computer Vision (Image Classification, Object Detection, Image Segmentation).
 - **Dynamic Framework Filtering**: View only the AutoML engines that support your selected task.
 
 ### 🖥️ **Multi-Deploy:**

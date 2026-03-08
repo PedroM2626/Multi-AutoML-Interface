@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data Lake - Do NOT copy massive local data into the build
+data_lake/
+*.csv
+*.xlsx
+*.xls
+data_lake/images/
+data_lake/raw/
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Environment
+.venv/
+venv/
+env/
+.env
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+models/
+.dvc/
+*pytest*
+*dvc*
+
+# Git
+.git
+
+# Others
+references/
+electron/
+node_modules/
+dist/
+build/
