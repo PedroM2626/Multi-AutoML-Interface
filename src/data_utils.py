@@ -98,6 +98,7 @@ def get_data_lake_files():
     if not os.path.exists(data_lake_dir):
         return []
     
+    files = []
     # Add tabular files
     for f in os.listdir(data_lake_dir):
         if f.endswith(('.csv', '.xls', '.xlsx')):
