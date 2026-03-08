@@ -1,0 +1,28 @@
+# Dockerfile specifically built for AutoKeras CV
+FROM tensorflow/tensorflow:2.15.0
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install AutoKeras explicitly
+RUN pip install --no-cache-dir autokeras keras-tuner
+
+COPY requirements.txt .
+
+# Try to respect base requirements but strip conflicting versions (TensorFlow/Torch)
+RUN grep -v -E "^(torch|torchvision|torchaudio|tensorflow|autogluon)" requirements.txt > reqs_filtered.txt && \
+    pip install --no-cache-dir -r reqs_filtered.txt || pip install --no-cache-dir pandas scikit-learn streamlit mlflow
+
+COPY . /app
+
+EXPOSE 8501
+
+ENV MLFLOW_TRACKING_URI=./mlruns
+
+CMD ["streamlit", "run", "app.py"]

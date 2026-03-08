@@ -963,7 +963,7 @@ elif menu == "Training":
         
         # Task Type Filtering
         task_type = st.selectbox("Task Type", [
-            "Classification", "Regression", "Multi-Label Classification", "Time Series Forecasting", "Ranking",
+            "Classification", "Regression", "Computer Vision - Multi-Label Classification", "Time Series Forecasting", "Ranking",
             "Computer Vision - Image Classification", "Computer Vision - Object Detection", "Computer Vision - Image Segmentation"
         ])
         st.session_state['task_type'] = task_type
@@ -971,7 +971,7 @@ elif menu == "Training":
         task_fw_map = {
             "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
             "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-            "Multi-Label Classification": ["AutoGluon", "FLAML"],
+            "Computer Vision - Multi-Label Classification": ["AutoGluon", "AutoKeras", "Model Search"],
             "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
             "Ranking": ["FLAML"],
             "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras", "Model Search"],

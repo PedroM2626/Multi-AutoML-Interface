@@ -108,6 +108,12 @@ def run_autokeras_experiment(train_data: pd.DataFrame, target: str, run_name: st
                 clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=5) # Default short epoch
             else:
                 clf.fit(x_train, y_train, epochs=5)
+        elif task_type == "Computer Vision - Multi-Label Classification":
+            clf = ak.ImageClassifier(overwrite=True, max_trials=max_trials, directory=model_path, multi_label=True)
+            if val_ds:
+                clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=5) # Default short epoch
+            else:
+                clf.fit(x_train, y_train, epochs=5)
         else:
             # We don't natively support bounding boxes or segmentation masks right now without specific parser
             raise NotImplementedError(f"AutoKeras task '{task_type}' requires labels not inherently present in the directory structure or is unsupported by AutoKeras basic API.")

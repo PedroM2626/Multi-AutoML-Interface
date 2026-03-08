@@ -1,0 +1,39 @@
+# Dockerfile specifically built for AutoGluon CV (PyTorch <= 2.1 mapped with mmcv 2.1.0)
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    git \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PyTorch <= 2.1 (Must match for mmcv)
+# We use CPU only here to maintain small generic image size. For enterprise GPU builds, the base image and torch URL should change to cu118/cu121.
+RUN pip install --no-cache-dir torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Install mmcv tailored for torch 2.1.0 cpu
+RUN pip install --no-cache-dir -U openmim && \
+    mim install "mmcv==2.1.0"
+
+# Install specific dependencies including AutoGluon via generic requirements mapping
+COPY requirements.txt .
+
+# Try to respect base requirements but strip conflicting or strict versions if they break older pip constraints
+RUN grep -v -E "^(torch|torchvision|torchaudio|tensorflow|keras|autokeras|model-search)" requirements.txt > reqs_filtered.txt && \
+    pip install --no-cache-dir -r reqs_filtered.txt || pip install --no-cache-dir autogluon==1.1.1 pandas scikit-learn streamlit mlflow
+
+COPY . /app
+
+EXPOSE 8501
+
+ENV MLFLOW_TRACKING_URI=./mlruns
+# Explicit limit threads to prevent locking in basic containers
+ENV OMP_NUM_THREADS=2
+
+CMD ["streamlit", "run", "app.py"]

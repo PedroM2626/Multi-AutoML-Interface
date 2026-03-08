@@ -47,8 +47,10 @@ def run_modelsearch_experiment(train_data: pd.DataFrame, target: str, run_name: 
         # requires compiling TFRecords. In a real-world enterprise setting, we'd invoke the tf.data -> TFRecord building script here.
         
         qlog("Model Search initiated.")
-        if task_type != "Computer Vision - Image Classification":
-            raise NotImplementedError("Only Image Classification is supported for CV with Model Search.")
+        # Basic validation
+        valid_tasks = ["Classification", "Computer Vision - Image Classification", "Computer Vision - Multi-Label Classification"]
+        if task_type not in valid_tasks:
+            raise ValueError(f"Model Search integration currently only supports {valid_tasks} for CV with Model Search.")
             
         if "Image_Directory" not in train_data.columns:
             raise ValueError("Model Search requires 'Image_Directory' in the training payload for CV tasks.")

@@ -17,7 +17,7 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
     """
     is_cv_task = task_type and task_type.startswith("Computer Vision")
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
-    is_multilabel = task_type == "Multi-Label Classification"
+    is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
     
     if is_cv_task:
         from autogluon.multimodal import MultiModalPredictor
