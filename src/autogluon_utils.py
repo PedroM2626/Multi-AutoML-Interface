@@ -77,18 +77,18 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             mlflow.log_param("has_test_data", True)
             
         if is_cv_task:
-            # AutoGluon MultiModal uses 'problem_type' classification/object_detection usually inferred from data
-            # fit() parameters are slightly different from TabularPredictor
             mm_fit_args = {"train_data": train_data, "time_limit": time_limit}
             if valid_data is not None:
                 mm_fit_args["tuning_data"] = valid_data
             
+            problem_type = None
             if is_segmentation:
-                mm_fit_args["problem_type"] = "semantic_segmentation"
+                problem_type = "semantic_segmentation"
+            elif task_type == "Computer Vision - Object Detection":
+                problem_type = "object_detection"
                 
-            # Use 'high_quality' preset mapped to multi-modal
             mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
-            predictor = MultiModalPredictor(label=target, problem_type=mm_fit_args.get("problem_type"), path=model_path).fit(**mm_fit_args, presets=mm_presets)
+            predictor = MultiModalPredictor(label=target, problem_type=problem_type, path=model_path).fit(**mm_fit_args, presets=mm_presets)
         else:
             fit_args = {
                 "train_data": train_data,

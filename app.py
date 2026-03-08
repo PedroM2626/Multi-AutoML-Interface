@@ -975,8 +975,8 @@ elif menu == "Training":
             "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
             "Ranking": ["FLAML"],
             "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras", "Model Search"],
-            "Computer Vision - Object Detection": ["AutoGluon", "AutoKeras"],
-            "Computer Vision - Image Segmentation": ["AutoGluon", "AutoKeras"]
+            "Computer Vision - Object Detection": ["AutoGluon"],
+            "Computer Vision - Image Segmentation": ["AutoGluon"]
         }
         available_frameworks = task_fw_map.get(task_type, ["FLAML"])
         framework = st.selectbox("Select AutoML Framework", available_frameworks)

@@ -34,5 +34,8 @@ models/
 *out*
 *.tsv
 *.json
+*.jpg
+*.png
+*.jpeg
 
 references/*
