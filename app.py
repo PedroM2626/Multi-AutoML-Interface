@@ -978,6 +978,8 @@ elif menu == "Training":
             "Computer Vision - Object Detection": ["AutoGluon", "AutoKeras"]
         }
         available_frameworks = task_fw_map.get(task_type, ["FLAML"])
+        framework = st.selectbox("Select AutoML Framework", available_frameworks)
+        st.session_state['framework'] = framework
         
         if task_type.startswith("Computer Vision"):
             target = "label"
