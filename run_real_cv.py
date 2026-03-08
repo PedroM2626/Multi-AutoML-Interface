@@ -25,10 +25,6 @@ try:
 except ImportError:
     run_autokeras_experiment = None
 
-try:
-    from src.modelsearch_utils import run_modelsearch_experiment
-except ImportError:
-    run_modelsearch_experiment = None
 
 def setup_dummy_classification(base_dir="test_cv_cls"):
     """Create dummy images for standard Image Classification"""
@@ -155,20 +151,6 @@ def main():
     else:
         print("AutoKeras utils not found. Skipping tests.")
 
-            
-    print("\\n" + "="*50)
-    print("3. MODEL SEARCH TESTS")
-    print("="*50)
-    
-    if run_modelsearch_experiment:
-        print("\\n-- MODEL SEARCH: Computer Vision - Image Classification --")
-        try:
-            run_modelsearch_experiment(train_data=df_cls, target="label", run_name="ms_cls_test", task_type="Computer Vision - Image Classification", log_queue=log_q)
-            print(">> SUCCESS: Model Search Image Classification.")
-        except Exception as e:
-            print(f">> FAILED: Model Search. Error: {e}")
-    else:
-        print("Model Search utils not found. Skipping tests.")
 
 if __name__ == "__main__":
     main()

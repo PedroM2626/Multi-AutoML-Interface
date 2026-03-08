@@ -547,7 +547,7 @@ except Exception as e:
 st.sidebar.markdown("""
 <div class="sidebar-brand">
     <div class="sidebar-brand-title">Multi-AutoML<br>Interface</div>
-    <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O<br>TPOT · PyCaret · Lale<br>AutoKeras · Model Search</div>
+    <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O<br>TPOT · PyCaret · Lale<br>AutoKeras</div>
 </div>""", unsafe_allow_html=True)
 
 # Badge for running experiments (cached for 5s to avoid script-wide slowdown)
@@ -971,10 +971,10 @@ elif menu == "Training":
         task_fw_map = {
             "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
             "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-            "Computer Vision - Multi-Label Classification": ["AutoGluon", "AutoKeras", "Model Search"],
+            "Computer Vision - Multi-Label Classification": ["AutoGluon", "AutoKeras"],
             "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
             "Ranking": ["FLAML"],
-            "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras", "Model Search"],
+            "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras"],
             "Computer Vision - Object Detection": ["AutoGluon"],
             "Computer Vision - Image Segmentation": ["AutoGluon"]
         }
@@ -1239,12 +1239,6 @@ elif menu == "Training":
                 _kwargs = dict(train_data=df, target=target, run_name=run_name,
                                valid_data=valid_df, task_type=task_type, time_limit=time_limit)
                 _fw_key = "autokeras"
-            elif framework == "Model Search":
-                from src.modelsearch_utils import run_modelsearch_experiment
-                _fn = run_modelsearch_experiment
-                _kwargs = dict(train_data=df, target=target, run_name=run_name,
-                               valid_data=valid_df, task_type=task_type)
-                _fw_key = "model_search"
             elif framework == "FLAML":
                 from src.flaml_utils import train_flaml_model
                 _fn = train_flaml_model

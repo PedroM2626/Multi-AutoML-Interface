@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import shutil
 from src.autokeras_utils import run_autokeras_experiment
-from src.modelsearch_utils import run_modelsearch_experiment
 
 @pytest.fixture
 def mock_cv_dataset(tmp_path):
@@ -26,14 +25,3 @@ def test_autokeras_cv_failure_on_missing_dir():
     with pytest.raises(ValueError):
         run_autokeras_experiment(df, "label", "run1")
 
-def test_modelsearch_cv_failure_on_missing_dir():
-    df = pd.DataFrame([{"A": 1}])
-    with pytest.raises(ValueError):
-        run_modelsearch_experiment(df, "label", "run2")
-
-def test_modelsearch_mock_run(mock_cv_dataset):
-    df, _ = mock_cv_dataset
-    res = run_modelsearch_experiment(df, "label", "run3", task_type="Computer Vision - Image Classification")
-    assert res is not None
-    assert res["type"] == "model_search"
-    assert res["predictor"] is None

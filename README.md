@@ -1,11 +1,11 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-3.6.3-blue)
+![Version](https://img.shields.io/badge/version-3.7.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras, Model Search) with integrated MLOps via MLflow.**
+**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras) with integrated MLOps via MLflow.**
 
 ---
 
@@ -32,12 +32,11 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **PyCaret** (Open Source) - End-to-end low code ML platform
 - **Lale** (IBM) - Scikit-Learn compatible topology search with Hyperopt
 - **AutoKeras** (Open Source) - AutoML for deep learning based on Keras
-- **Model Search** (Google) - AutoML algorithms for model architecture search at scale
 
 ### 📊 **Integrated MLOps & Advanced Dashboard:**
 - **Live Experiments Dashboard**: Monitor multiple concurrent training runs with real-time logs and metrics.
 - **⚡ Non-Blocking Updates**: Powered by Streamlit Fragments, the dashboard auto-refreshes without lagging the main UI.
-- **Multi-Concurrent Training**: Launch AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras, and Model Search simultaneously.
+- **Multi-Concurrent Training**: Launch AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, and AutoKeras simultaneously.
 - **Complete MLflow tracking**: Metrics, parameters, and artifacts (models, leaderboards, reports).
 - **Graceful Cancellation**: Stop any running experiment instantly without crashing the application.
 - **Automatic Code Generation**: Every training generates a Python snippet for model consumption.
