@@ -562,7 +562,7 @@ _running_label = f" 🟢 {_running_count}" if _running_count else ""
 st.sidebar.markdown('<div class="sidebar-sep">Navigation</div>', unsafe_allow_html=True)
 menu = st.sidebar.selectbox(
     label="",
-    options=["Data Upload", "Training", f"Experiments{_running_label}", "Prediction", "History (MLflow)"],
+    options=["Data Upload", "Data Exploration", "Training", f"Experiments{_running_label}", "Prediction", "History (MLflow)"],
     label_visibility="collapsed",
 )
 menu = menu.split(" 🟢")[0]  # Normalize label so page logic still matches
@@ -784,6 +784,54 @@ if menu == "Data Upload":
             except Exception as e:
                 st.error(f"Error loading UI previews: {e}")
 
+
+elif menu == "Data Exploration":
+    st.markdown("""
+    <div class="page-title">
+        <div class="page-title-icon">🔍</div>
+        <div class="page-title-text">
+            <h2>Data Exploration & Auto-EDA</h2>
+            <p>Automatically profile your datasets to find correlations, missing values, and imbalances before training.</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.info("Select a dataset from the Data Lake to generate a comprehensive Exploratory Data Analysis (EDA) report.")
+    
+    available_files = cached_get_data_lake_files()
+    if not available_files:
+        st.warning("No files in Data Lake. Please upload data first in the 'Data Upload' tab.")
+    else:
+        file_options = [os.path.basename(f) for f in available_files]
+        file_paths_map = {os.path.basename(f): f for f in available_files}
+        
+        selected_file = st.selectbox("Select Dataset to Profile", file_options)
+        
+        if st.button("Generate Auto-EDA Report", type="primary"):
+            try:
+                import ydata_profiling
+                from streamlit_pandas_profiling import st_profile_report
+                
+                with st.spinner("Generating EDA Report... This may take a moment for large datasets."):
+                    file_path = file_paths_map[selected_file]
+                    df_eda = cached_load_data(file_path)
+                    
+                    # Basic Health Checks built-in warnings
+                    n_rows = len(df_eda)
+                    missing_cells = df_eda.isnull().sum().sum()
+                    missing_pct = (missing_cells / (df_eda.shape[0] * df_eda.shape[1])) * 100
+                    
+                    if missing_pct > 5:
+                        st.warning(f"⚠️ Health Alert: Your dataset has {missing_pct:.1f}% missing values overall. Consider imputation before training.")
+                    
+                    # Generate and display report
+                    pr = ydata_profiling.ProfileReport(df_eda, explorative=True, minimal=n_rows > 10000)
+                    st_profile_report(pr)
+                    
+            except ImportError:
+                st.error("Missing dependency. Please ensure `ydata-profiling` and `streamlit-pandas-profiling` are installed in your environment.")
+            except Exception as e:
+                st.error(f"Error generating report: {e}")
 
 elif menu == "Training":
     st.markdown("""
@@ -1907,6 +1955,67 @@ elif menu == "Prediction":
 
                     st.success("Predictions concluded!")
                     st.dataframe(result_df)
+
+                    # ─── XAI (Explainable AI) for Tabular Predictions ───
+                    # Only show XAI for single manual entries to avoid lag on large file uploads
+                    if input_mode == "Real-time Prediction (Manual Entry)":
+                        st.markdown("---")
+                        if st.button("🧠 Explain Prediction (SHAP)"):
+                            with st.spinner("Generating Explanations..."):
+                                from src.xai_utils import generate_shap_explanation
+                                train_data_ref = st.session_state.get('df')
+                                target_ref = st.session_state.get('target', "target")
+                                
+                                if train_data_ref is not None:
+                                    bg_data = train_data_ref.drop(columns=[target_ref], errors='ignore')
+                                    # For local explanation, evaluate on the single entry
+                                    fig = generate_shap_explanation(
+                                        model=predictor, 
+                                        X_train=bg_data, 
+                                        X_valid=pred_input_df, # single row
+                                        task_type=st.session_state.get('task_type', "Classification")
+                                    )
+                                    if fig is not None:
+                                        st.pyplot(fig)
+                                        st.info("The Waterfall/Summary plot shows how each feature pushed the model output from the base value to the final prediction.")
+                                    else:
+                                        st.error("SHAP explanation not supported for this model architecture.")
+                                else:
+                                    st.warning("Training data not available in session to generate background SHAP values.")
+
+                    # ─── XAI (Explainable AI) for Computer Vision Predictions ───
+                    if input_mode == "Real-time Prediction (Manual Entry)" and "Computer Vision" in st.session_state.get('task_type', ""):
+                        st.markdown("---")
+                        if st.button("👁️ Explain AI Decision (Saliency Map)"):
+                            with st.spinner("Generating Saliency Map... (This might take a minute depending on image size)"):
+                                from src.xai_utils import generate_cv_saliency_map
+                                
+                                # Find the image path in the predictions dataframe
+                                img_path = None
+                                if 'image' in pred_input_df.columns:
+                                    img_path = pred_input_df['image'].iloc[0]
+                                elif 'image_path' in pred_input_df.columns:
+                                    img_path = pred_input_df['image_path'].iloc[0]
+                                else:
+                                    # Try to guess which column might be an image path
+                                    for col in pred_input_df.columns:
+                                        val = str(pred_input_df[col].iloc[0])
+                                        if val.lower().endswith(('.png', '.jpg', '.jpeg')):
+                                            img_path = val
+                                            break
+                                            
+                                if img_path and os.path.exists(img_path):
+                                    fig = generate_cv_saliency_map(
+                                        model=predictor, 
+                                        image_path=img_path
+                                    )
+                                    if fig is not None:
+                                        st.pyplot(fig)
+                                        st.info("The Occlusion Saliency Map highlights regions of the image that the model found most informative for its prediction (warmer colors = more important).")
+                                    else:
+                                        st.error("Failed to generate Saliency Map for this model.")
+                                else:
+                                    st.warning("Could not identify a valid image path in the input data to generate an explanation.")
 
                     csv = result_df.to_csv(index=False).encode('utf-8')
                     st.download_button("Download predictions CSV", csv, "predictions.csv", "text/csv")

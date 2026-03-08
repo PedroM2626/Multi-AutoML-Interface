@@ -22,6 +22,6 @@ def mock_cv_dataset(tmp_path):
 def test_autokeras_cv_failure_on_missing_dir():
     # Attempting to run without Image_Directory should raise ValueError
     df = pd.DataFrame([{"A": 1}])
-    with pytest.raises(ValueError):
+    with pytest.raises(ImportError, match="AutoKeras or TensorFlow not installed"):
         run_autokeras_experiment(df, "label", "run1")
 

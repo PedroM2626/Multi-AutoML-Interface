@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-3.7.0-blue)
+![Version](https://img.shields.io/badge/version-3.8.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -34,6 +34,8 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **AutoKeras** (Open Source) - AutoML for deep learning based on Keras
 
 ### 📊 **Integrated MLOps & Advanced Dashboard:**
+- **Explainable AI (XAI)**: Integrated **SHAP** for tabular data and **Saliency Maps** (Occlusion) for Computer Vision to understand model decisions.
+- **Auto-EDA & Data Health**: Real-time data profiling using `ydata-profiling` to identify imbalances and correlations before training.
 - **Live Experiments Dashboard**: Monitor multiple concurrent training runs with real-time logs and metrics.
 - **⚡ Non-Blocking Updates**: Powered by Streamlit Fragments, the dashboard auto-refreshes without lagging the main UI.
 - **Multi-Concurrent Training**: Launch AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, and AutoKeras simultaneously.
@@ -43,7 +45,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **🚀 One-Click API Deployment**: Generate a complete FastAPI + Docker package for any model in seconds.
 - **Storage Management**: Automatically cleans up local model files after MLflow sync.
 - **Advanced Prediction**: Batch processing via file upload or **Manual Entry Form**.
-- **Unified ML Task Selector**: Choose between Classification, Regression, Multi-Label Classification, Time Series Forecasting, and Computer Vision (Image Classification, Object Detection, Image Segmentation).
+- **Unified ML Task Selector**: Choose between Classification, Regression, Multi-Label Classification, Time Series Forecasting, and Computer Vision (Image Classification, Multi-Label, Object Detection, Image Segmentation).
 - **Dynamic Framework Filtering**: View only the AutoML engines that support your selected task.
 
 ### 🖥️ **Multi-Deploy:**
@@ -143,15 +145,16 @@ docker-compose up
 
 ### 🎯 **Basic Workflow:**
 
-#### **1. Data Upload:**
+#### **1. Data Upload & Exploration:**
 - Supported formats: CSV, Excel
+- **Auto-EDA Integrated**: Generate comprehensive profiling reports with `ydata-profiling` to check for missing values and correlations.
 - **Multiple splits supported**: Train (mandatory), Validation (optional), and Test (optional)
 - Automatic type detection
 - **Automatic Data Lake**: When processing data, it is copied to the `data_lake/` folder and versioned via DVC, generating hashes for version control.
 
 #### **2. Experiment Configuration:**
-- **Task Type**: Classification, Regression, or Time Series Forecasting (supported by specific frameworks).
-- **Framework**: AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale (filtered by task).
+- **Task Type**: Classification, Regression, Multi-Label, Time Series, or Computer Vision (Image Classification, Object Detection, Segmentation).
+- **Framework**: AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras (filtered by task).
 - **Advanced parameters**: seed, time limits, folds, max textual features (TF-IDF), CV, forecasting horizon (TS), etc.
 
 #### **3. Training & Monitoring:**
@@ -167,9 +170,10 @@ docker-compose up
 - **Model Registry**: Register specific versions of models for lifecycle management.
 - **🚀 One-Click API Deployment**: In the History tab, click "Generate FastAPI Deployment Package" to create a ready-to-use Dockerized web service for your model.
 
-#### **5. Prediction:**
+#### **5. Prediction & Explainability:**
 - **File Upload**: Predict on large datasets (CSV/Excel).
-- **Manual Input**: Real-time inference using a dynamically generated form based on the model's features.
+- **Manual Input**: Real-time inference using a dynamically generated form.
+- **XAI Support**: Click "**Explain Prediction (SHAP)**" for tabular data or "**Explain AI Decision (Saliency Map)**" for CV to see why the model made a certain decision.
 - **Consumption Sample**: Copy the generated Python code to integrate the model into your own applications.
 
 #### **6. Maintenance & Storage Management:**
@@ -447,6 +451,7 @@ Multi-AutoML-Interface/
 │   ├── 📄 tpot_utils.py       # TPOT integration 
 │   ├── 📄 pycaret_utils.py    # PyCaret integration
 │   ├── 📄 lale_utils.py       # Lale integration
+│   ├── 📄 xai_utils.py        # SHAP and Saliency Map integration
 │   ├── 📄 mlflow_utils.py     # MLflow helpers and auto-healing
 │   ├── 📄 mlflow_cache.py     # Cache optimization
 │   ├── 📄 code_gen_utils.py   # Model consumption code generator
@@ -550,9 +555,8 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ### 🚀 **Upcoming Features**
 - [ ] **Auto-sklearn** (meta-learning)
-- [ ] **Model explainability** (SHAP, LIME)
-- [ ] **Advanced visualizations**
-- [ ] **Batch processing**
+- [ ] **Advanced visualizations** (3D clusters, interactive ROC)
+- [ ] **Batch processing queue** (Distributed training)
 
 ---
 
