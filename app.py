@@ -1155,7 +1155,14 @@ elif menu == "Training":
             st.info(f"FLAML internal task synced to: **{task}**")
             
             # Smart metric selection for FLAML
-            num_classes = df[target].nunique() if target in df.columns else 2
+            target_stats = st.session_state.get('target_stats', {})
+            if target_stats.get('name') != target:
+                num_classes = df[target].nunique() if target in df.columns else 2
+                target_stats = {'name': target, 'nunique': num_classes}
+                st.session_state['target_stats'] = target_stats
+            else:
+                num_classes = target_stats['nunique']
+
             if task == 'classification':
                 if num_classes > 2:
                     st.warning(f"Multiclass problem detected ({num_classes} classes).")
@@ -1222,7 +1229,14 @@ elif menu == "Training":
                 tfidf_ngram_range = (1, ngram_max)
                 
                 # Auto problem detection
-                problem_type = 'classification' if df[target].nunique() <= 20 or df[target].dtype == 'object' else 'regression'
+                target_stats = st.session_state.get('target_stats', {})
+                if target_stats.get('name') != target:
+                    num_classes = df[target].nunique() if target in df.columns else 2
+                    st.session_state['target_stats'] = {'name': target, 'nunique': num_classes}
+                else:
+                    num_classes = target_stats['nunique']
+                
+                problem_type = 'classification' if num_classes <= 20 or df[target].dtype == 'object' else 'regression'
                 st.info(f"🎯 Problem type detected: **{problem_type}**")
                 
                 # Metrics based on problem type
