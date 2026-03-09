@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-3.9.0-blue)
+![Version](https://img.shields.io/badge/version-4.0.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -154,7 +154,10 @@ docker-compose up
 
 #### **2. Experiment Configuration:**
 - **Task Type**: Classification, Regression, Multi-Label, Time Series, or Computer Vision (Image Classification, Object Detection, Segmentation).
-- **Framework**: AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras (filtered by task).
+- **Framework Agnostic**: Support for AutoGluon, FLAML, H2O, TPOT, PyCaret, and Lale.
+- **ONNX Integration**: Universal model export and import via ONNX for cross-platform deployment.
+- **Hugging Face Hub**: One-click deployment and discovery of models on the HF Hub.
+- **MLOps Ready**: Integrated MLflow experiment tracking and DVC data versioning.
 - **Advanced parameters**: seed, time limits, folds, max textual features (TF-IDF), CV, forecasting horizon (TS), etc.
 
 #### **3. Training & Monitoring:**

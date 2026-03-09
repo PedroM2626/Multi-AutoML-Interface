@@ -8,6 +8,7 @@ from flaml import AutoML
 import matplotlib.pyplot as plt
 import time
 from src.mlflow_utils import safe_set_experiment
+from src.onnx_utils import export_to_onnx
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,16 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
         # Log as artifact
         mlflow.log_artifact(model_path, artifact_path="model")
         mlflow.log_param("model_type", "flaml")
+        
+        # ONNX Export
+        try:
+            onnx_path = os.path.join("models", f"flaml_{run_name}.onnx")
+            # For FLAML, we can often export the underlying best estimator or the AutoML object if it's scikit-learn compatible
+            # We pass X_train[:1] as sample input for shape inference
+            export_to_onnx(automl.model.estimator, "flaml", target, onnx_path, input_sample=X_train[:1])
+            mlflow.log_artifact(onnx_path, artifact_path="model")
+        except Exception as e:
+            logger.warning(f"Failed to export FLAML model to ONNX: {e}")
         
         # Generate and log consumption code sample
         try:

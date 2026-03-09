@@ -1507,6 +1507,57 @@ elif menu == "Experiments":
                         except Exception:
                             pass
 
+                # ── Additional Actions: ONNX & Hugging Face ─────────────
+                act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
+                with act_col1:
+                    if entry.status == "completed" and run_id:
+                        if st.button("📦 Export to ONNX", key=f"onnx_exp_{entry.key}", use_container_width=True):
+                            try:
+                                from src.onnx_utils import export_to_onnx
+                                from src.data_utils import load_data
+                                predictor = entry.result.get("predictor")
+                                fw_key = entry.metadata.get("framework_key", "unknown")
+                                target = entry.metadata.get("target", "target")
+                                
+                                # We need a sample of the data to infer shapes
+                                available_files = cached_get_data_lake_files()
+                                if available_files:
+                                    sample_df = load_data(available_files[0])
+                                    onnx_path = os.path.join("models", f"{rname}.onnx")
+                                    export_to_onnx(predictor, fw_key, target, onnx_path, input_sample=sample_df[:1])
+                                    mlflow.log_artifact(onnx_path, artifact_path="model")
+                                    st.success(f"Model exported to ONNX and logged to MLflow!")
+                                else:
+                                    st.error("Need a dataset in Data Lake for shape inference.")
+                            except Exception as oe:
+                                st.error(f"ONNX Export error: {oe}")
+
+                with act_col2:
+                    if entry.status == "completed" and run_id:
+                        if st.button("🚀 Push to Hugging Face", key=f"hf_push_{entry.key}", use_container_width=True):
+                            st.session_state[f"show_hf_push_{entry.key}"] = True
+                
+                if st.session_state.get(f"show_hf_push_{entry.key}"):
+                    with st.container():
+                        st.markdown("##### 🚀 Push to Hugging Face Hub")
+                        hf_repo = st.text_input("Repository ID (e.g., username/model-name)", key=f"hf_repo_{entry.key}")
+                        hf_token = st.text_input("HF Access Token", type="password", key=f"hf_token_{entry.key}")
+                        if st.button("Confirm Push", key=f"hf_confirm_{entry.key}"):
+                            try:
+                                from src.huggingface_utils import HuggingFaceService
+                                hf = HuggingFaceService(token=hf_token)
+                                # For simplicity, push the native model .pkl
+                                model_path = os.path.join("models", f"{fw_key}_{rname}.pkl")
+                                if not os.path.exists(model_path):
+                                    # Try to download from mlflow if local not found
+                                    local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
+                                    model_path = local_path
+                                hf.upload_model(model_path, hf_repo)
+                                st.success(f"Model successfully pushed to https://huggingface.co/{hf_repo}")
+                                st.session_state[f"show_hf_push_{entry.key}"] = False
+                            except Exception as hfe:
+                                st.error(f"HF Upload error: {hfe}")
+
                 # ── Pipeline visualization ────────────────────────────────
                 st.markdown('<div class="section-header">🔄 Training Pipeline</div>', unsafe_allow_html=True)
                 render_pipeline_visualization(fw_key, entry.all_logs, entry.status)
@@ -1736,10 +1787,9 @@ elif menu == "Experiments":
     render_experiment_dashboard()
 
 
-elif menu == "Prediction":
     st.header("🔮 Prediction")
     
-    load_option = st.radio("Choose the model source", ["Current session model", "Load from MLflow runs"])
+    load_option = st.radio("Choose the model source", ["Current session model", "Load from MLflow runs", "Load from ONNX / Hugging Face"])
     
     if load_option == "Load from MLflow runs":
         col1, col2 = st.columns(2)
@@ -1796,6 +1846,42 @@ elif menu == "Prediction":
                 st.success("Model loaded successfully!")
             except Exception as e:
                 st.error(f"Loading error: {e}")
+
+    elif load_option == "Load from ONNX / Hugging Face":
+        st.markdown("##### 📦 Load from External Sources")
+        src_mode = st.radio("Source", ["Local ONNX File", "Hugging Face Hub"], horizontal=True)
+        if src_mode == "Local ONNX File":
+            onnx_file = st.file_uploader("Upload .onnx file", type=["onnx"])
+            if onnx_file:
+                try:
+                    from src.onnx_utils import load_onnx_session
+                    # Save temp file
+                    os.makedirs("temp", exist_ok=True)
+                    temp_path = os.path.join("temp", onnx_file.name)
+                    with open(temp_path, "wb") as f:
+                        f.write(onnx_file.getbuffer())
+                    st.session_state['predictor'] = load_onnx_session(temp_path)
+                    st.session_state['model_type'] = "onnx"
+                    st.success("ONNX session loaded!")
+                except Exception as oe:
+                    st.error(f"ONNX error: {oe}")
+        else:
+            hf_repo_search = st.text_input("HF Repo ID")
+            hf_file_search = st.text_input("Filename in Repo (e.g. model.onnx or model.pkl)", value="model.onnx")
+            if st.button("Download & Load"):
+                try:
+                    from src.huggingface_utils import HuggingFaceService
+                    hf = HuggingFaceService()
+                    local_path = hf.download_model(hf_repo_search, hf_file_search)
+                    if hf_file_search.endswith(".onnx"):
+                        from src.onnx_utils import load_onnx_session
+                        st.session_state['predictor'] = load_onnx_session(local_path)
+                        st.session_state['model_type'] = "onnx"
+                    else:
+                        st.info("File downloaded. Generic loading for non-ONNX files from Hub is not yet unified. Please load via MLflow if registered.")
+                    st.success(f"Loaded {hf_file_search} from Hub!")
+                except Exception as he:
+                    st.error(f"Hub error: {he}")
 
     if st.session_state['predictor'] is not None:
         predictor = st.session_state['predictor']
@@ -1869,6 +1955,9 @@ elif menu == "Prediction":
 
                     if m_type == "autogluon":
                         predictions = predictor.predict(pred_input_df)
+                    elif m_type == "onnx":
+                        from src.onnx_utils import predict_onnx
+                        predictions = predict_onnx(predictor, pred_input_df)
                     elif m_type == "h2o":
                         from src.h2o_utils import predict_with_h2o
                         predictions = predict_with_h2o(predictor, pred_input_df)

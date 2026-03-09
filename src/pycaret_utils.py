@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 import mlflow
 
 from src.mlflow_utils import safe_set_experiment
+from src.onnx_utils import export_to_onnx
 
 
 def run_pycaret_experiment(
@@ -175,6 +176,15 @@ def run_pycaret_experiment(
             model_pkl = f"{model_path_base}.pkl"
             if os.path.exists(model_pkl):
                 mlflow.log_artifact(model_pkl, artifact_path="model")
+
+            # ONNX Export
+            try:
+                onnx_path = os.path.join(model_dir, f"{run_name}_pycaret.onnx")
+                # PyCaret 'final_model' is a scikit-learn pipeline
+                export_to_onnx(final_model, "pycaret", target_col, onnx_path, input_sample=train_df[:1])
+                mlflow.log_artifact(onnx_path, artifact_path="model")
+            except Exception as e:
+                logger.warning(f"Failed to export PyCaret model to ONNX: {e}")
 
             logger.info("PyCaret experiment completed successfully.")
             return {

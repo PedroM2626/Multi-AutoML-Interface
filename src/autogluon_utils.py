@@ -4,6 +4,7 @@ import mlflow
 import shutil
 import logging
 from src.mlflow_utils import safe_set_experiment
+from src.onnx_utils import export_to_onnx
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,19 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         try:
             mlflow.log_artifacts(model_path, artifact_path="model")
             mlflow.log_param("model_type", "autogluon")
+            
+            # ONNX Export (Best effort for Tabular)
+            if not is_cv_task:
+                try:
+                    onnx_path = os.path.join("models", f"ag_{run_name}.onnx")
+                    # AutoGluon Tabular supports ONNX export for some models
+                    # This might require specific dependencies or AG version
+                    # We call our utility which handles AG logic
+                    export_to_onnx(predictor, "autogluon", target, onnx_path, input_sample=train_data[:1])
+                    mlflow.log_artifact(onnx_path, artifact_path="model")
+                except Exception as e:
+                    logger.warning(f"Failed to export AutoGluon model to ONNX: {e}")
+
             logger.info(f"AutoGluon artifacts logged successfully for {run_name}")
             
             # CRITICAL: Delete local model folder after successful MLflow logging to save disk space
