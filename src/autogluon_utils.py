@@ -99,12 +99,14 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             if cv_folds > 0:
                 fit_args["num_bag_folds"] = cv_folds
                 
-            if valid_data is not None and cv_folds == 0:
+            if valid_data is not None:
                 fit_args["tuning_data"] = valid_data
+                # If bagging is enabled (manually or by presets), we must set use_bag_holdout=True to use separate tuning_data
+                if cv_folds > 0 or presets in ["best_quality", "high_quality"]:
+                    fit_args["use_bag_holdout"] = True
                 
             if is_multilabel:
-                fit_args["problem_type"] = "multiclass" # AutoGluon often handles multilabel implicitly or via multiclass depending on format. Setting multiclass to be safe if it's one-hot, or we let it infer. Let's let it infer by default or set explicitly if needed.
-                # Actually, AutoGluon natively supports multilabel if properties are right, but often infer is best. We will let it infer, but we can explicitly log it.
+                fit_args["problem_type"] = "multiclass"
                 mlflow.log_param("is_multilabel", True)
                 
             predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
