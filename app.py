@@ -550,22 +550,12 @@ st.sidebar.markdown("""
     <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O<br>TPOT · PyCaret · Lale<br>AutoKeras</div>
 </div>""", unsafe_allow_html=True)
 
-# Badge for running experiments (cached for 5s to avoid script-wide slowdown)
-curr_time = time.time()
-if '_last_count_time' not in st.session_state or curr_time - st.session_state['_last_count_time'] > 5:
-    st.session_state['_running_count'] = sum(1 for e in exp_manager.get_all() if e.status == "running")
-    st.session_state['_last_count_time'] = curr_time
-
-_running_count = st.session_state['_running_count']
-_running_label = f" 🟢 {_running_count}" if _running_count else ""
-
 st.sidebar.markdown('<div class="sidebar-sep">Navigation</div>', unsafe_allow_html=True)
 menu = st.sidebar.selectbox(
     label="",
-    options=["Data Upload", "Data Exploration", "Training", f"Experiments{_running_label}", "Prediction", "History (MLflow)"],
+    options=["Data Upload", "Data Exploration", "Training", "Experiments", "Prediction", "History (MLflow)"],
     label_visibility="collapsed",
 )
-menu = menu.split(" 🟢")[0]  # Normalize label so page logic still matches
 
 st.sidebar.markdown('<div class="sidebar-sep">Integrations</div>', unsafe_allow_html=True)
 st.sidebar.header("🔗 DagsHub Integration (Optional)")

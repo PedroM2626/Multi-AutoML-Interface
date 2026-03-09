@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-3.8.0-blue)
+![Version](https://img.shields.io/badge/version-3.9.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
