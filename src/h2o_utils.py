@@ -203,14 +203,62 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             
             # Train model
             logger.info("Starting H2O AutoML training...")
+            import sys
+            # Guard against deep recursion in H2O/Scipy on some datasets
+            sys.setrecursionlimit(max(sys.getrecursionlimit(), 3000))
+
             start_time = time.time()
             train_kwargs = {"x": features, "y": target, "training_frame": h2o_frame}
             if h2o_valid is not None:
                 train_kwargs["validation_frame"] = h2o_valid
             if h2o_test is not None:
                 train_kwargs["leaderboard_frame"] = h2o_test
+            
+            # Streaming updates thread
+            def _push_h2o_telemetry():
+                while aml.leaderboard is None or aml.leaderboard.nrow == 0:
+                    if stop_event and stop_event.is_set(): break
+                    time.sleep(2)
                 
-            aml.train(**train_kwargs)
+                last_row_count = 0
+                while not (stop_event and stop_event.is_set()):
+                    try:
+                        lb = aml.leaderboard
+                        if lb is not None and lb.nrow > last_row_count:
+                            last_row_count = lb.nrow
+                            lb_df = lb.as_data_frame()
+                            best_metric = lb_df.columns[1] if len(lb_df.columns) > 1 else "score"
+                            best_val = lb_df.iloc[0, 1] if len(lb_df) > 0 else 0
+                            
+                            if telemetry_queue:
+                                telemetry_queue.put({
+                                    "status": "running",
+                                    "models_trained": last_row_count,
+                                    "best_metric": best_metric,
+                                    "best_value": best_val,
+                                    "leaderboard_preview": lb_df.head(5).to_dict(orient='records')
+                                })
+                    except Exception:
+                        pass
+                    if training_duration := (time.time() - start_time):
+                         if training_duration > max_runtime_secs and max_runtime_secs > 0: break
+                    time.sleep(5)
+
+            if telemetry_queue:
+                t_telemetry = threading.Thread(target=_push_h2o_telemetry, daemon=True)
+                t_telemetry.start()
+
+            # Fix encoding issue on Windows by disabling H2O progress bar if it causes issues
+            # or wrapping the call. H2O uses ASCII bars if it detects non-tty, but our router
+            # might be confusing it.
+            try:
+                aml.train(**train_kwargs)
+            except UnicodeEncodeError:
+                # Fallback: try with minimal verbosity if encoding fails
+                logger.warning("Encoding error detected, retrying with lower verbosity...")
+                aml.project_name = aml.project_name + "_retry"
+                aml.train(**train_kwargs)
+
             training_duration = time.time() - start_time
             
             logger.info(f"Training completed in {training_duration:.2f} seconds")

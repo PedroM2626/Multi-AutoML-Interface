@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str, 
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
-                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
-                      estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
-                      stop_event=None):
+                       time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
+                       estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
+                       stop_event=None, telemetry_queue=None):
     """
     Trains a FLAML model and logs results to MLflow.
     """
@@ -104,6 +104,24 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
                     pass
             _cancel_watcher = threading.Thread(target=_watch, daemon=True)
             _cancel_watcher.start()
+
+        # Custom callback for telemetry
+        def _telemetry_callback(iter_count, time_used, best_loss, best_config, estimator, trial_id):
+            try:
+                if telemetry_queue:
+                    telemetry_queue.put({
+                        "status": "running",
+                        "iterations": iter_count,
+                        "time_used": time_used,
+                        "best_loss": best_loss,
+                        "best_estimator": str(estimator),
+                        "best_config_preview": str(best_config)[:200]
+                    })
+            except Exception:
+                pass
+
+        if telemetry_queue:
+            settings["callbacks"] = [_telemetry_callback]
 
         # Train model
         logging.info("Executing hyperparameter search (automl.fit)...")

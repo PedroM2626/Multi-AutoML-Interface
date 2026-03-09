@@ -65,7 +65,10 @@ class _ThreadAwareIO(io.TextIOBase):
             q = self._thread_queues.get(tid)
         if q is not None:
             if s.strip():
-                q.put(s.strip())
+                # Filter out progress bar characters that fail on Windows cp1252
+                # \u2588 is the full block character
+                safe_s = s.replace('\u2588', '#').replace('\u258c', '|').replace('\u2584', '-')
+                q.put(safe_s.strip())
         else:
             # Fall back to original stream for threads not registered
             try:
@@ -155,12 +158,14 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
     entry.log_queue.put(f"[Worker] Starting training: {entry.metadata.get('run_name', entry.key)}")
 
     try:
-        # Inject stop_event into kwargs if the function accepts it
+        # Inject stop_event and telemetry_queue into kwargs if the function accepts it
         try:
             import inspect
             sig = inspect.signature(train_fn)
             if 'stop_event' in sig.parameters:
                 kwargs['stop_event'] = entry.stop_event
+            if 'telemetry_queue' in sig.parameters:
+                kwargs['telemetry_queue'] = entry.telemetry_queue
         except Exception:
             pass
 

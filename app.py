@@ -1403,9 +1403,13 @@ elif menu == "Experiments":
                 return st.session_state.get(cache_key)
         return st.session_state.get(cache_key)
 
-    @st.fragment(run_every="3s")
+    @st.fragment(run_every="5s")
     def render_experiment_dashboard():
-        exp_manager.refresh_all()
+        # Only refresh if there are active runs to save resources
+        is_active = exp_manager.has_running()
+        if is_active:
+            exp_manager.refresh_all()
+        
         all_exps = exp_manager.get_all()
 
         if not all_exps:
@@ -1712,7 +1716,28 @@ elif menu == "Experiments":
                         else:
                             st.info("Best pipeline will appear here after training completes.")
                     elif entry.status == "running":
-                        st.info("🔄 Inspector will populate as training progresses...")
+                        tel = entry.latest_telemetry
+                        if tel:
+                            st.subheader("📡 Live Analytics")
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Models Trained", tel.get("models_trained", tel.get("iterations", 0)))
+                            
+                            best_val = tel.get("best_value", tel.get("best_loss", 0.0))
+                            metric_name = tel.get("best_metric", "Score")
+                            col2.metric(f"Current {metric_name}", f"{best_val:.4f}")
+                            
+                            elapsed = entry.elapsed_str()
+                            col3.metric("Running For", elapsed)
+                            
+                            if "leaderboard_preview" in tel:
+                                st.markdown("**Top Models (Partial)**")
+                                st.dataframe(pd.DataFrame(tel["leaderboard_preview"]), use_container_width=True)
+                            elif "best_estimator" in tel:
+                                st.success(f"Best so far: **{tel['best_estimator']}**")
+                                with st.expander("Best Config Preview"):
+                                    st.code(tel.get("best_config_preview", "N/A"))
+                        else:
+                            st.info("🔄 Training in progress... analytics will appear shortly.")
                     else:
                         st.info("No result available for inspection.")
 

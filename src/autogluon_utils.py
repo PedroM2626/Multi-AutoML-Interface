@@ -109,6 +109,37 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
                 fit_args["problem_type"] = "multiclass"
                 mlflow.log_param("is_multilabel", True)
                 
+            # Streaming updates thread
+            def _push_ag_telemetry():
+                while not (stop_event and stop_event.is_set()):
+                    try:
+                        if os.path.exists(model_path):
+                            # AutoGluon sometimes locks the file, so we try-except
+                            from autogluon.tabular import TabularPredictor
+                            try:
+                                temp_predictor = TabularPredictor.load(path=model_path)
+                                lb = temp_predictor.leaderboard(silent=True)
+                                if len(lb) > 0:
+                                    best_model = lb.iloc[0]['model']
+                                    best_score = lb.iloc[0]['score_val']
+                                    if telemetry_queue:
+                                        telemetry_queue.put({
+                                            "status": "running",
+                                            "models_trained": len(lb),
+                                            "best_model": best_model,
+                                            "best_value": best_score,
+                                            "leaderboard_preview": lb.head(5).to_dict(orient='records')
+                                        })
+                            except:
+                                pass
+                    except:
+                        pass
+                    time.sleep(10)
+            
+            if telemetry_queue:
+                t_telemetry = threading.Thread(target=_push_ag_telemetry, daemon=True)
+                t_telemetry.start()
+
             predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
         
         # Check if cancelled before continuing

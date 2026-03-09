@@ -19,12 +19,14 @@ class ExperimentEntry:
     thread: Optional[threading.Thread] = field(default=None, repr=False)
     stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
     log_queue: queue.Queue = field(default_factory=queue.Queue, repr=False)
+    telemetry_queue: queue.Queue = field(default_factory=queue.Queue, repr=False)
     result_queue: queue.Queue = field(default_factory=queue.Queue, repr=False)
     status: str = "queued"            # queued | running | completed | failed | cancelled
     started_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
     result: Optional[dict] = None     # {predictor, run_id, type, ...} or {error: str}
     all_logs: list = field(default_factory=list)
+    latest_telemetry: dict = field(default_factory=dict)
     last_update: float = field(default_factory=time.time)
 
     def elapsed_str(self) -> str:
@@ -43,7 +45,7 @@ class ExperimentEntry:
         }.get(self.status, "❓")
 
     def drain_logs(self) -> bool:
-        """Pull all pending log lines into all_logs. Returns True if new lines arrived."""
+        """Pull all pending log lines and telemetry into the entry."""
         new = False
         while not self.log_queue.empty():
             try:
@@ -52,6 +54,16 @@ class ExperimentEntry:
                 new = True
             except queue.Empty:
                 break
+        
+        while not self.telemetry_queue.empty():
+            try:
+                data = self.telemetry_queue.get_nowait()
+                if isinstance(data, dict):
+                    self.latest_telemetry.update(data)
+                    new = True
+            except queue.Empty:
+                break
+
         if new:
             self.last_update = time.time()
         return new
