@@ -287,51 +287,56 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             
             # Save leaderboard as metric with safe wrapper
             try:
-                # Check available columns in leaderboard
-                leaderboard_df = None
-                try:
-                    leaderboard_df = leaderboard.as_data_frame()
-                    logger.info(f"Available columns: {list(leaderboard_df.columns)}")
-                except Exception as e:
-                    logger.warning(f"Could not convert leaderboard to DataFrame: {e}")
+                available_metrics = []
+                num_models = 0
                 
-                # Try to get the best available metric
+                try:
+                    num_models = leaderboard.nrow
+                    leaderboard_df = leaderboard.as_data_frame()
+                    available_metrics = [c.lower() for c in leaderboard_df.columns]
+                    logger.info(f"Available leaderboard columns: {list(leaderboard_df.columns)}")
+                except Exception as e:
+                    logger.warning(f"Metadata extraction failed: {e}")
+                    leaderboard_df = None
+
+                # Search for metrics in preference order
                 best_model_score = 0.0
-                if leaderboard_df is not None and len(leaderboard_df) > 0:
-                    # Search for metrics in preference order
-                    for metric in ['auc', 'logloss', 'rmse', 'mae', 'r2']:
-                        if metric in leaderboard_df.columns:
-                            best_model_score = leaderboard_df.iloc[0][metric]
-                            logger.info(f"Using metric '{metric}': {best_model_score}")
+                found_metric = "none"
+                
+                metric_candidates = ['auc', 'logloss', 'rmse', 'mae', 'r2', 'mse', 'accuracy', 'f1']
+                
+                if leaderboard_df is not None and not leaderboard_df.empty:
+                    # Find column index
+                    col_names_lower = [c.lower() for c in leaderboard_df.columns]
+                    for m_cand in metric_candidates:
+                        if m_cand in col_names_lower:
+                            idx = col_names_lower.index(m_cand)
+                            actual_col = leaderboard_df.columns[idx]
+                            best_model_score = float(leaderboard_df.iloc[0][actual_col])
+                            found_metric = actual_col
+                            logger.info(f"Using metric '{found_metric}': {best_model_score}")
                             break
                     
-                    mlflow.log_metric("total_models_trained", len(leaderboard_df))
-                else:
-                    # Fallback: use the first value in H2O leaderboard
-                    try:
-                        available_columns = leaderboard.columns
-                        logger.info(f"Available H2O columns: {available_columns}")
-                        
-                        # Try accessing first row, first metric col
-                        if len(available_columns) > 0:
-                            first_col = available_columns[0]
-                            best_model_score = leaderboard[0, first_col]
-                            logger.info(f"Using first available column '{first_col}': {best_model_score}")
-                        
-                        mlflow.log_metric("total_models_trained", leaderboard.nrow)
-                    except Exception as e:
-                        logger.warning(f"Could not extract metrics from leaderboard: {e}")
-                        mlflow.log_metric("total_models_trained", 0)
+                    # If still 0 and we have columns, pick the second one (usually the main metric)
+                    if best_model_score == 0.0 and len(leaderboard_df.columns) > 1:
+                        actual_col = leaderboard_df.columns[1]
+                        best_model_score = float(leaderboard_df.iloc[0][actual_col])
+                        found_metric = actual_col
+                        logger.info(f"Fallback to second column '{found_metric}': {best_model_score}")
                 
+                # Log metrics
+                mlflow.log_metric("total_models_trained", float(num_models))
                 mlflow.log_metric("best_model_score", best_model_score)
                 mlflow.log_metric("training_duration", training_duration)
+                if found_metric != "none":
+                    mlflow.set_tag("best_metric_name", found_metric)
                 
             except Exception as e:
                 logger.warning(f"Error processing leaderboard metrics: {e}")
-                # Default fallback
+                # Ultimate fallback
                 mlflow.log_metric("best_model_score", 0.0)
                 mlflow.log_metric("training_duration", training_duration)
-                mlflow.log_metric("total_models_trained", 0)
+                mlflow.log_metric("total_models_trained", 0.0)
             
             # Try saving leaderboard with error handling
             try:
