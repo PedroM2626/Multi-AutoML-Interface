@@ -3,6 +3,8 @@ import pandas as pd
 import mlflow
 import shutil
 import logging
+import time
+import threading
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
 
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
                 time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0,
-                stop_event=None, task_type: str = "Classification"):
+                stop_event=None, task_type: str = "Classification", telemetry_queue=None):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
     Supports both Tabular data and Computer Vision tasks (via MultiModalPredictor).

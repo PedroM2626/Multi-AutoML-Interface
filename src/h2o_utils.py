@@ -112,7 +112,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                    max_runtime_secs: int = 300, max_models: int = 10, 
                    nfolds: int = 3, balance_classes: bool = True, seed: int = 42,
                    sort_metric: str = "AUTO", exclude_algos: list = None,
-                   stop_event=None):
+                   stop_event=None, telemetry_queue=None):
     """
     Trains H2O AutoML model and registers in MLflow
     """
