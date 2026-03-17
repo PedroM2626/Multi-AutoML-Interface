@@ -227,8 +227,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0d1117 0%, #111827 100%) !important;
-    border-right: 1px solid #1e2736 !important;
+    background: linear-gradient(180deg, #050b19 0%, #091429 100%) !important;
+    border-right: 1px solid #1f324e !important;
     min-width: 260px;
 }
 [data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
@@ -239,8 +239,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 
 /* sidebar brand */
 .sidebar-brand {
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-    border-bottom: 1px solid #2d1f6e;
+    background: linear-gradient(135deg, #071225 0%, #0d213f 100%);
+    border-bottom: 1px solid #1f3e69;
     padding: 28px 20px 22px;
     margin: -16px -16px 20px;
     position: relative;
@@ -250,7 +250,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
     content: '';
     position: absolute;
     bottom: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4, #6366f1);
+    background: linear-gradient(90deg, #2563eb, #38bdf8, #60a5fa, #2563eb);
     background-size: 300% 100%;
     animation: brand-shimmer 4s linear infinite;
 }
@@ -258,32 +258,56 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .sidebar-brand-logo { font-size: 32px; margin-bottom: 8px; }
 .sidebar-brand-title {
     font-size: 18px; font-weight: 700;
-    background: linear-gradient(90deg, #a78bfa, #67e8f9);
+    background: linear-gradient(90deg, #e2edff, #8bd1ff);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     line-height: 1.2; margin-bottom: 4px;
 }
-.sidebar-brand-sub { font-size: 11px; color: #4b5563; letter-spacing: 0.08em; text-transform: uppercase; }
+.sidebar-brand-sub { font-size: 11px; color: #8ca7c7; letter-spacing: 0.08em; text-transform: uppercase; }
 
-/* sidebar nav pills */
-.nav-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px; border-radius: 8px;
-    font-size: 13px; font-weight: 500; color: #8b949e;
-    margin-bottom: 3px; cursor: pointer;
-    transition: all 0.15s;
+.sidebar-nav-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: #7f97b8;
+    text-transform: uppercase;
+    margin: 6px 0 8px;
+}
+
+/* Sidebar navigation list (styled radio) */
+[data-testid="stSidebar"] div[role="radiogroup"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+[data-testid="stSidebar"] div[role="radiogroup"] > label {
+    margin: 0;
+    background: transparent;
     border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 10px 12px;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
-.nav-item:hover { background: #161b22; color: #e2e8f0; }
-.nav-item.active {
-    background: linear-gradient(135deg, #1e1b4b, #1e3a5f);
-    border-color: #3730a3;
-    color: #a78bfa;
-    box-shadow: 0 2px 8px #6366f120;
+[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+    background: #0c1a33;
+    border-color: #1f3962;
 }
-.nav-badge {
-    margin-left: auto; background: #3fb950; color: #000;
-    font-size: 10px; font-weight: 700;
-    padding: 1px 6px; border-radius: 10px;
+[data-testid="stSidebar"] div[role="radiogroup"] > label [data-testid="stMarkdownContainer"] p {
+    margin: 0;
+    color: #91add3;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input[type="radio"]:checked) {
+    background: linear-gradient(90deg, #122949 0%, #173258 100%);
+    border-color: #3a8ed8;
+    box-shadow: inset 0 0 0 1px #1f5ea0;
+}
+[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p {
+    color: #e5f0ff;
+}
+[data-testid="stSidebar"] div[role="radiogroup"] input[type="radio"] {
+    display: none;
 }
 
 /* sidebar separator */
@@ -696,15 +720,30 @@ exp_manager = get_or_create_manager(st.session_state)
 st.sidebar.markdown("""
 <div class="sidebar-brand">
     <div class="sidebar-brand-title">Multi-AutoML<br>Interface</div>
-    <div class="sidebar-brand-sub">AutoGluon · FLAML · H2O<br>TPOT · PyCaret · Lale<br>AutoKeras</div>
+    <div class="sidebar-brand-sub">Intelligent MLOps Workspace</div>
 </div>""", unsafe_allow_html=True)
 
-st.sidebar.markdown('<div class="sidebar-sep">Navigation</div>', unsafe_allow_html=True)
-menu = st.sidebar.selectbox(
-    label="",
-    options=["Data Upload", "Data Exploration", "Training", "Experiments", "Prediction", "History (MLflow)"],
+st.sidebar.markdown('<div class="sidebar-nav-title">Navigation</div>', unsafe_allow_html=True)
+
+_NAV_ITEMS = {
+    "🏠  Overview": "Data Upload",
+    "🗄️  Data": "Data Exploration",
+    "⚙️  AutoML": "Training",
+    "🧪  Experiments": "Experiments",
+    "📦  Registry & Deploy": "Prediction",
+    "📈  Monitoring": "History (MLflow)",
+}
+
+_default_nav_label = next((k for k, v in _NAV_ITEMS.items() if v == st.session_state.get('menu_page')), "🏠  Overview")
+selected_nav_label = st.sidebar.radio(
+    label="Main navigation",
+    options=list(_NAV_ITEMS.keys()),
+    index=list(_NAV_ITEMS.keys()).index(_default_nav_label),
     label_visibility="collapsed",
 )
+
+menu = _NAV_ITEMS[selected_nav_label]
+st.session_state['menu_page'] = menu
 
 st.sidebar.markdown('<div class="sidebar-sep">Integrations</div>', unsafe_allow_html=True)
 st.sidebar.header("🔗 DagsHub Integration (Optional)")
