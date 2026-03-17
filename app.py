@@ -818,14 +818,14 @@ if menu == "Data Upload":
             if prev_file:
                 try:
                     st.session_state.pop('_just_uploaded', None)
-                    df = cached_load_data(os.path.join("data_lake", prev_file))
+                    df = cached_load_data(prev_file)
                 except Exception:
                     pass
         else:
             prev_file = st.selectbox("Select file to preview", available_files)
             if prev_file:
                 try:
-                    df = cached_load_data(os.path.join("data_lake", prev_file))
+                    df = cached_load_data(prev_file)
                 except Exception as e:
                     st.error(f"Error loading preview file: {e}")
                     
@@ -1016,8 +1016,8 @@ elif menu == "Training":
     st.subheader("2. Data Splitting and Validation Strategy")
     
     cv_folds = 0
-    if st.session_state['df'] is not None:
-        df = st.session_state['df']
+    if st.session_state.get('df') is not None:
+        df = st.session_state.get('df')
         valid_df_session = st.session_state.get('valid_df', None)
         test_df_session = st.session_state.get('test_df', None)
         
@@ -1030,6 +1030,7 @@ elif menu == "Training":
 
         val_size_pct = 0
         test_size_pct = 0
+        cv_folds = st.session_state.get('cv_folds', 5)
         
         col1, col2 = st.columns(2)
         
@@ -1064,11 +1065,17 @@ elif menu == "Training":
         elif split_strategy == "Chronological":
             chrono_col = st.selectbox("Select Time/Date Column to sort by", df.columns)
                 
-        # Apply Splits safely on pristine base
-        if 'original_df' not in st.session_state or len(st.session_state['original_df']) != len(df) and ('has_split' not in st.session_state):
-             st.session_state['original_df'] = df.copy()
-             
-        base_df = st.session_state['original_df'].copy()
+        # Apply splits safely on a pristine base DataFrame.
+        original_df = st.session_state.get('original_df')
+        needs_reset_original = (
+            original_df is None
+            or (('has_split' not in st.session_state) and len(original_df) != len(df))
+        )
+        if needs_reset_original:
+            original_df = df.copy()
+            st.session_state['original_df'] = original_df
+
+        base_df = original_df.copy()
         
         if split_strategy == "Manual" and manual_split_col:
             val_mask = base_df[manual_split_col].astype(str).str.lower().str.contains("val|valid")
@@ -1118,8 +1125,8 @@ elif menu == "Training":
     st.markdown("---")
     st.subheader("3. AutoML Configuration")
     
-    if st.session_state['df'] is not None:
-        df = st.session_state['df']
+    if st.session_state.get('df') is not None:
+        df = st.session_state.get('df')
         valid_df = st.session_state.get('valid_df', None)
         test_df = st.session_state.get('test_df', None)
         
@@ -2022,9 +2029,12 @@ elif menu == "Experiments":
                 except Exception as he:
                     st.error(f"Hub error: {he}")
 
-    if st.session_state['predictor'] is not None:
-        predictor = st.session_state['predictor']
-        m_type = st.session_state['model_type']
+    if st.session_state.get('predictor') is not None:
+        predictor = st.session_state.get('predictor')
+        m_type = st.session_state.get('model_type')
+        if not m_type:
+            st.error("Loaded model is missing model_type in session. Reload the model before predicting.")
+            st.stop()
         run_id = st.session_state.get('run_id', 'N/A')
         
         st.info(f"Active model: {m_type}")
@@ -2054,10 +2064,11 @@ elif menu == "Experiments":
             st.subheader("📝 Manual Entry")
             # Try to get features from session state DF first
             features = []
-            if 'df' in st.session_state and st.session_state['df'] is not None:
+            df_session = st.session_state.get('df')
+            if df_session is not None:
                 # Assuming all columns except target are features
                 target_col = st.session_state.get('target', None)
-                features = [c for c in st.session_state['df'].columns if c != target_col]
+                features = [c for c in df_session.columns if c != target_col]
             else:
                 st.warning("Feature list unknown (Training data not in session). Please upload a file once to identify features, or use File Upload.")
                 features = []
@@ -2068,11 +2079,11 @@ elif menu == "Experiments":
                 for i, feat in enumerate(features):
                     with cols[i % 3]:
                         # Basic guess of type based on training data
-                        dtype = st.session_state['df'][feat].dtype
+                        dtype = df_session[feat].dtype
                         if pd.api.types.is_numeric_dtype(dtype):
-                            manual_data[feat] = st.number_input(feat, value=float(st.session_state['df'][feat].median()))
+                            manual_data[feat] = st.number_input(feat, value=float(df_session[feat].median()))
                         else:
-                            options = st.session_state['df'][feat].unique().tolist()
+                            options = df_session[feat].unique().tolist()
                             manual_data[feat] = st.selectbox(feat, options)
                 
                 predict_df = pd.DataFrame([manual_data])
@@ -2139,8 +2150,8 @@ elif menu == "Experiments":
                     # --- POST-PROCESSING: Decode numeric IDs to class names ---
                     try:
                         target_session = st.session_state.get('target', None)
-                        if target_session and 'df' in st.session_state and st.session_state['df'] is not None:
-                            train_df_ref = st.session_state['df']
+                        train_df_ref = st.session_state.get('df')
+                        if target_session and train_df_ref is not None:
                             if target_session in train_df_ref.columns:
                                 trg_series = train_df_ref[target_session]
                                 if trg_series.dtype == object or str(trg_series.dtype) == 'category':
