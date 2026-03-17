@@ -25,9 +25,9 @@ if dev_mode:
 
 # Functions with cache for Performance
 @st.cache_data(show_spinner="Loading data...")
-def cached_load_data(file_path_or_obj):
+def cached_load_data(file_path_or_obj, no_header=False):
     from src.data_utils import load_data
-    return load_data(file_path_or_obj)
+    return load_data(file_path_or_obj, no_header=no_header)
 
 @st.cache_data
 def cached_get_data_summary(df):
@@ -599,6 +599,11 @@ if menu == "Data Upload":
         upload_col, info_col = st.columns([2, 1])
         with upload_col:
             uploaded_file = st.file_uploader("Upload CSV or Excel File", type=["csv", "xlsx", "xls"])
+            no_header_upload = st.checkbox(
+                "📋 This file has no header row (auto-generate col_0, col_1…)",
+                value=False, key="upload_no_header",
+                help="Check this if the first row of your file contains data, not column names."
+            )
             filename_prefix = st.text_input("File prefix (name in Data Lake)", value="dataset", key="prefix_tab")
             upload_btn = st.button("💾 Process & Save Tabular Data", type="primary")
 
@@ -614,7 +619,7 @@ if menu == "Data Upload":
                 with st.spinner("Processing and versioning tabular data…"):
                     from src.data_utils import init_dvc, save_to_data_lake
                     init_dvc()
-                    df = cached_load_data(uploaded_file)
+                    df = cached_load_data(uploaded_file, no_header=no_header_upload)
                     t_path, t_tag, t_hash = save_to_data_lake(df, filename_prefix)
                     st.cache_data.clear()
 
@@ -849,13 +854,25 @@ elif menu == "Training":
         valid_file_selection = st.selectbox("Validation (Optional)", file_options)
     with col3:
         test_file_selection = st.selectbox("Test/Holdout (Optional)", file_options)
-        
+
+    with st.expander("🔧 Dataset Loading Options (no header row)", expanded=False):
+        nh_col1, nh_col2, nh_col3 = st.columns(3)
+        with nh_col1:
+            train_no_header = st.checkbox("Train CSV has no header", value=False, key="train_no_header",
+                help="Auto-generate col_0, col_1… if the training file has no column names.")
+        with nh_col2:
+            valid_no_header = st.checkbox("Validation CSV has no header", value=False, key="valid_no_header",
+                help="Auto-generate col_0, col_1… if the validation file has no column names.")
+        with nh_col3:
+            test_no_header = st.checkbox("Test CSV has no header", value=False, key="test_no_header",
+                help="Auto-generate col_0, col_1… if the test file has no column names.")
+
     if train_file_selection:
         try:
             from src.data_utils import get_dvc_hash
             # Load Train
             train_path = file_paths_map[train_file_selection]
-            df = cached_load_data(train_path)
+            df = cached_load_data(train_path, no_header=train_no_header)
             
             # Fetch Hash
             t_hash_full, t_hash_short = get_dvc_hash(train_path)
@@ -865,7 +882,7 @@ elif menu == "Training":
             valid_df = None
             if valid_file_selection != "None":
                 valid_path = file_paths_map[valid_file_selection]
-                valid_df = cached_load_data(valid_path)
+                valid_df = cached_load_data(valid_path, no_header=valid_no_header)
                 v_hash_full, v_hash_short = get_dvc_hash(valid_path)
                 dvc_hashes["dvc_valid_hash"] = v_hash_short
                 
@@ -873,7 +890,7 @@ elif menu == "Training":
             test_df = None
             if test_file_selection != "None":
                 test_path = file_paths_map[test_file_selection]
-                test_df = cached_load_data(test_path)
+                test_df = cached_load_data(test_path, no_header=test_no_header)
                 te_hash_full, te_hash_short = get_dvc_hash(test_path)
                 dvc_hashes["dvc_test_hash"] = te_hash_short
                 
@@ -1120,7 +1137,31 @@ elif menu == "Training":
         
         # Common framework options
         seed = st.number_input("Seed (reproducibility)", value=42, min_value=0, max_value=9999)
-        
+
+        # ── Global Parallelism ─────────────────────────────────────────────────
+        import os as _os
+        _cpu_count = _os.cpu_count() or 4
+        with st.expander("⚡ Parallelism (n_jobs)", expanded=False):
+            parallelism_mode = st.radio(
+                "Parallelism Mode",
+                ["Auto (all cores)", "Manual"],
+                horizontal=True,
+                help="Controls how many CPU cores are used by supported frameworks (FLAML, TPOT, PyCaret).",
+                key="parallelism_mode"
+            )
+            if parallelism_mode == "Manual":
+                global_n_jobs = st.slider(
+                    "Number of parallel jobs",
+                    min_value=1, max_value=_cpu_count,
+                    value=min(2, _cpu_count),
+                    help=f"Your machine has {_cpu_count} logical cores. Higher values speed up training but use more memory.",
+                    key="global_n_jobs"
+                )
+            else:
+                global_n_jobs = -1
+                st.info(f"Auto mode: all {_cpu_count} logical cores will be used (n_jobs = -1).")
+        # ──────────────────────────────────────────────────────────────────────
+
         # Init vars
         time_limit = time_budget = max_runtime_secs = 60
         presets = task = metric = estimator_list = None
@@ -1216,7 +1257,6 @@ elif menu == "Training":
                 max_time_mins = None
             max_eval_time_mins = st.slider("Max time per evaluation (minutes)", 1, 20, 5, help="Maximum time per pipeline evaluation")
             verbosity = st.slider("Log verbosity level", 0, 3, 2, help="TPOT feedback verbosity")
-            n_jobs = st.slider("Parallel jobs", -1, 8, -1, help="Number of parallel processes (-1 to use all)")
             
             # Advanced TPOT Options
             with st.expander("⚙️ Advanced TPOT Options"):
@@ -1297,7 +1337,8 @@ elif menu == "Training":
                 _kwargs = dict(train_data=df, target=target, run_name=run_name,
                                valid_data=valid_df, test_data=test_df,
                                time_budget=time_budget, task=task, metric=metric,
-                               estimator_list=estimator_list, seed=seed, cv_folds=cv_folds)
+                               estimator_list=estimator_list, seed=seed, cv_folds=cv_folds,
+                               n_jobs=global_n_jobs)
                 _fw_key = "flaml"
             elif framework == "H2O AutoML":
                 from src.h2o_utils import train_h2o_model
@@ -1319,6 +1360,7 @@ elif menu == "Training":
                 _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
                                val_df=valid_df, time_limit=time_limit,
                                task_type=task_type, fh=_fh, seasonal_period=_sp,
+                               n_jobs=global_n_jobs,
                                log_queue=None)  # patched below after _entry creation
                 _fw_key = "pycaret"
             elif framework == "Lale":
@@ -1336,7 +1378,7 @@ elif menu == "Training":
                                generations=generations, population_size=population_size,
                                cv=cv, scoring=scoring, max_time_mins=max_time_mins,
                                max_eval_time_mins=max_eval_time_mins,
-                               random_state=seed, verbosity=verbosity, n_jobs=n_jobs,
+                               random_state=seed, verbosity=verbosity, n_jobs=global_n_jobs,
                                config_dict=config_dict, tfidf_max_features=tfidf_max_features,
                                tfidf_ngram_range=tfidf_ngram_range)
                 _fw_key = "tpot"

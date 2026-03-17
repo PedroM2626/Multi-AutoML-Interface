@@ -132,6 +132,9 @@ mlflow server --host 0.0.0.0 --port 5000
 # Option 1: Web interface
 streamlit run app.py --server.port 8501
 
+# Option 1B: Independent Reflex interface
+reflex run
+
 # Option 2: Desktop app (requires Node.js)
 npm install && npm run dev
 
@@ -144,6 +147,11 @@ docker-compose up
 ## 📖 **User Guide**
 
 ### 🎯 **Basic Workflow:**
+
+#### **Reflex Interface (Independent):**
+- The project now includes a standalone Reflex interface in `reflex_interface/`.
+- It mirrors the Streamlit workflow with dedicated pages for Upload, Exploration, Training, Experiments, Prediction, and MLflow History.
+- It uses the same backend modules in `src/`, so training, monitoring, predictions, XAI, and MLflow actions are consistent across both UIs.
 
 #### **1. Data Upload & Exploration:**
 - Supported formats: CSV, Excel

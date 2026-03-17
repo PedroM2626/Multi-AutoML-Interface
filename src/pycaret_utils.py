@@ -21,6 +21,7 @@ def run_pycaret_experiment(
     stop_event=None,
     val_df: Optional[pd.DataFrame] = None,
     task_type: str = "Classification",
+    n_jobs: int = 1,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -69,7 +70,7 @@ def run_pycaret_experiment(
             "fold": 3,
             "log_experiment": False,
             "system_log": False,
-            "n_jobs": 1
+            "n_jobs": n_jobs
         }
         
         if task_type == "Time Series Forecasting":

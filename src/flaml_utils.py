@@ -16,6 +16,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                        time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
                        estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
+                       n_jobs: int = 1,
                        stop_event=None, telemetry_queue=None):
     """
     Trains a FLAML model and logs results to MLflow.
@@ -79,7 +80,7 @@ def train_flaml_model(train_data: pd.DataFrame, target: str, run_name: str,
             "estimator_list": estimator_list,
             "log_file_name": "flaml.log",
             "seed": seed,
-            "n_jobs": 1,
+            "n_jobs": n_jobs,
             "verbose": 0, # Reduce internal verbosity to avoid pollution, progress goes to flaml.log
         }
         if time_budget is not None:

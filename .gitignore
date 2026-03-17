@@ -37,5 +37,8 @@ models/
 *.jpg
 *.png
 *.jpeg
+*.web
 
 references/*
+
+.states/

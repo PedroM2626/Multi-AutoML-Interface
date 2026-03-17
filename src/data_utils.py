@@ -7,9 +7,11 @@ import pandas as pd
 import zipfile
 import shutil
 
-def load_data(file):
+def load_data(file, no_header=False):
     """
     Loads data from an uploaded file (CSV or Excel) or a disk path.
+    If no_header is True, treats the first row as data (no header) and
+    auto-generates column names as col_0, col_1, ...
     """
     is_path = isinstance(file, str)
     filename = file if is_path else file.name
@@ -21,8 +23,16 @@ def load_data(file):
         return pd.DataFrame({"Image_Directory": [filename], "Total_Images": [num_files], "Type": ["Computer Vision Dataset"]})
         
     if filename.endswith('.csv'):
+        if no_header:
+            df = pd.read_csv(file, header=None)
+            df.columns = [f"col_{i}" for i in range(len(df.columns))]
+            return df
         return pd.read_csv(file)
     elif filename.endswith(('.xls', '.xlsx')):
+        if no_header:
+            df = pd.read_excel(file, header=None)
+            df.columns = [f"col_{i}" for i in range(len(df.columns))]
+            return df
         return pd.read_excel(file)
     else:
         raise ValueError("Unsupported file format. Please use CSV, Excel, or provide a valid image directory.")

@@ -1,0 +1,38 @@
+:root {
+  --bg: #070b11;
+  --bg-elev: #0e1622;
+  --bg-elev-2: #111c2c;
+  --line: #1c2b42;
+  --text: #d9e3f0;
+  --muted: #8fa2bb;
+  --brand: #4fc3f7;
+  --accent: #8bc34a;
+  --warn: #ffb74d;
+  --danger: #ef5350;
+}
+
+body {
+  background: radial-gradient(circle at 10% 10%, #111f34 0%, #070b11 60%);
+  color: var(--text);
+}
+
+.rx-Stack, .rx-Box {
+  color: var(--text);
+}
+
+.dark-card {
+  background: linear-gradient(155deg, var(--bg-elev), var(--bg-elev-2));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.brand-gradient {
+  background: linear-gradient(135deg, #1b2e4a, #1f2740 35%, #123f52);
+  border: 1px solid #2b4b6a;
+  border-radius: 14px;
+}
