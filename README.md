@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-4.1.2-blue)
+![Version](https://img.shields.io/badge/version-4.3.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -8,6 +8,13 @@
 **A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras) with integrated MLOps via MLflow.**
 
 ---
+
+## 🆕 What's New (Recent)
+
+- Added user-selectable parallelism (`n_jobs`) in the Training UI: choose Auto (all cores) or Manual (select number of jobs).
+- Added support for headerless tabular datasets: upload CSV/Excel files without a header row and the app will auto-generate `col_0, col_1, ...`.
+- Significant Streamlit performance improvements: heavy computations and plots are cached with `@st.cache_data`, server-init tasks run once with `@st.cache_resource`, and `st.session_state` initialization was consolidated to reduce rerun overhead.
+
 
 ## 🎯 **Overview**
 

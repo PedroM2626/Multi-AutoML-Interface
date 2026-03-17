@@ -39,6 +39,164 @@ def cached_get_data_lake_files():
     from src.data_utils import get_data_lake_files
     return get_data_lake_files()
 
+# ── EDA stat helpers (cached per-DataFrame) ───────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _compute_missing_stats(df: pd.DataFrame) -> pd.Series:
+    return df.isnull().mean().sort_values(ascending=False) * 100
+
+@st.cache_data(show_spinner=False)
+def _compute_type_counts(df: pd.DataFrame) -> pd.Series:
+    return df.dtypes.astype(str).value_counts()
+
+@st.cache_data(show_spinner=False)
+def _compute_column_summary(df: pd.DataFrame) -> pd.DataFrame:
+    return pd.DataFrame({
+        "Column": df.columns.tolist(),
+        "Type":   df.dtypes.astype(str).tolist(),
+        "Missing": df.isnull().sum().tolist(),
+        "Unique":  df.nunique().tolist(),
+    })
+
+@st.cache_data(show_spinner=False)
+def _compute_overview_stats(df: pd.DataFrame):
+    """Returns (missing_pct_mean, memory_mb) — avoids scanning DF on every rerun."""
+    missing = df.isnull().mean().mean() * 100
+    memory  = df.memory_usage(deep=True).sum() / 1024 ** 2
+    return missing, memory
+
+# ── Cached matplotlib figures ─────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _make_missing_fig(miss_series: pd.Series):
+    import matplotlib.pyplot as _plt
+    miss_df = miss_series[miss_series > 0]
+    if len(miss_df) == 0:
+        return None
+    fig, ax = _plt.subplots(figsize=(9, max(2.5, len(miss_df) * 0.4)))
+    fig.patch.set_facecolor("#161b22"); ax.set_facecolor("#0d1117")
+    ax.barh(miss_df.index.tolist(), miss_df.tolist(),
+            color=["#f85149" if v > 30 else "#d29922" for v in miss_df.tolist()],
+            edgecolor="#30363d")
+    ax.set_xlabel("Missing %", color="#8b949e")
+    ax.set_title("Missing Values per Column", color="#f0f6fc", fontsize=11)
+    ax.tick_params(colors="#8b949e", labelsize=8)
+    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
+    _plt.tight_layout()
+    return fig
+
+@st.cache_data(show_spinner=False)
+def _make_type_pie(type_counts: pd.Series):
+    import matplotlib.pyplot as _plt
+    colors_t = ["#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f85149"]
+    fig, ax = _plt.subplots(figsize=(6, 4))
+    fig.patch.set_facecolor("#161b22"); ax.set_facecolor("#161b22")
+    _, _, autotexts = ax.pie(
+        type_counts.values, labels=type_counts.index.tolist(),
+        colors=colors_t[:len(type_counts)], autopct="%1.1f%%",
+        textprops={"color": "#c9d1d9", "fontsize": 10}
+    )
+    for w in autotexts: w.set_color("#f0f6fc")
+    ax.set_title("Column Data Types", color="#f0f6fc", fontsize=11)
+    _plt.tight_layout()
+    return fig
+
+@st.cache_data(show_spinner=False)
+def _make_dist_fig(col_data: pd.Series, col_name: str):
+    import matplotlib.pyplot as _plt
+    fig, ax = _plt.subplots(figsize=(9, 3))
+    fig.patch.set_facecolor("#161b22"); ax.set_facecolor("#0d1117")
+    ax.hist(col_data.dropna(), bins=40, color="#58a6ff", edgecolor="#30363d", linewidth=0.4, alpha=0.85)
+    ax.set_title(f"Distribution: {col_name}", color="#f0f6fc", fontsize=11)
+    ax.set_xlabel(col_name, color="#8b949e"); ax.set_ylabel("Count", color="#8b949e")
+    ax.tick_params(colors="#8b949e", labelsize=8)
+    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
+    _plt.tight_layout()
+    return fig
+
+@st.cache_data(show_spinner=False)
+def _make_metrics_bar(metrics_items: tuple):
+    """metrics_items = tuple of (key, value) pairs — hashable for cache."""
+    import matplotlib.pyplot as _plt
+    import matplotlib.ticker as _mticker
+    keys   = [k for k, _ in metrics_items]
+    values = [v for _, v in metrics_items]
+    colors = ["#3fb950" if v >= 0 else "#f85149" for v in values]
+    fig, ax = _plt.subplots(figsize=(9, max(2.5, len(keys) * 0.45)))
+    fig.patch.set_facecolor("#161b22"); ax.set_facecolor("#0d1117")
+    ax.barh(keys, values, color=colors, edgecolor="#30363d", linewidth=0.5)
+    ax.set_title("MLflow Metrics", color="#f0f6fc", fontsize=12, pad=12)
+    ax.tick_params(colors="#8b949e", labelsize=9)
+    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
+    ax.xaxis.set_major_formatter(_mticker.FormatStrFormatter("%.4g"))
+    _plt.tight_layout()
+    return fig
+
+@st.cache_data(show_spinner=False)
+def _make_leaderboard_bar(labels: tuple, values: tuple, xlabel: str, title: str, color: str):
+    """Generic horizontal bar chart for leaderboard tables."""
+    import matplotlib.pyplot as _plt
+    fig, ax = _plt.subplots(figsize=(9, max(2.5, len(labels) * 0.45)))
+    fig.patch.set_facecolor("#161b22"); ax.set_facecolor("#0d1117")
+    ax.barh(list(labels), list(values), color=color, edgecolor="#30363d")
+    ax.set_xlabel(xlabel, color="#8b949e")
+    ax.set_title(title, color="#f0f6fc", fontsize=11)
+    ax.tick_params(colors="#8b949e", labelsize=8)
+    for sp in ax.spines.values(): sp.set_edgecolor("#30363d")
+    _plt.tight_layout()
+    return fig
+
+# ── MLflow data getters (top-level so @st.cache_data is effective) ────────────
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_mlflow_run(run_id: str):
+    return mlflow.get_run(run_id)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _get_mlflow_artifacts(run_id: str):
+    return mlflow.MlflowClient().list_artifacts(run_id)
+
+# ── Disk usage (cached 30 s to avoid high-frequency I/O in the 5 s fragment) ──
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_disk_usage():
+    import shutil
+    return shutil.disk_usage(".")
+
+# ── Log HTML builder (cached by content — avoids rebuilding every 5 s) ────────
+@st.cache_data(show_spinner=False, max_entries=100)
+def _build_log_html(log_tuple: tuple, max_lines: int = 80) -> str:
+    keywords_error   = ["error", "exception", "traceback", "critical", "failed", "errno"]
+    keywords_warning = ["warning", "warn", "deprecated", "no space", "could not"]
+    keywords_success = ["success", "complete", "best model", "finished", "saved", "logged"]
+    keywords_info    = ["info:", "[worker]", "starting", "initialized", "loading", "fitting"]
+    keywords_metric  = ["accuracy", "f1", "score", "auc", "rmse", "mse", "r2", "loss"]
+    lines_html = []
+    for line in log_tuple[-max_lines:]:
+        ll = line.lower()
+        if any(k in ll for k in keywords_error):
+            cls = "log-line-error"
+        elif any(k in ll for k in keywords_warning):
+            cls = "log-line-warning"
+        elif any(k in ll for k in keywords_success):
+            cls = "log-line-success"
+        elif any(k in ll for k in keywords_metric):
+            cls = "log-line-metric"
+        elif any(k in ll for k in keywords_info):
+            cls = "log-line-info"
+        else:
+            cls = "log-line-normal"
+        safe_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        lines_html.append(f'<div class="{cls}">{safe_line}</div>')
+    return '<div class="log-panel">' + "".join(lines_html) + '</div>'
+
+# ── Pipeline steps (cached so log parsing doesn't run on every 5 s tick) ──────
+@st.cache_data(show_spinner=False, max_entries=200)
+def _get_pipeline_steps(framework_key: str, log_tuple: tuple, status: str):
+    from src.pipeline_parser import infer_pipeline_steps
+    return infer_pipeline_steps(framework_key, list(log_tuple), status)
+
+@st.cache_data(show_spinner=False, max_entries=50)
+def _get_column_nunique(df: pd.DataFrame, col: str) -> int:
+    """Cached nunique for target column — avoids scanning the column on every rerun."""
+    return int(df[col].nunique()) if col in df.columns else 2
+
 from src.log_utils import setup_logging_to_queue, StdoutRedirector
 from src.mlflow_utils import heal_mlruns
 from src.mlflow_cache import mlflow_cache, get_cached_experiment_list
@@ -399,8 +557,7 @@ hr { border: none; border-top: 1px solid #1e2736 !important; margin: 20px 0 !imp
 
 def render_pipeline_visualization(framework_key: str, logs: list, status: str):
     """Render an interactive horizontal pipeline step visualization."""
-    from src.pipeline_parser import infer_pipeline_steps
-    steps = infer_pipeline_steps(framework_key, logs, status)
+    steps = _get_pipeline_steps(framework_key, tuple(logs), status)
     if not steps:
         return
 
@@ -427,31 +584,7 @@ def render_pipeline_visualization(framework_key: str, logs: list, status: str):
 
 def render_colored_logs(logs: list, max_lines: int = 80):
     """Render logs in a styled dark terminal panel with color-coded lines."""
-    lines_html = []
-    keywords_error   = ["error", "exception", "traceback", "critical", "failed", "errno"]
-    keywords_warning = ["warning", "warn", "deprecated", "no space", "could not"]
-    keywords_success = ["success", "complete", "best model", "finished", "saved", "logged"]
-    keywords_info    = ["info:", "[worker]", "starting", "initialized", "loading", "fitting"]
-    keywords_metric  = ["accuracy", "f1", "score", "auc", "rmse", "mse", "r2", "loss"]
-
-    for line in logs[-max_lines:]:
-        ll = line.lower()
-        if any(k in ll for k in keywords_error):
-            cls = "log-line-error"
-        elif any(k in ll for k in keywords_warning):
-            cls = "log-line-warning"
-        elif any(k in ll for k in keywords_success):
-            cls = "log-line-success"
-        elif any(k in ll for k in keywords_metric):
-            cls = "log-line-metric"
-        elif any(k in ll for k in keywords_info):
-            cls = "log-line-info"
-        else:
-            cls = "log-line-normal"
-        safe_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        lines_html.append(f'<div class="{cls}">{safe_line}</div>')
-
-    html = '<div class="log-panel">' + "".join(lines_html) + '</div>'
+    html = _build_log_html(tuple(logs), max_lines)
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -518,30 +651,46 @@ def render_metrics_pills(metrics: dict):
 
 # ─── End helpers ──────────────────────────────────────────────────────────────
 
-# Heal MLflow cache on startup
-heal_mlruns()
+# ── One-time startup: heal MLflow + set experiment (runs once per server session)
+@st.cache_resource
+def _startup_init():
+    """Runs once when the server starts — keeps costly I/O out of the hot rerun path."""
+    from src.mlflow_utils import heal_mlruns, safe_set_experiment
+    try:
+        heal_mlruns()
+    except Exception:
+        pass
+    try:
+        safe_set_experiment("Multi_AutoML_Project")
+    except Exception:
+        pass
 
-# Initialize session state
-if 'df' not in st.session_state:
-    st.session_state['df'] = None
-if 'predictor' not in st.session_state:
-    st.session_state['predictor'] = None
-if 'model_type' not in st.session_state:
-    st.session_state['model_type'] = None
+_startup_init()
+
+# ── Session state initialisation (single consolidated pass) ───────────────────
+_SS_DEFAULTS: dict = {
+    'df':           None,
+    'predictor':    None,
+    'model_type':   None,
+    'valid_df':     None,
+    'test_df':      None,
+    'active_df':    None,
+    'original_df':  None,
+    'target':       None,
+    'run_id':       None,
+    'dvc_hashes':   {},
+    'cv_folds':     0,
+    'task_type':    'Classification',
+    'framework':    'AutoGluon',
+    'target_stats': {},
+}
+for _k, _v in _SS_DEFAULTS.items():
+    st.session_state.setdefault(_k, _v)
 if 'log_queue' not in st.session_state:
     st.session_state['log_queue'] = queue.Queue()
 
 # Initialise the experiment manager singleton
 exp_manager = get_or_create_manager(st.session_state)
-
-# (Brand is now in sidebar)
-
-# Initialize MLflow experiment and tracking
-try:
-    from src.mlflow_utils import safe_set_experiment
-    safe_set_experiment("Multi_AutoML_Project")
-except Exception as e:
-    st.error(f"Error initializing MLflow: {e}")
 
 # ── Sidebar brand ──────────────────────────────────────────────────────────
 st.sidebar.markdown("""
@@ -668,17 +817,15 @@ if menu == "Data Upload":
             prev_file = st.selectbox("Select file to preview", available_files, index=0 if available_files else None)
             if prev_file:
                 try:
-                    from src.data_utils import load_data
                     st.session_state.pop('_just_uploaded', None)
-                    df = load_data(os.path.join("data_lake", prev_file))
+                    df = cached_load_data(os.path.join("data_lake", prev_file))
                 except Exception:
                     pass
         else:
             prev_file = st.selectbox("Select file to preview", available_files)
             if prev_file:
                 try:
-                    from src.data_utils import load_data
-                    df = load_data(os.path.join("data_lake", prev_file))
+                    df = cached_load_data(os.path.join("data_lake", prev_file))
                 except Exception as e:
                     st.error(f"Error loading preview file: {e}")
                     
@@ -687,13 +834,14 @@ if menu == "Data Upload":
                 # ── Quick EDA panels ─────────────────────────────────────
                 st.markdown('<div class="section-header">📊 Dataset Overview</div>', unsafe_allow_html=True)
                 summary = cached_get_data_summary(df)
+                _missing_pct_mean, _memory_mb = _compute_overview_stats(df)
 
                 ov_col1, ov_col2, ov_col3, ov_col4 = st.columns(4)
                 for col, label, val, color in [
                     (ov_col1, "Rows",     summary['rows'],    "#58a6ff"),
                     (ov_col2, "Columns",  summary['columns'], "#3fb950"),
-                    (ov_col3, "Missing %", f"{df.isnull().mean().mean()*100:.1f}%", "#d29922"),
-                    (ov_col4, "Memory",   f"{df.memory_usage(deep=True).sum() / 1024**2:.1f} MB", "#bc8cff"),
+                    (ov_col3, "Missing %", f"{_missing_pct_mean:.1f}%", "#d29922"),
+                    (ov_col4, "Memory",   f"{_memory_mb:.1f} MB", "#bc8cff"),
                 ]:
                     with col:
                         st.markdown(f"""
@@ -711,68 +859,29 @@ if menu == "Data Upload":
                     st.dataframe(df.head(10), use_container_width=True)
 
                 with tab_missing:
-                    miss_pct = df.isnull().mean().sort_values(ascending=False) * 100
-                    miss_df = miss_pct[miss_pct > 0]
+                    miss_series = _compute_missing_stats(df)
+                    miss_df = miss_series[miss_series > 0]
                     if len(miss_df) == 0:
                         st.success("✅ No missing values found!")
                     else:
-                        import matplotlib.pyplot as _mp
-                        fig_m, ax_m = _mp.subplots(figsize=(9, max(2.5, len(miss_df) * 0.4)))
-                        fig_m.patch.set_facecolor("#161b22"); ax_m.set_facecolor("#0d1117")
-                        bars_m = ax_m.barh(miss_df.index.tolist(), miss_df.tolist(),
-                                          color=["#f85149" if v > 30 else "#d29922" for v in miss_df.tolist()],
-                                          edgecolor="#30363d")
-                        ax_m.set_xlabel("Missing %", color="#8b949e")
-                        ax_m.set_title("Missing Values per Column", color="#f0f6fc", fontsize=11)
-                        ax_m.tick_params(colors="#8b949e", labelsize=8)
-                        for sp in ax_m.spines.values(): sp.set_edgecolor("#30363d")
-                        _mp.tight_layout()
-                        st.pyplot(fig_m, use_container_width=True)
-                        _mp.close(fig_m)
+                        _fig_m = _make_missing_fig(miss_series)
+                        if _fig_m is not None:
+                            st.pyplot(_fig_m, use_container_width=True)
                         st.dataframe(pd.DataFrame({"Column": miss_df.index, "Missing %": miss_df.values.round(2)}), use_container_width=True)
 
                 with tab_types:
-                    type_counts = df.dtypes.astype(str).value_counts()
-                    import matplotlib.pyplot as _mp2
-                    fig_t, ax_t = _mp2.subplots(figsize=(6, 4))
-                    fig_t.patch.set_facecolor("#161b22"); ax_t.set_facecolor("#161b22")
-                    colors_t = ["#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f85149"]
-                    wedges, texts, autotexts = ax_t.pie(
-                        type_counts.values, labels=type_counts.index.tolist(),
-                        colors=colors_t[:len(type_counts)], autopct="%1.1f%%",
-                        textprops={"color": "#c9d1d9", "fontsize": 10}
-                    )
-                    for w in autotexts: w.set_color("#f0f6fc")
-                    ax_t.set_title("Column Data Types", color="#f0f6fc", fontsize=11)
-                    _mp2.tight_layout()
-                    st.pyplot(fig_t, use_container_width=True)
-                    _mp2.close(fig_t)
-
-                    # per-column summary
-                    summary_df = pd.DataFrame({
-                        "Column": df.columns.tolist(),
-                        "Type": df.dtypes.astype(str).tolist(),
-                        "Missing": df.isnull().sum().tolist(),
-                        "Unique": df.nunique().tolist(),
-                    })
+                    type_counts = _compute_type_counts(df)
+                    _fig_t = _make_type_pie(type_counts)
+                    st.pyplot(_fig_t, use_container_width=True)
+                    summary_df = _compute_column_summary(df)
                     st.dataframe(summary_df, use_container_width=True)
 
                 with tab_dist:
                     num_cols_list = df.select_dtypes(include="number").columns.tolist()
                     if num_cols_list:
                         dist_col = st.selectbox("Select column for distribution", num_cols_list, key="dist_col_sel")
-                        import matplotlib.pyplot as _mp3
-                        fig_d, ax_d = _mp3.subplots(figsize=(9, 3))
-                        fig_d.patch.set_facecolor("#161b22"); ax_d.set_facecolor("#0d1117")
-                        ax_d.hist(df[dist_col].dropna(), bins=40, color="#58a6ff", edgecolor="#30363d", linewidth=0.4, alpha=0.85)
-                        ax_d.set_title(f"Distribution: {dist_col}", color="#f0f6fc", fontsize=11)
-                        ax_d.set_xlabel(dist_col, color="#8b949e"); ax_d.set_ylabel("Count", color="#8b949e")
-                        ax_d.tick_params(colors="#8b949e", labelsize=8)
-                        for sp in ax_d.spines.values(): sp.set_edgecolor("#30363d")
-                        _mp3.tight_layout()
-                        st.pyplot(fig_d, use_container_width=True)
-                        _mp3.close(fig_d)
-                        # Stats
+                        _fig_d = _make_dist_fig(df[dist_col], dist_col)
+                        st.pyplot(_fig_d, use_container_width=True)
                         st.dataframe(df[[dist_col]].describe().T, use_container_width=True)
                     else:
                         st.info("No numeric columns found for distribution plot.")
@@ -1198,7 +1307,7 @@ elif menu == "Training":
             # Smart metric selection for FLAML
             target_stats = st.session_state.get('target_stats', {})
             if target_stats.get('name') != target:
-                num_classes = df[target].nunique() if target in df.columns else 2
+                num_classes = _get_column_nunique(df, target)
                 target_stats = {'name': target, 'nunique': num_classes}
                 st.session_state['target_stats'] = target_stats
             else:
@@ -1271,7 +1380,7 @@ elif menu == "Training":
                 # Auto problem detection
                 target_stats = st.session_state.get('target_stats', {})
                 if target_stats.get('name') != target:
-                    num_classes = df[target].nunique() if target in df.columns else 2
+                    num_classes = _get_column_nunique(df, target)
                     st.session_state['target_stats'] = {'name': target, 'nunique': num_classes}
                 else:
                     num_classes = target_stats['nunique']
@@ -1420,31 +1529,6 @@ elif menu == "Experiments":
         <p>Monitor and manage your concurrent AutoML training runs in real time.</p>
     </div>""", unsafe_allow_html=True)
 
-    # Helper for cached MLflow data
-    def get_run_data_cached(run_id):
-        cache_key = f"ml_run_{run_id}"
-        if cache_key not in st.session_state or time.time() - st.session_state.get(f"{cache_key}_time", 0) > 30:
-            try:
-                data = mlflow.get_run(run_id)
-                st.session_state[cache_key] = data
-                st.session_state[f"{cache_key}_time"] = time.time()
-                return data
-            except Exception:
-                return st.session_state.get(cache_key)
-        return st.session_state.get(cache_key)
-
-    def get_artifacts_cached(run_id):
-        cache_key = f"ml_arts_{run_id}"
-        if cache_key not in st.session_state or time.time() - st.session_state.get(f"{cache_key}_time", 0) > 60:
-            try:
-                arts = mlflow.MlflowClient().list_artifacts(run_id)
-                st.session_state[cache_key] = arts
-                st.session_state[f"{cache_key}_time"] = time.time()
-                return arts
-            except Exception:
-                return st.session_state.get(cache_key)
-        return st.session_state.get(cache_key)
-
     @st.fragment(run_every="5s")
     def render_experiment_dashboard():
         # Only refresh if there are active runs to save resources
@@ -1498,8 +1582,7 @@ elif menu == "Experiments":
                         st.error(f"Reset error: {reset_err}")
             with m_col3:
                 try:
-                    import shutil as _shu
-                    total, used, free = _shu.disk_usage(".")
+                    total, used, free = _get_disk_usage()
                     free_gb = free // (2**30)
                     used_gb = used // (2**30)
                     pct = int((used / total) * 100)
@@ -1636,29 +1719,13 @@ elif menu == "Experiments":
                 with tab_metrics:
                     if entry.status == "completed" and run_id:
                         try:
-                            run_data = get_run_data_cached(run_id)
+                            run_data = _get_mlflow_run(run_id)
                             if run_data and run_data.data.metrics:
                                 metrics = run_data.data.metrics
                                 render_metrics_pills(metrics)
                                 st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-                                # Bar chart
-                                import matplotlib.pyplot as _plt
-                                import matplotlib.ticker as _mticker
-                                fig, ax = _plt.subplots(figsize=(9, max(2.5, len(metrics) * 0.45)))
-                                fig.patch.set_facecolor("#161b22")
-                                ax.set_facecolor("#0d1117")
-                                keys   = list(metrics.keys())
-                                values = list(metrics.values())
-                                colors = ["#3fb950" if v >= 0 else "#f85149" for v in values]
-                                bars = ax.barh(keys, values, color=colors, edgecolor="#30363d", linewidth=0.5)
-                                ax.set_title("MLflow Metrics", color="#f0f6fc", fontsize=12, pad=12)
-                                ax.tick_params(colors="#8b949e", labelsize=9)
-                                for spine in ax.spines.values():
-                                    spine.set_edgecolor("#30363d")
-                                ax.xaxis.set_major_formatter(_mticker.FormatStrFormatter("%.4g"))
-                                _plt.tight_layout()
-                                st.pyplot(fig, use_container_width=True)
-                                _plt.close(fig)
+                                _fig_metrics = _make_metrics_bar(tuple(metrics.items()))
+                                st.pyplot(_fig_metrics, use_container_width=True)
                             else:
                                 st.info("No metrics logged to MLflow yet.")
                         except Exception as me:
@@ -1682,16 +1749,12 @@ elif menu == "Experiments":
                             import matplotlib.pyplot as _plt2
                             top = lb.head(min(10, len(lb)))
                             val_col = "score_val" if "score_val" in top.columns else top.select_dtypes("number").columns[0]
-                            fig2, ax2 = _plt2.subplots(figsize=(9, max(2.5, len(top) * 0.45)))
-                            fig2.patch.set_facecolor("#161b22"); ax2.set_facecolor("#0d1117")
-                            ax2.barh(top["model"].tolist(), top[val_col].tolist(), color="#58a6ff", edgecolor="#30363d")
-                            ax2.set_xlabel(val_col, color="#8b949e")
-                            ax2.set_title("Top Models by Score", color="#f0f6fc", fontsize=11)
-                            ax2.tick_params(colors="#8b949e", labelsize=8)
-                            for sp in ax2.spines.values(): sp.set_edgecolor("#30363d")
-                            _plt2.tight_layout()
-                            st.pyplot(fig2, use_container_width=True)
-                            _plt2.close(fig2)
+                            _fig_lb = _make_leaderboard_bar(
+                                tuple(top["model"].tolist()),
+                                tuple(top[val_col].tolist()),
+                                val_col, "Top Models by Score", "#58a6ff"
+                            )
+                            st.pyplot(_fig_lb, use_container_width=True)
                             best_model = lb.iloc[0]["model"] if "model" in lb.columns else "N/A"
                             st.success(f"✅ Best model: **{best_model}**")
                         except Exception as lb_err:
@@ -1722,22 +1785,17 @@ elif menu == "Experiments":
                             lb_df = st.session_state.get(lb_key)
                             if lb_df is not None:
                                 st.dataframe(lb_df, use_container_width=True)
-                                import matplotlib.pyplot as _plt3
                                 id_col  = lb_df.columns[0]
                                 num_cols = lb_df.select_dtypes("number").columns.tolist()
                                 if num_cols:
                                     metric_col = num_cols[0]
                                     top_h2o = lb_df.head(10)
-                                    fig3, ax3 = _plt3.subplots(figsize=(9, max(2.5, len(top_h2o) * 0.45)))
-                                    fig3.patch.set_facecolor("#161b22"); ax3.set_facecolor("#0d1117")
-                                    ax3.barh(top_h2o[id_col].tolist(), top_h2o[metric_col].tolist(), color="#3fb950", edgecolor="#30363d")
-                                    ax3.set_xlabel(metric_col, color="#8b949e")
-                                    ax3.set_title("H2O Model Leaderboard", color="#f0f6fc", fontsize=11)
-                                    ax3.tick_params(colors="#8b949e", labelsize=8)
-                                    for sp in ax3.spines.values(): sp.set_edgecolor("#30363d")
-                                    _plt3.tight_layout()
-                                    st.pyplot(fig3, use_container_width=True)
-                                    _plt3.close(fig3)
+                                    _fig_h2o = _make_leaderboard_bar(
+                                        tuple(top_h2o[id_col].tolist()),
+                                        tuple(top_h2o[metric_col].tolist()),
+                                        metric_col, "H2O Model Leaderboard", "#3fb950"
+                                    )
+                                    st.pyplot(_fig_h2o, use_container_width=True)
 
                     elif fw_type == "tpot" and predictor:
                         from src.pipeline_parser import extract_best_tpot_pipeline
@@ -1786,7 +1844,7 @@ elif menu == "Experiments":
                 with tab_mlflow:
                     if run_id:
                         try:
-                            run_data = get_run_data_cached(run_id)
+                            run_data = _get_mlflow_run(run_id)
                             if run_data:
                                 c1, c2 = st.columns(2)
                                 with c1:
@@ -1808,7 +1866,7 @@ elif menu == "Experiments":
                                     else:
                                         st.caption("No metrics logged.")
                                 st.markdown("**📦 Artifacts**")
-                                arts = get_artifacts_cached(run_id)
+                                arts = _get_mlflow_artifacts(run_id)
                                 if arts:
                                     for art in arts:
                                         size_str = f"{art.file_size:,} bytes" if art.file_size else "dir"
