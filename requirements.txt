@@ -1,7 +1,9 @@
 numpy==1.26.4
 pandas==2.1.4
 packaging==23.2
-protobuf==4.25.8
+# pin protobuf to 3.20.3 to satisfy tf2onnx (requires ~=3.20) and onnx (>=3.20.2)
+# mlflow accepts protobuf>=3.12.0,<5 so 3.20.3 is compatible across these packages
+protobuf==3.20.3
 flaml==2.1.2
 autogluon==1.1.0
 pycaret==3.3.0
