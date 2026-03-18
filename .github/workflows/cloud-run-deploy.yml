@@ -22,6 +22,14 @@ jobs:
         run: |
           gcloud auth configure-docker --quiet
 
+      - name: Validate GCP_PROJECT secret
+        run: |
+          if [ -z "${{ secrets.GCP_PROJECT }}" ]; then
+            echo "ERROR: repository secret GCP_PROJECT is not set or is empty." >&2
+            echo "Set the secret in Settings → Secrets and variables → Actions → New repository secret" >&2
+            exit 1
+          fi
+
       - name: Build and push Docker image to GCR
         uses: docker/build-push-action@v5
         with:
