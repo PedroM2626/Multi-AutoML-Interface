@@ -1,38 +1,45 @@
-## pin numpy to 1.25.2 to satisfy packages requiring <1.26 (ydata-profiling)
-numpy==1.25.2
-## pin pandas to 2.0.3 to satisfy ydata-profiling (<2.1) while remaining compatible
-## with pycaret and streamlit which accept pandas >=1.3,<3
-pandas==2.0.3
+## allow numpy 2.x (>=2.3) and prefer wheels; relax pandas and pycaret pins
+numpy>=1.25,<2 --only-binary=:all:
+## allow pandas 2.x so pip can select a pandas compatible with newer profiling
+pandas>=2.0,<3
 packaging==23.2
 # pin protobuf to 3.20.3 to satisfy tf2onnx (requires ~=3.20) and onnx (>=3.20.2)
 # mlflow accepts protobuf>=3.12.0,<5 so 3.20.3 is compatible across these packages
 protobuf==3.20.3
 flaml==2.1.2
-autogluon==1.1.0
-pycaret==3.3.0
-lale==0.8.2
+# autogluon meta-package causes resolution failures on Windows/py3.11
+# Uncomment and pin to specific subpackages (autogluon.tabular, autogluon.multimodal)
+# or a known working autogluon wheel for your platform before re-enabling.
+# autogluon>=0.10,<2
+pycaret>=3.3.0,<4
+lale>=0.8.2,<1
 ## lale 0.8.2 requires hyperopt>=0.2,<=0.2.5 — pin to compatible version
 hyperopt==0.2.5
-mlflow==2.9.2
+mlflow>=2.9.2,<4
 openpyxl==3.1.5
-scikit-learn==1.4.2
-## pin matplotlib to 3.7.3 to satisfy ydata-profiling (<=3.7.3)
-matplotlib==3.7.3
-seaborn==0.13.1
+## allow modern scikit-learn that supports numpy 2.x
+scikit-learn>=1.8,<2
+## allow modern matplotlib wheels available on PyPI
+matplotlib>=3.10,<4
+# ydata-profiling 4.6.0 requires seaborn<0.13; pin to last 0.12 series
+seaborn==0.12.2
 plotly==5.20.0
-statsmodels==0.14.1
+## allow latest compatible statsmodels wheels
+statsmodels>=0.14.5,<0.15
 prophet==1.1.5
-# scipy pinned to 1.11.4 to satisfy pycaret (pycaret==3.3.0 requires scipy<=1.11.4)
-scipy==1.11.4
+# allow a range of modern SciPy wheels; prefer binary wheels to avoid sdist builds
+# relaxed because newer interpreters/platforms may not have the exact 1.11.4 wheel
+scipy>=1.11,<1.17 --only-binary=:all:
 joblib==1.4.0
 tqdm==4.66.2
-onnx==1.15.0
-onnxruntime==1.17.3
+## ONNX runtime and converters
+onnx==1.15.0 --only-binary=:all:
+onnxruntime==1.17.3 --only-binary=:all:
 skl2onnx==1.16.0
 tf2onnx==1.16.1
 huggingface-hub==0.23.4
 python-dotenv==1.0.0
 streamlit==1.32.0
-ydata-profiling==4.6.0
+ydata-profiling>=4.6.0,<6
 streamlit-pandas-profiling==0.1.3
-reflex>=0.6.0
+reflex==0.8.28

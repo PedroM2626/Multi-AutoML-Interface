@@ -1,0 +1,19 @@
+# Render service configuration
+services:
+  - type: web
+    name: multi-automl
+    env: docker
+    repo: https://github.com/PedroM2626/Multi-AutoML-Interface
+    branch: main
+    dockerfilePath: Dockerfile
+    plan: free
+    envVars:
+      - key: STREAMLIT_SERVER_PORT
+        value: "8501"
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: "0.0.0.0"
+
+# Notes:
+# - Replace <YOUR_USERNAME> with your GitHub username or the repository URL.
+# - Render will build the Docker image using the repository Dockerfile.
+# - You can omit `repo`/`branch` if you create the service via Render dashboard and point to this repo.
