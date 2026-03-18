@@ -2,7 +2,8 @@
 numpy>=1.25,<2 --only-binary=:all:
 ## allow pandas 2.x so pip can select a pandas compatible with newer profiling
 pandas>=2.0,<3
-packaging==23.2
+# Allow a packaging range compatible with reflex and other packages
+packaging>=24.2,<27
 # pin protobuf to 3.20.3 to satisfy tf2onnx (requires ~=3.20) and onnx (>=3.20.2)
 # mlflow accepts protobuf>=3.12.0,<5 so 3.20.3 is compatible across these packages
 protobuf==3.20.3
