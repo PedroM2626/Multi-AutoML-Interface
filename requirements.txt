@@ -6,7 +6,8 @@ flaml==2.1.2
 autogluon==1.1.0
 pycaret==3.3.0
 lale==0.8.2
-hyperopt==0.2.7
+## lale 0.8.2 requires hyperopt>=0.2,<=0.2.5 — pin to compatible version
+hyperopt==0.2.5
 mlflow==2.9.2
 openpyxl==3.1.5
 scikit-learn==1.4.2
