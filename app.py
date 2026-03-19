@@ -8,6 +8,21 @@ import logging
 import importlib
 import queue
 
+
+def _compat_fragment(*args, **kwargs):
+    """Use st.fragment when available, otherwise behave as a no-op decorator."""
+    fragment_fn = getattr(st, "fragment", None)
+    if fragment_fn is not None:
+        return fragment_fn(*args, **kwargs)
+
+    def _decorator(func):
+        return func
+
+    # Support bare decorator usage: @_compat_fragment
+    if args and callable(args[0]) and len(args) == 1 and not kwargs:
+        return args[0]
+    return _decorator
+
 # Development Cache Optimization (optional via URL ?dev=true)
 dev_mode = st.query_params.get("dev", "false").lower() == "true"
 if dev_mode:
@@ -1575,7 +1590,7 @@ elif menu == "Experiments":
         <p>Monitor and manage your concurrent AutoML training runs in real time.</p>
     </div>""", unsafe_allow_html=True)
 
-    @st.fragment(run_every="5s")
+    @_compat_fragment(run_every="5s")
     def render_experiment_dashboard():
         # Only refresh if there are active runs to save resources
         is_active = exp_manager.has_running()
