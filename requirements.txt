@@ -2,8 +2,8 @@
 numpy>=1.25,<2 --only-binary=:all:
 ## allow pandas 2.x so pip can select a pandas compatible with newer profiling
 pandas>=2.0,<3
-# Allow a packaging range compatible with reflex and other packages
-packaging>=24.2,<27
+# Keep packaging compatible with streamlit 1.32.0 (requires packaging<24)
+packaging>=23.2,<24
 # pin protobuf to 3.20.3 to satisfy tf2onnx (requires ~=3.20) and onnx (>=3.20.2)
 # mlflow accepts protobuf>=3.12.0,<5 so 3.20.3 is compatible across these packages
 protobuf==3.20.3
@@ -18,10 +18,10 @@ lale>=0.8.2,<1
 hyperopt==0.2.5
 mlflow>=2.9.2,<4
 openpyxl==3.1.5
-## allow modern scikit-learn that supports numpy 2.x
-scikit-learn>=1.8,<2
-## allow modern matplotlib wheels available on PyPI
-matplotlib>=3.10,<4
+## pycaret 3.3.x + sktime currently resolve with scikit-learn <1.8
+scikit-learn>=1.5,<1.8
+## pycaret 3.3.x requires matplotlib<3.8
+matplotlib>=3.7,<3.8
 # ydata-profiling 4.6.0 requires seaborn<0.13; pin to last 0.12 series
 seaborn==0.12.2
 plotly==5.20.0
@@ -31,7 +31,8 @@ prophet==1.1.5
 # allow a range of modern SciPy wheels; prefer binary wheels to avoid sdist builds
 # relaxed because newer interpreters/platforms may not have the exact 1.11.4 wheel
 scipy>=1.11,<1.17 --only-binary=:all:
-joblib==1.4.0
+## pycaret 3.3.x requires joblib<1.4
+joblib>=1.2,<1.4
 tqdm==4.66.2
 ## ONNX runtime and converters
 onnx==1.15.0 --only-binary=:all:
