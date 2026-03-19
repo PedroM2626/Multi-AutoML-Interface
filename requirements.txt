@@ -1,7 +1,7 @@
 ## allow numpy 2.x (>=2.3) and prefer wheels; relax pandas and pycaret pins
 numpy>=1.25,<2 --only-binary=:all:
-## allow pandas 2.x so pip can select a pandas compatible with newer profiling
-pandas>=2.0,<3
+## ydata-profiling 4.6.0 requires pandas<2.1
+pandas==2.0.3
 # Keep packaging compatible with streamlit 1.32.0 (requires packaging<24)
 packaging>=23.2,<24
 # pin protobuf to 3.20.3 to satisfy tf2onnx (requires ~=3.20) and onnx (>=3.20.2)
@@ -12,28 +12,29 @@ flaml==2.1.2
 # Uncomment and pin to specific subpackages (autogluon.tabular, autogluon.multimodal)
 # or a known working autogluon wheel for your platform before re-enabling.
 # autogluon>=0.10,<2
-pycaret>=3.3.0,<4
-lale>=0.8.2,<1
+pycaret==3.3.2
+# optional: enable Lale workflows when needed
+# lale==0.9.2
 ## lale 0.8.2 requires hyperopt>=0.2,<=0.2.5 — pin to compatible version
 hyperopt==0.2.5
-mlflow>=2.9.2,<4
+mlflow==2.9.2
 openpyxl==3.1.5
-## pycaret 3.3.x + sktime currently resolve with scikit-learn <1.8
-scikit-learn>=1.5,<1.8
+## align with sktime 0.26.0 (<1.5) while keeping pycaret/lale compatibility
+scikit-learn==1.4.2
+## pin sktime stack to avoid deep resolver backtracking
+sktime==0.26.0
+scikit-base==0.7.8
 ## pycaret 3.3.x requires matplotlib<3.8
 matplotlib>=3.7,<3.8
 # ydata-profiling 4.6.0 requires seaborn<0.13; pin to last 0.12 series
 seaborn==0.12.2
 plotly==5.20.0
-## allow latest compatible statsmodels wheels
-statsmodels>=0.14.5,<0.15
+statsmodels==0.14.6
 prophet==1.1.5
-# allow a range of modern SciPy wheels; prefer binary wheels to avoid sdist builds
-# relaxed because newer interpreters/platforms may not have the exact 1.11.4 wheel
-scipy>=1.11,<1.17 --only-binary=:all:
+scipy==1.11.4 --only-binary=:all:
 ## pycaret 3.3.x requires joblib<1.4
 joblib>=1.2,<1.4
-tqdm==4.66.2
+tqdm==4.66.6
 ## ONNX runtime and converters
 onnx==1.15.0 --only-binary=:all:
 onnxruntime==1.17.3 --only-binary=:all:
@@ -42,5 +43,6 @@ tf2onnx==1.16.1
 huggingface-hub==0.23.4
 python-dotenv==1.0.0
 streamlit==1.32.0
-ydata-profiling>=4.6.0,<6
-streamlit-pandas-profiling==0.1.3
+# optional: EDA profiling stack (heavy resolver graph)
+# ydata-profiling==4.18.1
+# streamlit-pandas-profiling==0.1.3

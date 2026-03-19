@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Update pip
-RUN pip install --upgrade pip
+# Keep pip below 25 to avoid aggressive "resolution-too-deep" failures in complex graphs
+RUN pip install --upgrade "pip<25"
 
 # Copy the requirements file into the container at /app
 COPY requirements.txt .
