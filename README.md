@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-4.3.2-blue)
+![Version](https://img.shields.io/badge/version-4.3.4-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -8,6 +8,8 @@
 **A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O, TPOT, PyCaret, Lale, AutoKeras) with integrated MLOps via MLflow.**
 
 ---
+
+**Important:** The linked Hugging Face Spaces demo is provided for testing and visualization only — this project is intended to be run locally for real experiments and production use. See the Quick Start section below to run the application on your machine.
 
 ## 🆕 What's New (Recent)
 
@@ -61,6 +63,8 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **Desktop app** (Electron)
 - **Hugging Face Spaces** (Live Demo)
 - **Local development**
+
+Note: The Hugging Face Spaces entry above links to a demo deployment provided for quick preview and visualization. For reproducible experiments and real workloads, run the project locally using the Quick Start instructions.
 
 ### 🎛️ **Advanced Interface:**
 - **Upload multiple datasets** (Train, Validation, Test)
@@ -579,7 +583,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ---
 
 ### 🌐 **Live Demo:**
-[Hugging Face Spaces - Multi-AutoML Interface](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
+[Hugging Face Spaces - Multi-AutoML Interface](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface) — demo only (visualization/testing). Run locally for real experiments.
 
 ---
 

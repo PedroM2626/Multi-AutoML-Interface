@@ -749,16 +749,27 @@ _NAV_ITEMS = {
     "📈  Monitoring": "History (MLflow)",
 }
 
-_default_nav_label = next((k for k, v in _NAV_ITEMS.items() if v == st.session_state.get('menu_page')), "🏠  Overview")
+# Persist navigation state explicitly to avoid one-click lag/rerun race on hosted environments.
+if 'menu_page' not in st.session_state:
+    st.session_state['menu_page'] = "Data Upload"
+if 'menu_label' not in st.session_state:
+    st.session_state['menu_label'] = next(
+        (k for k, v in _NAV_ITEMS.items() if v == st.session_state.get('menu_page')),
+        "🏠  Overview"
+    )
+
+_default_nav_label = st.session_state.get('menu_label', "🏠  Overview")
 selected_nav_label = st.sidebar.radio(
     label="Main navigation",
     options=list(_NAV_ITEMS.keys()),
     index=list(_NAV_ITEMS.keys()).index(_default_nav_label),
+    key="_main_nav_radio",
     label_visibility="collapsed",
 )
 
 menu = _NAV_ITEMS[selected_nav_label]
 st.session_state['menu_page'] = menu
+st.session_state['menu_label'] = selected_nav_label
 
 st.sidebar.markdown('<div class="sidebar-sep">Integrations</div>', unsafe_allow_html=True)
 st.sidebar.header("🔗 DagsHub Integration (Optional)")
