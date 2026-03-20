@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Keep pip below 25 to avoid aggressive "resolution-too-deep" failures in complex graphs
-RUN pip install --upgrade "pip<25"
+# Update pip
+RUN pip install --upgrade pip
 
 # Copy the requirements file into the container at /app
 COPY requirements.txt .
@@ -29,14 +29,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose ports for Streamlit and MLflow
-EXPOSE 8501
+EXPOSE 7860
 EXPOSE 5000
 
 # Set environment variables
-ENV STREAMLIT_SERVER_PORT=8501
+ENV PORT=7860
+ENV STREAMLIT_SERVER_PORT=7860
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV JAVA_HOME=/usr/lib/jvm/default-java
 ENV PATH=$PATH:$JAVA_HOME/bin
 
 # Command to run the application
-CMD ["streamlit", "run", "app.py"]
+CMD streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT} --server.headless=true --server.enableCORS=false
