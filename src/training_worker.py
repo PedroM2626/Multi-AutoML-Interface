@@ -22,6 +22,7 @@ import sys
 import logging
 import threading
 import traceback
+import queue
 
 from src.experiment_manager import ExperimentEntry
 

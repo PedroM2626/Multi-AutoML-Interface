@@ -1,4 +1,5 @@
 import os
+import mlflow
 
 
 def generate_consumption_code(model_type: str, run_id: str, target_column: str) -> str:
