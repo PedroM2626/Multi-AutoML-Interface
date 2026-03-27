@@ -24,7 +24,12 @@ jobs:
       - name: Install dev tooling
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "requirements-dev.txt not found; installing minimal CI tooling"
+            pip install ruff pytest
+          fi
 
       - name: Ruff critical lint
         run: ruff check .
@@ -50,7 +55,12 @@ jobs:
       - name: Install baseline tooling
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "requirements-dev.txt not found; installing minimal CI tooling"
+            pip install ruff pytest
+          fi
           pip install pandas==2.0.3 scikit-learn==1.4.2 mlflow==2.9.2
 
       - name: Quick validation gates
