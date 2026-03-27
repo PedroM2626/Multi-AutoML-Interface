@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  quick-pr:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dev tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff critical lint
+        run: ruff check .
+
+      - name: Python syntax compile
+        run: python -m compileall app.py run.py src tests
+
+      - name: Regression flow tests
+        run: pytest -q tests/test_regression_flows.py
+
+  nightly-complete:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install baseline tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install pandas==2.0.3 scikit-learn==1.4.2 mlflow==2.9.2
+
+      - name: Quick validation gates
+        run: |
+          ruff check .
+          python -m compileall app.py run.py src tests
+          pytest -q tests/test_regression_flows.py
+
+      - name: Optional integration stack install
+        continue-on-error: true
+        run: pip install -r requirements.txt
+
+      - name: Optional integration suite (best effort)
+        continue-on-error: true
+        run: pytest -q tests

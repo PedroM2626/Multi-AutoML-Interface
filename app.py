@@ -217,6 +217,9 @@ from src.mlflow_utils import heal_mlruns
 from src.mlflow_cache import mlflow_cache, get_cached_experiment_list
 from src.experiment_manager import get_or_create_manager, ExperimentEntry
 from src.training_worker import run_training_worker
+from src.ui_state import init_session_state
+from src.navigation import NAV_ITEMS, init_navigation_state, sync_navigation_selection
+from src.prediction_service import load_model_by_framework, run_predictions
 import mlflow
 import time
 import threading
@@ -707,26 +710,7 @@ def _startup_init():
 _startup_init()
 
 # ── Session state initialisation (single consolidated pass) ───────────────────
-_SS_DEFAULTS: dict = {
-    'df':           None,
-    'predictor':    None,
-    'model_type':   None,
-    'valid_df':     None,
-    'test_df':      None,
-    'active_df':    None,
-    'original_df':  None,
-    'target':       None,
-    'run_id':       None,
-    'dvc_hashes':   {},
-    'cv_folds':     0,
-    'task_type':    'Classification',
-    'framework':    'AutoGluon',
-    'target_stats': {},
-}
-for _k, _v in _SS_DEFAULTS.items():
-    st.session_state.setdefault(_k, _v)
-if 'log_queue' not in st.session_state:
-    st.session_state['log_queue'] = queue.Queue()
+init_session_state(st.session_state)
 
 # Initialise the experiment manager singleton
 exp_manager = get_or_create_manager(st.session_state)
@@ -740,36 +724,19 @@ st.sidebar.markdown("""
 
 st.sidebar.markdown('<div class="sidebar-nav-title">Navigation</div>', unsafe_allow_html=True)
 
-_NAV_ITEMS = {
-    "🏠  Overview": "Data Upload",
-    "🗄️  Data": "Data Exploration",
-    "⚙️  AutoML": "Training",
-    "🧪  Experiments": "Experiments",
-    "📦  Registry & Deploy": "Prediction",
-    "📈  Monitoring": "History (MLflow)",
-}
-
 # Persist navigation state explicitly to avoid one-click lag/rerun race on hosted environments.
-if 'menu_page' not in st.session_state:
-    st.session_state['menu_page'] = "Data Upload"
-if 'menu_label' not in st.session_state:
-    st.session_state['menu_label'] = next(
-        (k for k, v in _NAV_ITEMS.items() if v == st.session_state.get('menu_page')),
-        "🏠  Overview"
-    )
+init_navigation_state(st.session_state, NAV_ITEMS)
 
 _default_nav_label = st.session_state.get('menu_label', "🏠  Overview")
 selected_nav_label = st.sidebar.radio(
     label="Main navigation",
-    options=list(_NAV_ITEMS.keys()),
-    index=list(_NAV_ITEMS.keys()).index(_default_nav_label),
+    options=list(NAV_ITEMS.keys()),
+    index=list(NAV_ITEMS.keys()).index(_default_nav_label),
     key="_main_nav_radio",
     label_visibility="collapsed",
 )
 
-menu = _NAV_ITEMS[selected_nav_label]
-st.session_state['menu_page'] = menu
-st.session_state['menu_label'] = selected_nav_label
+menu = sync_navigation_selection(st.session_state, selected_nav_label, NAV_ITEMS)
 
 st.sidebar.markdown('<div class="sidebar-sep">Integrations</div>', unsafe_allow_html=True)
 st.sidebar.header("🔗 DagsHub Integration (Optional)")
@@ -2009,50 +1976,9 @@ elif menu == "Experiments":
         
         if st.button("Load Model"):
             try:
-                if m_type == "AutoGluon":
-                    from src.autogluon_utils import load_model_from_mlflow
-                    st.session_state['predictor'] = load_model_from_mlflow(run_id_input)
-                    st.session_state['model_type'] = "autogluon"
-                elif m_type == "FLAML":
-                    from src.flaml_utils import load_flaml_model
-                    st.session_state['predictor'] = load_flaml_model(run_id_input)
-                    st.session_state['model_type'] = "flaml"
-                elif m_type == "H2O AutoML":
-                    from src.h2o_utils import load_h2o_model
-                    st.session_state['predictor'] = load_h2o_model(run_id_input)
-                    st.session_state['model_type'] = "h2o"
-                elif m_type == "TPOT":
-                    from src.tpot_utils import load_tpot_model
-                    st.session_state['predictor'] = load_tpot_model(run_id_input)
-                    st.session_state['model_type'] = "tpot"
-                elif m_type == "PyCaret":
-                    import mlflow, joblib, os
-                    from pycaret.classification import load_model as _pc_load
-                    local_path = mlflow.artifacts.download_artifacts(run_id=run_id_input, artifact_path="model")
-                    mpath = None
-                    for root, _, files in os.walk(local_path):
-                        for f in files:
-                            if f.endswith(".pkl"):
-                                mpath = os.path.join(root, f).replace(".pkl", "")
-                                break
-                    if mpath is None:
-                        raise FileNotFoundError("PyCaret .pkl not found.")
-                    st.session_state['predictor'] = _pc_load(mpath)
-                    st.session_state['model_type'] = "pycaret"
-                elif m_type == "Lale":
-                    import mlflow, joblib, os
-                    local_path = mlflow.artifacts.download_artifacts(run_id=run_id_input, artifact_path="model")
-                    bundle = None
-                    for root, _, files in os.walk(local_path):
-                        for f in files:
-                            if f.endswith(".pkl"):
-                                bundle = joblib.load(os.path.join(root, f))
-                                break
-                    if bundle is None:
-                        raise FileNotFoundError("Lale .pkl not found.")
-                    st.session_state['predictor'] = bundle
-                    st.session_state['model_type'] = "lale"
-                
+                predictor_obj, normalized_type = load_model_by_framework(m_type, run_id_input)
+                st.session_state['predictor'] = predictor_obj
+                st.session_state['model_type'] = normalized_type
                 st.session_state['run_id'] = run_id_input
                 st.success("Model loaded successfully!")
             except Exception as e:
@@ -2157,95 +2083,15 @@ elif menu == "Experiments":
 
         if execute_pred and predict_df is not None:
                 try:
-                    if predictor is None:
-                        st.error("No model is loaded. Please train or load a model first.")
-                        st.stop()
-
-                    # Always drop the target column if the user uploaded it
                     target_col = st.session_state.get('target', None)
-                    if target_col and target_col in predict_df.columns:
-                        pred_input_df = predict_df.drop(columns=[target_col])
-                    else:
-                        pred_input_df = predict_df.copy()
-
-                    if m_type == "autogluon":
-                        predictions = predictor.predict(pred_input_df)
-                    elif m_type == "onnx":
-                        from src.onnx_utils import predict_onnx
-                        predictions = predict_onnx(predictor, pred_input_df)
-                    elif m_type == "h2o":
-                        from src.h2o_utils import predict_with_h2o
-                        predictions = predict_with_h2o(predictor, pred_input_df)
-                    elif m_type == "pycaret":
-                        from pycaret.classification import predict_model as _pc_pred
-                        preds_df = _pc_pred(predictor, data=pred_input_df)
-                        label_col = "prediction_label" if "prediction_label" in preds_df.columns else preds_df.columns[-1]
-                        predictions = preds_df[label_col]
-                    elif m_type == "lale":
-                        import joblib, numpy as np
-                        # predictor is a bundle dict: {model, col_encoders, y_encoder}
-                        if isinstance(predictor, dict):
-                            _model = predictor["model"]
-                            _col_enc = predictor.get("col_encoders", {})
-                            _y_enc   = predictor.get("y_encoder", None)
-                        else:
-                            _model, _col_enc, _y_enc = predictor, {}, None
-                        _df = pred_input_df.copy()
-                        # Ensure only features that were present during training are used
-                        # and apply encoders
-                        for col, enc in _col_enc.items():
-                            if col in _df.columns:
-                                _df[col] = enc.transform(_df[[col]].astype(str)).ravel()
-                        
-                        # Convert to numeric to find any missed strings
-                        for col in _df.columns:
-                            if _df[col].dtype == object:
-                                try:
-                                    _df[col] = pd.to_numeric(_df[col])
-                                except:
-                                    # Fallback: if it's still string, it's a new feature not in col_encoders
-                                    # or it's a feature we didn't encode. Let's try to fill with -1 or 0
-                                    _df[col] = 0.0 # or drop it
-                        
-                        raw = _model.predict(_df.values)
-                        predictions = _y_enc.inverse_transform(raw) if _y_enc else raw
-                    else:  # flaml / tpot
-                        predictions = predictor.predict(pred_input_df)
-                    
-                    # --- POST-PROCESSING: Decode numeric IDs to class names ---
-                    try:
-                        target_session = st.session_state.get('target', None)
-                        train_df_ref = st.session_state.get('df')
-                        if target_session and train_df_ref is not None:
-                            if target_session in train_df_ref.columns:
-                                trg_series = train_df_ref[target_session]
-                                if trg_series.dtype == object or str(trg_series.dtype) == 'category':
-                                    pred_s = pd.Series(predictions)
-                                    # If the model output numeric IDs but target was string:
-                                    if pd.api.types.is_numeric_dtype(pred_s):
-                                        from sklearn.preprocessing import LabelEncoder
-                                        le = LabelEncoder()
-                                        le.fit(trg_series.astype(str))
-                                        
-                                        decoded = []
-                                        for p in pred_s:
-                                            try:
-                                                idx = int(p)
-                                                if 0 <= idx < len(le.classes_):
-                                                    decoded.append(le.inverse_transform([idx])[0])
-                                                else:
-                                                    decoded.append(p)
-                                            except:
-                                                decoded.append(p)
-                                        predictions = decoded
-                    except Exception as dec_err:
-                        # Non-fatal decoding error
-                        import logging
-                        logging.warning(f"Could not decode class names: {dec_err}")
-                    # ----------------------------------------------------------
-
-                    result_df = pred_input_df.copy()
-                    result_df['Predictions'] = predictions
+                    train_df_ref = st.session_state.get('df')
+                    result_df, pred_input_df = run_predictions(
+                        predictor=predictor,
+                        model_type=m_type,
+                        predict_df=predict_df,
+                        target_col=target_col,
+                        training_df=train_df_ref,
+                    )
 
                     st.success("Predictions concluded!")
                     st.dataframe(result_df)

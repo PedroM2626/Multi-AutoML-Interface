@@ -6,8 +6,19 @@ services:
     volumes:
       - .:/app
     environment:
-      - MLFLOW_TRACKING_URI=./mlruns
-    command: streamlit run app.py
+      - MLFLOW_TRACKING_URI=http://mlflow-ui:5000
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true --server.enableCORS=false
+    depends_on:
+      mlflow-ui:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   mlflow-ui:
     image: ghcr.io/mlflow/mlflow:v2.11.1
@@ -15,4 +26,10 @@ services:
       - "5000:5000"
     volumes:
       - ./mlruns:/mlruns
-    command: mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri /mlruns
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri /mlruns --default-artifact-root /mlruns
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s

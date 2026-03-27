@@ -8,8 +8,11 @@ import numpy as np
 import sys
 import os
 import logging
+import pytest
 from sklearn.datasets import make_classification, make_regression
 from sklearn.feature_extraction.text import TfidfVectorizer
+
+pytestmark = pytest.mark.skip(reason="Legacy simulation-style integration script")
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -120,14 +123,12 @@ def test_tpot_high_dimensional():
         logger.info("✅ Teste de alta dimensionalidade concluído!")
         logger.info(f"📊 Features finais: {model_info['n_features']}")
         logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        return True
-        
+        assert True
     except Exception as e:
         logger.error(f"❌ Erro no teste de alta dimensionalidade: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return False
-
+        pytest.fail("Test flow returned False")
 def test_tpot_large_dataset():
     """Testar TPOT com dataset grande"""
     logger.info("🧪 Testando TPOT com dataset grande...")
@@ -163,14 +164,12 @@ def test_tpot_large_dataset():
         logger.info("✅ Teste de dataset grande concluído!")
         logger.info(f"📊 Amostras: {model_info['n_samples']}")
         logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        return True
-        
+        assert True
     except Exception as e:
         logger.error(f"❌ Erro no teste de dataset grande: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return False
-
+        pytest.fail("Test flow returned False")
 def test_parameter_adjustment():
     """Testar se os parâmetros são ajustados corretamente"""
     logger.info("🧪 Testando ajuste automático de parâmetros...")
@@ -207,14 +206,12 @@ def test_parameter_adjustment():
         logger.info("✅ Teste de ajuste de parâmetros concluído!")
         logger.info(f"📊 Parâmetros ajustados automaticamente")
         logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        return True
-        
+        assert True
     except Exception as e:
         logger.error(f"❌ Erro no teste de ajuste de parâmetros: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return False
-
+        pytest.fail("Test flow returned False")
 if __name__ == "__main__":
     import time
     

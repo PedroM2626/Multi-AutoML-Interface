@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-4.3.4-blue)
+![Version](https://img.shields.io/badge/version-4.4.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -151,6 +151,29 @@ npm install && npm run dev
 
 # Option 3: Docker
 docker-compose up
+```
+
+### 🧪 **Developer Workflow (Quality Gates):**
+
+```bash
+# Install dev tooling
+pip install -r requirements-dev.txt
+
+# Lint (critical rules)
+ruff check .
+
+# Syntax check
+python -m compileall app.py run.py src tests
+```
+
+> The repository now includes a GitHub Actions pipeline in `.github/workflows/ci.yml`
+> to run two levels automatically:
+> - **quick-pr**: lint + syntax + regression flow tests on push/PR
+> - **nightly-complete**: full nightly best-effort run with optional integration stack
+
+```bash
+# Run critical regression flows locally
+pytest -q tests/test_regression_flows.py
 ```
 
 ---

@@ -2,10 +2,10 @@ import unittest
 import os
 import pandas as pd
 import numpy as np
-import onnxruntime as ort
 from sklearn.linear_model import LogisticRegression
 from src.onnx_utils import export_to_onnx, load_onnx_session, predict_onnx
-from src.huggingface_utils import HuggingFaceService
+from src.huggingface_utils import HuggingFaceService, _check_hf_availability
+from src.onnx_utils import _check_onnx_availability
 
 class TestExternalIntegrations(unittest.TestCase):
     def setUp(self):
@@ -19,6 +19,11 @@ class TestExternalIntegrations(unittest.TestCase):
             os.makedirs("tests")
 
     def test_onnx_export_and_inference(self):
+        if not _check_onnx_availability():
+            self.skipTest("ONNX stack not available in environment")
+
+        import onnxruntime as ort
+
         # Test Export
         path = export_to_onnx(self.model, "flaml", "target", self.onnx_path, input_sample=self.X[:1])
         self.assertTrue(os.path.exists(path))
@@ -34,6 +39,9 @@ class TestExternalIntegrations(unittest.TestCase):
         # Our utility returns outputs[0] which is labels
 
     def test_huggingface_service_init(self):
+        if not _check_hf_availability():
+            self.skipTest("huggingface_hub not available in environment")
+
         # We don't have a token for CI, so we just test initialization
         service = HuggingFaceService(token="dummy_token")
         self.assertEqual(service.token, "dummy_token")

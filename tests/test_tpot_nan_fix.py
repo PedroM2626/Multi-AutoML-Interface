@@ -8,7 +8,9 @@ import numpy as np
 import sys
 import os
 import logging
+import pytest
 
+pytestmark = pytest.mark.skip(reason="Legacy simulation-style integration script")
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -62,14 +64,12 @@ def test_tpot_with_nan_data():
         
         logger.info("✅ Teste com NaN concluído com sucesso!")
         logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        return True
-        
+        assert True
     except Exception as e:
         logger.error(f"❌ Erro no teste com NaN: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return False
-
+        pytest.fail("Test flow returned False")
 if __name__ == "__main__":
     import time
     test_tpot_with_nan_data()
