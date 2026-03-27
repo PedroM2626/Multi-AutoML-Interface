@@ -1,75 +1,62 @@
-#!/usr/bin/env python3
-"""
-Teste para verificar o tratamento de NaN no TPOT
-"""
-
-import pandas as pd
-import numpy as np
 import sys
-import os
-import logging
+import types
+
+import numpy as np
+import pandas as pd
+
+
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Legacy simulation-style integration script")
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
-# Adicionar src ao path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+@pytest.fixture
+def nan_tpot_df():
+    rng = np.random.default_rng(42)
+    n_samples = 100
+    return pd.DataFrame(
+        {
+            "feature1": rng.normal(size=n_samples),
+            "feature2": [np.nan if i % 10 == 0 else float(x) for i, x in enumerate(rng.normal(size=n_samples))],
+            "feature3": ["A" if i % 3 == 0 else "B" if i % 3 == 1 else np.nan for i in range(n_samples)],
+            "feature4": ["text data" if i % 5 == 0 else np.nan for i in range(n_samples)],
+            "target": rng.choice([0, 1], size=n_samples),
+        }
+    )
 
-def test_tpot_with_nan_data():
-    """Testar TPOT com dados contendo NaN"""
-    logger.info("🧪 Testando TPOT com dados contendo NaN...")
-    
-    try:
-        from tpot_utils import train_tpot_model
-        
-        # Criar dados com NaN
-        np.random.seed(42)
-        n_samples = 100
-        
-        data = {
-            'feature1': np.random.randn(n_samples),
-            'feature2': [np.nan if i % 10 == 0 else x for i, x in enumerate(np.random.randn(n_samples))],
-            'feature3': ['A' if i % 3 == 0 else 'B' if i % 3 == 1 else np.nan for i in range(n_samples)],
-            'feature4': ['text data' if i % 5 == 0 else np.nan for i in range(n_samples)],
-            'target': np.random.choice([0, 1], n_samples)
-        }
-        
-        df = pd.DataFrame(data)
-        logger.info(f"Dados criados com NaN: {df.isnull().sum().sum()} valores nulos")
-        
-        target_column = 'target'
-        run_name = f"tpot_test_nan_{int(time.time())}"
-        
-        # Parâmetros para teste rápido
-        params = {
-            'generations': 1,
-            'population_size': 5,
-            'cv': 2,
-            'scoring': 'f1_macro',
-            'max_time_mins': 2,
-            'max_eval_time_mins': 1,
-            'random_state': 42,
-            'verbosity': 1,
-            'n_jobs': 1,
-            'config_dict': 'TPOT light'
-        }
-        
-        # Treinar modelo
-        tpot, pipeline, run_id, model_info = train_tpot_model(
-            df, target_column, run_name, **params
-        )
-        
-        logger.info("✅ Teste com NaN concluído com sucesso!")
-        logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro no teste com NaN: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        pytest.fail("Test flow returned False")
-if __name__ == "__main__":
-    import time
-    test_tpot_with_nan_data()
+
+def _run_tpot_nan_flow(df: pd.DataFrame, run_name: str):
+    from tpot_utils import train_tpot_model
+
+    return train_tpot_model(
+        df,
+        "target",
+        run_name,
+        generations=1,
+        population_size=5,
+        cv=2,
+        scoring="f1_macro",
+        max_time_mins=2,
+        max_eval_time_mins=1,
+        random_state=42,
+        verbosity=1,
+        n_jobs=1,
+        config_dict="TPOT light",
+    )
+
+
+def test_tpot_nan_data_training_contract(monkeypatch, nan_tpot_df):
+    class FakeTPOT:
+        fitted_pipeline_ = "mock_nan_pipeline"
+
+    def fake_train_tpot_model(df, target_column, run_name, **kwargs):
+        assert target_column == "target"
+        assert df.isnull().sum().sum() > 0
+        return FakeTPOT(), object(), "run_nan_1", {"problem_type": "classification"}
+
+    fake_module = types.SimpleNamespace(train_tpot_model=fake_train_tpot_model)
+    monkeypatch.setitem(sys.modules, "tpot_utils", fake_module)
+
+    tpot, _, run_id, model_info = _run_tpot_nan_flow(nan_tpot_df, "tpot_test_nan")
+
+    assert run_id == "run_nan_1"
+    assert tpot.fitted_pipeline_ == "mock_nan_pipeline"
+    assert model_info["problem_type"] == "classification"

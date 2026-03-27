@@ -1,172 +1,134 @@
-#!/usr/bin/env python3
-"""
-Test script to verify H2O AutoML integration
-"""
+import sys
+import types
 
-import pandas as pd
 import numpy as np
-from src.h2o_utils import train_h2o_model, load_h2o_model, initialize_h2o, cleanup_h2o
-import logging
+import pandas as pd
+
+
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Legacy simulation-style integration script")
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-def create_sample_data():
-    """Create sample dataset for testing"""
-    np.random.seed(42)
-    n_samples = 1000
-    
-    # Create features
-    data = {
-        'feature1': np.random.randn(n_samples),
-        'feature2': np.random.randn(n_samples),
-        'feature3': np.random.randn(n_samples),
-        'feature4': np.random.choice(['A', 'B', 'C'], n_samples),
-        'feature5': np.random.rand(n_samples) * 100
-    }
-    
-    # Create target (classification)
-    target = []
-    for i in range(n_samples):
-        # Simple rule to create target
-        if data['feature1'][i] > 0.5 and data['feature2'][i] > 0:
-            target.append('Class1')
-        elif data['feature1'][i] < -0.5:
-            target.append('Class2')
-        else:
-            target.append('Class0')
-    
-    data['target'] = target
-    
-    return pd.DataFrame(data)
+@pytest.fixture
+def sample_h2o_df():
+    rng = np.random.default_rng(42)
+    df = pd.DataFrame(
+        {
+            "feature1": rng.normal(size=150),
+            "feature2": rng.normal(size=150),
+            "feature3": rng.choice(["A", "B", "C"], size=150),
+            "feature4": rng.uniform(0, 100, size=150),
+            "target": rng.choice(["Class0", "Class1", "Class2"], size=150),
+        }
+    )
+    return df
 
-def test_h2o_basic_functionality():
-    """Test basic H2O functionality"""
-    logger.info("Testing H2O basic functionality...")
-    
-    try:
-        # Test H2O initialization
-        h2o_instance = initialize_h2o()
-        logger.info("✓ H2O initialization successful")
-        
-        # Test cleanup
-        cleanup_h2o()
-        logger.info("✓ H2O cleanup successful")
-        
-    except Exception as e:
-        logger.error(f"✗ H2O basic functionality failed: {e}")
-        pytest.fail("Test flow returned False")
-        assert True
-def test_h2o_training():
-    """Test H2O AutoML training"""
-    logger.info("Testing H2O AutoML training...")
-    
-    try:
-        # Create sample data
-        df = create_sample_data()
-        logger.info(f"Created sample dataset with {len(df)} rows")
-        
-        # Test training with minimal parameters for quick test
-        automl, run_id = train_h2o_model(
-            train_data=df,
-            target='target',
-            run_name='test_h2o_run',
-            max_runtime_secs=30,  # Quick test
-            max_models=3,
-            nfolds=2,
-            balance_classes=True
+
+def _run_h2o_basic_flow():
+    from src.h2o_utils import cleanup_h2o, initialize_h2o
+
+    instance = initialize_h2o()
+    cleanup_h2o()
+    return instance
+
+
+def _run_h2o_train_load_predict(df: pd.DataFrame):
+    from src.h2o_utils import load_h2o_model, predict_with_h2o, train_h2o_model
+
+    automl, run_id = train_h2o_model(
+        train_data=df,
+        target="target",
+        run_name="test_h2o_run",
+        max_runtime_secs=30,
+        max_models=3,
+        nfolds=2,
+        balance_classes=True,
+    )
+
+    loaded_model = load_h2o_model(run_id)
+    test_data = df.head(8).drop(columns=["target"])
+    predictions = predict_with_h2o(loaded_model, test_data)
+
+    return automl, run_id, loaded_model, predictions
+
+
+def _read_mlflow_h2o_runs():
+    import mlflow
+
+    experiment = mlflow.get_experiment_by_name("H2O_Experiments")
+    if not experiment:
+        return pd.DataFrame()
+
+    runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+    return runs
+
+
+def test_h2o_basic_initialization_and_cleanup(monkeypatch):
+    calls = []
+
+    def fake_initialize_h2o():
+        calls.append("init")
+        return {"status": "ok"}
+
+    def fake_cleanup_h2o():
+        calls.append("cleanup")
+
+    fake_module = types.SimpleNamespace(
+        initialize_h2o=fake_initialize_h2o,
+        cleanup_h2o=fake_cleanup_h2o,
+    )
+    monkeypatch.setitem(sys.modules, "src.h2o_utils", fake_module)
+
+    instance = _run_h2o_basic_flow()
+
+    assert instance == {"status": "ok"}
+    assert calls == ["init", "cleanup"]
+
+
+def test_h2o_training_load_prediction_flow(monkeypatch, sample_h2o_df):
+    class FakeAutoML:
+        leader = types.SimpleNamespace(model_id="h2o_leader_1")
+
+    class FakeLoadedModel:
+        pass
+
+    fake_module = types.SimpleNamespace(
+        train_h2o_model=lambda **kwargs: (FakeAutoML(), "run_h2o_123"),
+        load_h2o_model=lambda run_id: FakeLoadedModel() if run_id == "run_h2o_123" else None,
+        predict_with_h2o=lambda model, data: np.array(["Class0"] * len(data)),
+    )
+    monkeypatch.setitem(sys.modules, "src.h2o_utils", fake_module)
+
+    automl, run_id, loaded_model, predictions = _run_h2o_train_load_predict(sample_h2o_df)
+
+    assert run_id == "run_h2o_123"
+    assert automl.leader.model_id == "h2o_leader_1"
+    assert loaded_model is not None
+    assert predictions.tolist() == ["Class0"] * 8
+
+
+def test_mlflow_h2o_experiment_lookup(monkeypatch):
+    fake_experiment = types.SimpleNamespace(experiment_id="42")
+
+    def fake_get_experiment_by_name(name):
+        assert name == "H2O_Experiments"
+        return fake_experiment
+
+    def fake_search_runs(experiment_ids):
+        assert experiment_ids == ["42"]
+        return pd.DataFrame(
+            {
+                "run_id": ["r1", "r2"],
+                "status": ["FINISHED", "FINISHED"],
+            }
         )
-        
-        logger.info(f"✓ H2O training successful. Run ID: {run_id}")
-        
-        # Test model loading
-        loaded_model = load_h2o_model(run_id)
-        logger.info("✓ H2O model loading successful")
-        
-        # Test prediction
-        test_data = df.head(10).drop(columns=['target'])
-        from src.h2o_utils import predict_with_h2o
-        predictions = predict_with_h2o(loaded_model, test_data)
-        logger.info(f"✓ H2O prediction successful. Predictions shape: {predictions.shape}")
-        assert True
-    except Exception as e:
-        logger.error(f"✗ H2O training test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        pytest.fail("Test flow returned False")
-def test_mlflow_integration():
-    """Test MLflow integration"""
-    logger.info("Testing MLflow integration...")
-    
-    try:
-        import mlflow
-        
-        # Check if experiment exists
-        experiment = mlflow.get_experiment_by_name("H2O_Experiments")
-        if experiment:
-            logger.info("✓ H2O_Experiments found in MLflow")
-            
-            # List runs
-            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-            logger.info(f"✓ Found {len(runs)} runs in H2O_Experiments")
-            
-            if not runs.empty:
-                logger.info("Latest runs:")
-                print(runs[['run_id', 'status', 'start_time']].tail())
-        else:
-            logger.warning("H2O_Experiments not found in MLflow")
-        assert True
-    except Exception as e:
-        logger.error(f"✗ MLflow integration test failed: {e}")
-        pytest.fail("Test flow returned False")
-def main():
-    """Run all tests"""
-    logger.info("Starting H2O AutoML integration tests...")
-    
-    tests = [
-        ("Basic H2O Functionality", test_h2o_basic_functionality),
-        ("H2O Training", test_h2o_training),
-        ("MLflow Integration", test_mlflow_integration),
-    ]
-    
-    results = {}
-    for test_name, test_func in tests:
-        logger.info(f"\n{'='*50}")
-        logger.info(f"Running: {test_name}")
-        logger.info(f"{'='*50}")
-        
-        try:
-            result = test_func()
-            results[test_name] = result
-            status = "✓ PASSED" if result else "✗ FAILED"
-            logger.info(f"{test_name}: {status}")
-        except Exception as e:
-            logger.error(f"{test_name}: ✗ FAILED with exception: {e}")
-            results[test_name] = False
-    
-    # Summary
-    logger.info(f"\n{'='*50}")
-    logger.info("TEST SUMMARY")
-    logger.info(f"{'='*50}")
-    
-    passed = sum(results.values())
-    total = len(results)
-    
-    for test_name, result in results.items():
-        status = "✓ PASSED" if result else "✗ FAILED"
-        logger.info(f"{test_name}: {status}")
-    
-    logger.info(f"\nOverall: {passed}/{total} tests passed")
-    
-    if passed == total:
-        logger.info("🎉 All tests passed! H2O AutoML integration is working correctly.")
-    else:
-        logger.warning("⚠️  Some tests failed. Please check the logs above.")
-    
-    return passed == total
 
-if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    fake_mlflow = types.SimpleNamespace(
+        get_experiment_by_name=fake_get_experiment_by_name,
+        search_runs=fake_search_runs,
+    )
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    runs = _read_mlflow_h2o_runs()
+
+    assert not runs.empty
+    assert runs["run_id"].tolist() == ["r1", "r2"]

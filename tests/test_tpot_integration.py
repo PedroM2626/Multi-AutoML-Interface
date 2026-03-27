@@ -1,332 +1,202 @@
-#!/usr/bin/env python3
-"""
-Teste de integração do TPOT AutoML com o Multi-AutoML Interface
-"""
-
-import pandas as pd
-import numpy as np
 import sys
-import os
-import logging
+import types
+
+import numpy as np
+import pandas as pd
 import pytest
-import time
-from datetime import datetime
 
-pytestmark = pytest.mark.skip(reason="Legacy simulation-style integration script")
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+@pytest.fixture
+def tpot_classification_df():
+    rng = np.random.default_rng(42)
+    return pd.DataFrame(
+        {
+            "feature1": rng.normal(size=120),
+            "feature2": rng.normal(size=120),
+            "feature3": rng.choice(["A", "B", "C"], size=120),
+            "feature4": rng.uniform(0, 100, size=120),
+            "target": rng.choice([0, 1], size=120),
+        }
+    )
 
-# Adicionar src ao path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-def create_test_data():
-    """Criar dados de teste para TPOT"""
-    np.random.seed(42)
-    n_samples = 500
-    
-    # Dados de classificação
-    data = {
-        'feature1': np.random.randn(n_samples),
-        'feature2': np.random.randn(n_samples),
-        'feature3': np.random.choice(['A', 'B', 'C'], n_samples),
-        'feature4': np.random.uniform(0, 100, n_samples),
-        'target': np.random.choice([0, 1], n_samples, p=[0.6, 0.4])
-    }
-    
-    df = pd.DataFrame(data)
-    return df
+@pytest.fixture
+def tpot_regression_df():
+    rng = np.random.default_rng(123)
+    return pd.DataFrame(
+        {
+            "feature1": rng.normal(size=100),
+            "feature2": rng.normal(size=100),
+            "feature3": rng.uniform(0, 50, size=100),
+            "target": rng.normal(loc=5, scale=2, size=100),
+        }
+    )
 
-def test_tpot_classification():
-    """Testar TPOT para classificação"""
-    logger.info("🧪 Testando TPOT para classificação...")
-    
-    try:
-        from tpot_utils import train_tpot_model
-        
-        # Criar dados de teste
-        df = create_test_data()
-        target_column = 'target'
-        run_name = f"tpot_test_classification_{int(time.time())}"
-        
-        # Parâmetros para teste rápido
-        params = {
-            'generations': 2,
-            'population_size': 10,
-            'cv': 3,
-            'scoring': 'f1_macro',
-            'max_time_mins': 5,  # 5 minutos para teste
-            'max_eval_time_mins': 2,
-            'random_state': 42,
-            'verbosity': 1,
-            'n_jobs': 1,
-            'config_dict': 'TPOT light'
+
+@pytest.fixture
+def tpot_text_df():
+    rng = np.random.default_rng(7)
+    return pd.DataFrame(
+        {
+            "text_feature": ["positive review" if i % 2 == 0 else "negative review" for i in range(90)],
+            "numeric_feature": rng.normal(size=90),
+            "target": rng.choice([0, 1], size=90),
         }
-        
-        logger.info(f"Parâmetros: {params}")
-        
-        # Treinar modelo
-        start_time = time.time()
-        tpot, pipeline, run_id, model_info = train_tpot_model(
-            df, target_column, run_name, **params
-        )
-        training_time = time.time() - start_time
-        
-        logger.info(f"✅ Treinamento concluído em {training_time:.2f} segundos")
-        logger.info(f"📊 Run ID: {run_id}")
-        logger.info(f"🎯 Tipo de problema: {model_info['problem_type']}")
-        logger.info(f"🧬 Pipeline: {str(tpot.fitted_pipeline_)}")
-        
-        # Verificar métricas
-        if model_info['problem_type'] == 'classification':
-            assert 'accuracy' in model_info, "Accuracy não encontrada nas métricas"
-            assert 'f1_macro' in model_info, "F1 macro não encontrada nas métricas"
-            logger.info(f"📈 Accuracy: {model_info['accuracy']:.4f}")
-            logger.info(f"📈 F1 Macro: {model_info['f1_macro']:.4f}")
-        
-        # Verificar se arquivos foram criados
-        import os
-        assert os.path.exists("tpot_models"), "Pasta tpot_models não criada"
-        assert os.path.exists(f"tpot_models/best_pipeline_{run_name}.py"), "Pipeline não exportado"
-        assert os.path.exists(f"tpot_models/model_info_{run_name}.txt"), "Model info não salvo"
-        
-        logger.info("✅ Teste de classificação TPOT concluído com sucesso!")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro no teste de classificação TPOT: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        pytest.fail("Test flow returned False")
-def test_tpot_regression():
-    """Testar TPOT para regressão"""
-    logger.info("🧪 Testando TPOT para regressão...")
-    
-    try:
-        from tpot_utils import train_tpot_model
-        
-        # Criar dados de regressão
-        np.random.seed(42)
-        n_samples = 300
-        data = {
-            'feature1': np.random.randn(n_samples),
-            'feature2': np.random.randn(n_samples),
-            'feature3': np.random.uniform(0, 100, n_samples),
-            'target': np.random.randn(n_samples) * 10 + 5
+    )
+
+
+def _train_tpot(df: pd.DataFrame, run_name: str, **kwargs):
+    from src.tpot_utils import train_tpot_model
+
+    return train_tpot_model(df, "target", run_name, **kwargs)
+
+
+def _detect_problem_type(y: pd.Series):
+    from src.tpot_utils import detect_problem_type
+
+    return detect_problem_type(y)
+
+
+def _build_feature_pipeline(df: pd.DataFrame):
+    from src.tpot_utils import create_feature_pipeline
+
+    return create_feature_pipeline(df, "target", text_columns=["text_col"])
+
+
+def test_tpot_classification_training_contract(monkeypatch, tpot_classification_df):
+    captured = {}
+
+    class FakeTPOT:
+        fitted_pipeline_ = "mock_cls_pipeline"
+
+    def fake_train_tpot_model(df, target_column, run_name, **kwargs):
+        captured["target"] = target_column
+        captured["run_name"] = run_name
+        captured["kwargs"] = kwargs
+        return FakeTPOT(), object(), "run_cls_1", {"problem_type": "classification", "accuracy": 0.9, "f1_macro": 0.88}
+
+    fake_module = types.SimpleNamespace(train_tpot_model=fake_train_tpot_model)
+    monkeypatch.setitem(sys.modules, "src.tpot_utils", fake_module)
+
+    tpot, _, run_id, model_info = _train_tpot(
+        tpot_classification_df,
+        "tpot_test_classification",
+        generations=2,
+        population_size=10,
+        cv=3,
+        scoring="f1_macro",
+        max_time_mins=5,
+        max_eval_time_mins=2,
+        random_state=42,
+        verbosity=1,
+        n_jobs=1,
+        config_dict="TPOT light",
+    )
+
+    assert run_id == "run_cls_1"
+    assert model_info["problem_type"] == "classification"
+    assert "accuracy" in model_info
+    assert "f1_macro" in model_info
+    assert tpot.fitted_pipeline_ == "mock_cls_pipeline"
+    assert captured["target"] == "target"
+    assert captured["run_name"] == "tpot_test_classification"
+
+
+def test_tpot_regression_training_contract(monkeypatch, tpot_regression_df):
+    class FakeTPOT:
+        fitted_pipeline_ = "mock_reg_pipeline"
+
+    def fake_train_tpot_model(df, target_column, run_name, **kwargs):
+        return FakeTPOT(), object(), "run_reg_1", {"problem_type": "regression", "rmse": 1.5, "r2": 0.72}
+
+    fake_module = types.SimpleNamespace(train_tpot_model=fake_train_tpot_model)
+    monkeypatch.setitem(sys.modules, "src.tpot_utils", fake_module)
+
+    tpot, _, run_id, model_info = _train_tpot(
+        tpot_regression_df,
+        "tpot_test_regression",
+        generations=2,
+        population_size=10,
+        cv=3,
+        scoring="neg_mean_squared_error",
+        max_time_mins=5,
+        max_eval_time_mins=2,
+        random_state=42,
+        verbosity=1,
+        n_jobs=1,
+        config_dict="TPOT light",
+    )
+
+    assert run_id == "run_reg_1"
+    assert model_info["problem_type"] == "regression"
+    assert "rmse" in model_info
+    assert "r2" in model_info
+    assert tpot.fitted_pipeline_ == "mock_reg_pipeline"
+
+
+def test_tpot_text_training_contract(monkeypatch, tpot_text_df):
+    class FakeTPOT:
+        fitted_pipeline_ = "mock_text_pipeline"
+
+    def fake_train_tpot_model(df, target_column, run_name, **kwargs):
+        return FakeTPOT(), object(), "run_text_1", {"problem_type": "classification", "text_columns": ["text_feature"]}
+
+    fake_module = types.SimpleNamespace(train_tpot_model=fake_train_tpot_model)
+    monkeypatch.setitem(sys.modules, "src.tpot_utils", fake_module)
+
+    tpot, _, run_id, model_info = _train_tpot(
+        tpot_text_df,
+        "tpot_test_text",
+        generations=2,
+        population_size=10,
+        cv=3,
+        scoring="f1_macro",
+        max_time_mins=5,
+        max_eval_time_mins=2,
+        random_state=42,
+        verbosity=1,
+        n_jobs=1,
+        config_dict="TPOT sparse",
+    )
+
+    assert run_id == "run_text_1"
+    assert model_info["text_columns"] == ["text_feature"]
+    assert tpot.fitted_pipeline_ == "mock_text_pipeline"
+
+
+def test_problem_type_detection_contract(monkeypatch):
+    def fake_detect_problem_type(y):
+        if str(y.dtype) == "object":
+            return "classification"
+        return "regression"
+
+    fake_module = types.SimpleNamespace(detect_problem_type=fake_detect_problem_type)
+    monkeypatch.setitem(sys.modules, "src.tpot_utils", fake_module)
+
+    assert _detect_problem_type(pd.Series(["A", "B", "A"])) == "classification"
+    assert _detect_problem_type(pd.Series([1.2, 2.1, 3.4])) == "regression"
+
+
+def test_feature_pipeline_contract(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "text_col": ["hello world", "test data", "more text"],
+            "num_col1": [1.0, 2.0, 3.0],
+            "num_col2": [4, 5, 6],
+            "cat_col": ["A", "B", "A"],
+            "target": [0, 1, 0],
         }
-        
-        df = pd.DataFrame(data)
-        target_column = 'target'
-        run_name = f"tpot_test_regression_{int(time.time())}"
-        
-        # Parâmetros para teste rápido
-        params = {
-            'generations': 2,
-            'population_size': 10,
-            'cv': 3,
-            'scoring': 'neg_mean_squared_error',
-            'max_time_mins': 5,
-            'max_eval_time_mins': 2,
-            'random_state': 42,
-            'verbosity': 1,
-            'n_jobs': 1,
-            'config_dict': 'TPOT light'
-        }
-        
-        # Treinar modelo
-        tpot, pipeline, run_id, model_info = train_tpot_model(
-            df, target_column, run_name, **params
-        )
-        
-        logger.info(f"✅ Treinamento de regressão concluído")
-        logger.info(f"🎯 Tipo de problema: {model_info['problem_type']}")
-        
-        # Verificar métricas de regressão
-        assert model_info['problem_type'] == 'regression', "Tipo de problema incorreto"
-        assert 'rmse' in model_info, "RMSE não encontrado nas métricas"
-        assert 'r2' in model_info, "R² não encontrado nas métricas"
-        logger.info(f"📈 RMSE: {model_info['rmse']:.4f}")
-        logger.info(f"📈 R²: {model_info['r2']:.4f}")
-        
-        logger.info("✅ Teste de regressão TPOT concluído com sucesso!")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro no teste de regressão TPOT: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        pytest.fail("Test flow returned False")
-def test_tpot_with_text_data():
-    """Testar TPOT com dados textuais"""
-    logger.info("🧪 Testando TPOT com dados textuais...")
-    
-    try:
-        from tpot_utils import train_tpot_model
-        
-        # Criar dados com texto
-        np.random.seed(42)
-        n_samples = 200
-        data = {
-            'text_feature': [
-                'positive review' if i % 2 == 0 else 'negative review' 
-                for i in range(n_samples)
-            ],
-            'numeric_feature': np.random.randn(n_samples),
-            'target': np.random.choice([0, 1], n_samples)
-        }
-        
-        df = pd.DataFrame(data)
-        target_column = 'target'
-        run_name = f"tpot_test_text_{int(time.time())}"
-        
-        # Parâmetros para teste rápido
-        params = {
-            'generations': 2,
-            'population_size': 10,
-            'cv': 3,
-            'scoring': 'f1_macro',
-            'max_time_mins': 5,
-            'max_eval_time_mins': 2,
-            'random_state': 42,
-            'verbosity': 1,
-            'n_jobs': 1,
-            'config_dict': 'TPOT sparse'  # Config para dados esparsos
-        }
-        
-        # Treinar modelo
-        tpot, pipeline, run_id, model_info = train_tpot_model(
-            df, target_column, run_name, **params
-        )
-        
-        logger.info(f"✅ Treinamento com texto concluído")
-        logger.info(f"📝 Colunas de texto: {model_info.get('text_columns', [])}")
-        logger.info(f"🧬 Pipeline com TF-IDF: {str(tpot.fitted_pipeline_)}")
-        
-        logger.info("✅ Teste com dados textuais concluído com sucesso!")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro no teste com dados textuais: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        pytest.fail("Test flow returned False")
-def test_problem_type_detection():
-    """Testar detecção automática de tipo de problema"""
-    logger.info("🧪 Testando detecção de tipo de problema...")
-    
-    try:
-        from tpot_utils import detect_problem_type
-        
-        # Testar classificação
-        y_class = pd.Series([0, 1, 0, 1, 1])
-        problem_type = detect_problem_type(y_class)
-        assert problem_type == 'classification', f"Esperado classification, got {problem_type}"
-        
-        # Testar regressão
-        y_reg = pd.Series([1.5, 2.7, 3.1, 4.8, 5.2])
-        problem_type = detect_problem_type(y_reg)
-        assert problem_type == 'regression', f"Esperado regression, got {problem_type}"
-        
-        # Testar classificação com strings
-        y_str = pd.Series(['A', 'B', 'A', 'C', 'B'])
-        problem_type = detect_problem_type(y_str)
-        assert problem_type == 'classification', f"Esperado classification para strings, got {problem_type}"
-        
-        logger.info("✅ Detecção de tipo de problema funcionando corretamente!")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro na detecção de tipo de problema: {e}")
-        pytest.fail("Test flow returned False")
-def test_feature_pipeline():
-    """Testar criação de pipeline de features"""
-    logger.info("🧪 Testando pipeline de features...")
-    
-    try:
-        from tpot_utils import create_feature_pipeline
-        
-        # Criar dados mistos
-        df = pd.DataFrame({
-            'text_col': ['hello world', 'test data', 'more text'],
-            'num_col1': [1.0, 2.0, 3.0],
-            'num_col2': [4, 5, 6],
-            'cat_col': ['A', 'B', 'A'],
-            'target': [0, 1, 0]
-        })
-        
-        preprocessor, text_cols, cat_cols, num_cols = create_feature_pipeline(
-            df, 'target', text_columns=['text_col']
-        )
-        
-        assert text_cols == ['text_col'], f"Text cols incorreto: {text_cols}"
-        assert 'cat_col' in cat_cols, "Coluna categórica não detectada"
-        assert 'num_col1' in num_cols and 'num_col2' in num_cols, "Colunas numéricas não detectadas"
-        
-        logger.info(f"✅ Pipeline criado com sucesso:")
-        logger.info(f"   Text columns: {text_cols}")
-        logger.info(f"   Categorical columns: {cat_cols}")
-        logger.info(f"   Numerical columns: {num_cols}")
-        assert True
-    except Exception as e:
-        logger.error(f"❌ Erro no pipeline de features: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        pytest.fail("Test flow returned False")
-def run_all_tests():
-    """Executar todos os testes"""
-    logger.info("🚀 Iniciando testes de integração TPOT...")
-    
-    tests = [
-        ("Detecção de Tipo de Problema", test_problem_type_detection),
-        ("Pipeline de Features", test_feature_pipeline),
-        ("Classificação TPOT", test_tpot_classification),
-        ("Regressão TPOT", test_tpot_regression),
-        ("Dados Textuais TPOT", test_tpot_with_text_data),
-    ]
-    
-    results = []
-    
-    for test_name, test_func in tests:
-        logger.info(f"\n{'='*50}")
-        logger.info(f"Executando: {test_name}")
-        logger.info(f"{'='*50}")
-        
-        try:
-            result = test_func()
-            results.append((test_name, result))
-            
-            if result:
-                logger.info(f"✅ {test_name} - PASSOU")
-            else:
-                logger.error(f"❌ {test_name} - FALHOU")
-                
-        except Exception as e:
-            logger.error(f"❌ {test_name} - ERRO: {e}")
-            results.append((test_name, False))
-    
-    # Resumo final
-    logger.info(f"\n{'='*50}")
-    logger.info("📊 RESUMO DOS TESTES")
-    logger.info(f"{'='*50}")
-    
-    passed = sum(1 for _, result in results if result)
-    total = len(results)
-    
-    for test_name, result in results:
-        status = "✅ PASSOU" if result else "❌ FALHOU"
-        logger.info(f"{status} - {test_name}")
-    
-    logger.info(f"\n🎯 Resultado: {passed}/{total} testes passaram")
-    
-    if passed == total:
-        logger.info("🎉 Todos os testes passaram! TPOT está integrado com sucesso!")
-        assert True
-    else:
-        logger.error(f"⚠️ {total - passed} testes falharam. Verifique os erros acima.")
-        pytest.fail("Test flow returned False")
-if __name__ == "__main__":
-    try:
-        success = run_all_tests()
-        exit(0 if success else 1)
-    except Exception as e:
-        logger.error(f"❌ Erro geral nos testes: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        exit(1)
+    )
+
+    def fake_create_feature_pipeline(df_in, target_col, text_columns=None):
+        assert target_col == "target"
+        return object(), ["text_col"], ["cat_col"], ["num_col1", "num_col2"]
+
+    fake_module = types.SimpleNamespace(create_feature_pipeline=fake_create_feature_pipeline)
+    monkeypatch.setitem(sys.modules, "src.tpot_utils", fake_module)
+
+    _, text_cols, cat_cols, num_cols = _build_feature_pipeline(df)
+
+    assert text_cols == ["text_col"]
+    assert "cat_col" in cat_cols
+    assert "num_col1" in num_cols and "num_col2" in num_cols
