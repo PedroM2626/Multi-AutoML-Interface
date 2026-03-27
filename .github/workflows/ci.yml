@@ -31,7 +31,7 @@ jobs:
             pip install ruff pytest
           fi
           # Minimal runtime deps required by tests/test_regression_flows.py
-          pip install pandas==2.0.3 scikit-learn==1.4.2
+          pip install --force-reinstall numpy==1.26.4 pandas==2.0.3 scikit-learn==1.4.2
 
       - name: Ruff critical lint
         run: ruff check .
@@ -63,7 +63,7 @@ jobs:
             echo "requirements-dev.txt not found; installing minimal CI tooling"
             pip install ruff pytest
           fi
-          pip install pandas==2.0.3 scikit-learn==1.4.2 mlflow==2.9.2
+          pip install --force-reinstall numpy==1.26.4 pandas==2.0.3 scikit-learn==1.4.2 mlflow==2.9.2
 
       - name: Quick validation gates
         run: |
