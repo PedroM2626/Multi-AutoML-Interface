@@ -30,6 +30,8 @@ jobs:
             echo "requirements-dev.txt not found; installing minimal CI tooling"
             pip install ruff pytest
           fi
+          # Minimal runtime deps required by tests/test_regression_flows.py
+          pip install pandas==2.0.3 scikit-learn==1.4.2
 
       - name: Ruff critical lint
         run: ruff check .
