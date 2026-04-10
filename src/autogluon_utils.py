@@ -5,12 +5,28 @@ import shutil
 import logging
 import time
 import threading
+import json
+from typing import Dict
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
 
 logger = logging.getLogger(__name__)
 
-def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
+
+class MultiLabelAutoGluonPredictor:
+    """Simple multi-target wrapper around one TabularPredictor per target."""
+
+    def __init__(self, predictors_by_target: Dict[str, object]):
+        self.predictors_by_target = predictors_by_target
+
+    def predict(self, data: pd.DataFrame) -> pd.DataFrame:
+        predictions = {}
+        for target_name, predictor in self.predictors_by_target.items():
+            predictions[target_name] = predictor.predict(data)
+        return pd.DataFrame(predictions, index=data.index)
+
+
+def train_model(train_data: pd.DataFrame, target, run_name: str,
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
                 time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0,
                 stop_event=None, task_type: str = "Classification", data_category: str = "Tabular",
@@ -23,6 +39,15 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
     is_multimodal_task = data_category == "Multimodal"
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
     is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
+    is_tabular_multilabel = data_category == "Tabular" and task_type == "Multi-Label Classification"
+    target_columns = target if isinstance(target, list) else [target]
+
+    if is_tabular_multilabel:
+        if len(target_columns) < 2:
+            raise ValueError("Tabular Multi-Label Classification requires at least two target columns.")
+        for column in target_columns:
+            if column not in train_data.columns:
+                raise ValueError(f"Target column '{column}' not found in training data.")
     
     if is_cv_task:
         from autogluon.multimodal import MultiModalPredictor
@@ -76,14 +101,18 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
 
     with mlflow.start_run(run_name=run_name, nested=True) as run:
         # Data cleaning: drop rows where target is NaN
-        train_data = train_data.dropna(subset=[target])
+        train_data = train_data.dropna(subset=target_columns)
         
         # Log parameters
-        mlflow.log_param("target", target)
+        mlflow.log_param("target", json.dumps(target_columns) if len(target_columns) > 1 else target_columns[0])
         mlflow.log_param("time_limit", time_limit)
         mlflow.log_param("presets", presets)
         mlflow.log_param("seed", seed)
         mlflow.log_param("data_category", data_category)
+        mlflow.log_param("task_type", task_type)
+        mlflow.log_param("is_tabular_multilabel", str(is_tabular_multilabel).lower())
+        if is_tabular_multilabel:
+            mlflow.log_param("multilabel_targets", json.dumps(target_columns))
         if is_multimodal_task:
             mlflow.log_param("multimodal_text_columns", str(multimodal_text_columns or []))
             mlflow.log_param("multimodal_image_columns", str(multimodal_image_columns or []))
@@ -95,14 +124,16 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             
         # Clean validation and test formats if present
         if valid_data is not None:
-            if target not in valid_data.columns:
-                raise ValueError(f"Target column '{target}' not found in Validation data. Make sure it has the same structure as the training dataset.")
-            valid_data = valid_data.dropna(subset=[target])
+            for tgt_col in target_columns:
+                if tgt_col not in valid_data.columns:
+                    raise ValueError(f"Target column '{tgt_col}' not found in Validation data. Make sure it has the same structure as the training dataset.")
+            valid_data = valid_data.dropna(subset=target_columns)
             mlflow.log_param("has_validation_data", True)
         if test_data is not None:
-            if target not in test_data.columns:
-                raise ValueError(f"Target column '{target}' not found in Test data. Make sure the test set includes the target variable.")
-            test_data = test_data.dropna(subset=[target])
+            for tgt_col in target_columns:
+                if tgt_col not in test_data.columns:
+                    raise ValueError(f"Target column '{tgt_col}' not found in Test data. Make sure the test set includes the target variable.")
+            test_data = test_data.dropna(subset=target_columns)
             mlflow.log_param("has_test_data", True)
             
         if is_cv_task or is_multimodal_task:
@@ -120,6 +151,53 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
                 
             mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
             predictor = MultiModalPredictor(label=target, problem_type=problem_type, path=model_path).fit(**mm_fit_args, presets=mm_presets)
+        elif is_tabular_multilabel:
+            predictors_by_target = {}
+            label_scores = {}
+            per_label_time_limit = max(30, int((time_limit or 300) / max(1, len(target_columns)))) if time_limit else None
+
+            for target_name in target_columns:
+                if stop_event and stop_event.is_set():
+                    raise StopIteration("Training cancelled by user")
+
+                target_model_path = os.path.join(model_path, target_name)
+                drop_targets = [col for col in target_columns if col != target_name]
+                train_subset = train_data.drop(columns=drop_targets, errors="ignore")
+                valid_subset = valid_data.drop(columns=drop_targets, errors="ignore") if valid_data is not None else None
+                test_subset = test_data.drop(columns=drop_targets, errors="ignore") if test_data is not None else None
+
+                fit_args = {
+                    "train_data": train_subset,
+                    "time_limit": per_label_time_limit,
+                    "presets": presets,
+                }
+                if cv_folds > 0:
+                    fit_args["num_bag_folds"] = cv_folds
+                if valid_subset is not None:
+                    fit_args["tuning_data"] = valid_subset
+                    if cv_folds > 0 or presets in ["best_quality", "high_quality"]:
+                        fit_args["use_bag_holdout"] = True
+
+                predictor_single = TabularPredictor(label=target_name, path=target_model_path).fit(**fit_args)
+                predictors_by_target[target_name] = predictor_single
+
+                eval_subset = test_subset if test_subset is not None else (valid_subset if valid_subset is not None else train_subset)
+                lb_single = predictor_single.leaderboard(eval_subset, silent=True)
+                if not lb_single.empty:
+                    label_scores[target_name] = float(lb_single.iloc[0]["score_val"])
+
+            predictor = MultiLabelAutoGluonPredictor(predictors_by_target)
+            if label_scores:
+                mlflow.log_metric("best_model_score_avg", float(sum(label_scores.values()) / len(label_scores)))
+                for label_name, label_score in label_scores.items():
+                    safe_metric_name = label_name.replace(" ", "_").replace("-", "_").lower()
+                    mlflow.log_metric(f"best_model_score_{safe_metric_name}", label_score)
+
+            leaderboard_path = "leaderboard.csv"
+            leaderboard_df = pd.DataFrame(
+                [{"target": lbl, "best_score": score} for lbl, score in label_scores.items()]
+            )
+            leaderboard_df.to_csv(leaderboard_path, index=False)
         else:
             fit_args = {
                 "train_data": train_data,
@@ -177,14 +255,14 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             raise StopIteration("Training cancelled by user")
         
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
-        
+
         if is_cv_task:
             scores = predictor.evaluate(eval_data)
             best_model_score = scores.get('accuracy', scores.get('roc_auc', 0.0))
             mlflow.log_metrics(scores)
             leaderboard_path = "leaderboard.csv"
             pd.DataFrame([scores]).to_csv(leaderboard_path, index=False)
-        else:
+        elif not is_tabular_multilabel:
             leaderboard = predictor.leaderboard(eval_data, silent=True)
             # Log the best model's score
             best_model_score = leaderboard.iloc[0]['score_val']
@@ -206,7 +284,7 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             mlflow.log_param("model_type", "autogluon")
             
             # ONNX Export (Best effort for Tabular)
-            if not is_cv_task:
+            if not is_cv_task and not is_tabular_multilabel:
                 try:
                     onnx_path = os.path.join("models", f"ag_{run_name}.onnx")
                     # AutoGluon Tabular supports ONNX export for some models
@@ -253,9 +331,13 @@ def load_model_from_mlflow(run_id: str):
         run = mlflow.tracking.MlflowClient().get_run(run_id)
         data_category = run.data.params.get("data_category", "Tabular")
         task_type = run.data.params.get("task_type", "Classification")
+        is_tabular_multilabel = run.data.params.get("is_tabular_multilabel", "false") == "true"
+        multilabel_targets_raw = run.data.params.get("multilabel_targets", "[]")
     except Exception:
         data_category = "Tabular"
         task_type = "Classification"
+        is_tabular_multilabel = False
+        multilabel_targets_raw = "[]"
     
     # Download the artifact folder
     local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
@@ -265,6 +347,23 @@ def load_model_from_mlflow(run_id: str):
         from autogluon.multimodal import MultiModalPredictor
 
         predictor = MultiModalPredictor.load(local_path)
+    elif is_tabular_multilabel:
+        from autogluon.tabular import TabularPredictor
+
+        try:
+            target_columns = json.loads(multilabel_targets_raw)
+        except Exception:
+            target_columns = []
+
+        predictors_by_target = {}
+        for target_name in target_columns:
+            target_model_dir = os.path.join(local_path, target_name)
+            if os.path.isdir(target_model_dir):
+                predictors_by_target[target_name] = TabularPredictor.load(target_model_dir)
+
+        if not predictors_by_target:
+            raise FileNotFoundError("No target-specific predictors found for tabular multi-label AutoGluon run.")
+        predictor = MultiLabelAutoGluonPredictor(predictors_by_target)
     else:
         from autogluon.tabular import TabularPredictor
 

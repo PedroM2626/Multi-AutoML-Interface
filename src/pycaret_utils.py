@@ -14,7 +14,7 @@ from src.onnx_utils import export_to_onnx
 
 def run_pycaret_experiment(
     train_df: pd.DataFrame,
-    target_col: str,
+    target_col: Optional[str],
     run_name: str,
     time_limit: Optional[int],
     log_queue: queue.Queue,
@@ -26,11 +26,12 @@ def run_pycaret_experiment(
 ) -> Dict[str, Any]:
     """
     Run PyCaret experiment.
-    Dynamically loads classification, regression, or time_series depending on task_type.
+    Dynamically loads classification, regression, time_series, or anomaly depending on task_type.
     """
     logger = logging.getLogger("pycaret")
     logger.info(f"Starting PyCaret experiment: {run_name} (Task: {task_type})")
     logger.info(f"Dataset shape: {train_df.shape}, Target: {target_col}")
+    is_anomaly_task = task_type == "Anomaly Detection"
 
     # Dynamic imports based on task_type
     if task_type == "Regression":
@@ -41,6 +42,10 @@ def run_pycaret_experiment(
         from pycaret.time_series import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "MASE"
         include_models = ["naive", "snaive", "arima", "ets"]
+    elif is_anomaly_task:
+        from pycaret.anomaly import setup, create_model, assign_model, save_model
+        sort_metric = None
+        include_models = ["iforest"]
     else:
         from pycaret.classification import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "F1"
@@ -64,7 +69,6 @@ def run_pycaret_experiment(
         
         setup_kwargs = {
             "data": train_df,
-            "target": target_col,
             "session_id": 42,
             "verbose": False,
             "fold": 3,
@@ -72,11 +76,16 @@ def run_pycaret_experiment(
             "system_log": False,
             "n_jobs": n_jobs
         }
+
+        if not is_anomaly_task:
+            if not target_col:
+                raise ValueError("target_col is required for supervised PyCaret tasks.")
+            setup_kwargs["target"] = target_col
         
         if task_type == "Time Series Forecasting":
             setup_kwargs["fh"] = kwargs.get("fh", 12)
             setup_kwargs["seasonal_period"] = kwargs.get("seasonal_period", 12)
-        else:
+        elif not is_anomaly_task:
             setup_kwargs["test_data"] = val_df
             setup_kwargs["normalize"] = True
             setup_kwargs["index"] = False
@@ -95,23 +104,33 @@ def run_pycaret_experiment(
             mlflow.log_param("framework", "pycaret")
             mlflow.log_param("model_type", "pycaret")
             mlflow.log_param("task_type", task_type)
+            mlflow.log_param("target", target_col if target_col else "")
 
             # 4. Model Comparison
-            logger.info("Step: Comparing models...")
-            n_select = 3
-            logger.info(f"Including models: {include_models} (Sorting by {sort_metric})")
+            if is_anomaly_task:
+                logger.info("Step: Training anomaly detector...")
+                final_model = create_model(include_models[0])
+                scored_df = assign_model(final_model)
+                if "Anomaly" in scored_df.columns:
+                    anomaly_ratio = float(scored_df["Anomaly"].mean())
+                    mlflow.log_metric("anomaly_ratio", anomaly_ratio)
+                best_models = [final_model]
+            else:
+                logger.info("Step: Comparing models...")
+                n_select = 3
+                logger.info(f"Including models: {include_models} (Sorting by {sort_metric})")
 
-            best_models = compare_models(
-                n_select=n_select,
-                sort=sort_metric,
-                verbose=False,
-                include=include_models
-            )
+                best_models = compare_models(
+                    n_select=n_select,
+                    sort=sort_metric,
+                    verbose=False,
+                    include=include_models
+                )
 
-            comparison_df = pull()
-            if not comparison_df.empty:
-                top_model_name = comparison_df.iloc[0]['Model']
-                logger.info(f"Best model found: {top_model_name}")
+                comparison_df = pull()
+                if not comparison_df.empty:
+                    top_model_name = comparison_df.iloc[0]['Model']
+                    logger.info(f"Best model found: {top_model_name}")
 
             if stop_event and stop_event.is_set():
                 raise StopIteration("Experiment cancelled after model comparison.")
@@ -123,28 +142,32 @@ def run_pycaret_experiment(
             best_model = best_models[0]
 
             # 5. Tuning (Time Series tuning might require different params, keeping generic)
-            logger.info("Step: Tuning best model...")
-            n_iter = 10 if time_limit is None or time_limit >= 300 else 5
-            
-            # search_library="scikit-learn" shouldn't be passed to pycaret.time_series
-            tune_kwargs = {
-                "estimator": best_model,
-                "optimize": sort_metric,
-                "n_iter": n_iter,
-                "verbose": False,
-                "choose_better": True
-            }
-            if task_type != "Time Series Forecasting":
-                tune_kwargs["search_library"] = "scikit-learn"
-                tune_kwargs["search_algorithm"] = "random"
+            if not is_anomaly_task:
+                logger.info("Step: Tuning best model...")
+                n_iter = 10 if time_limit is None or time_limit >= 300 else 5
 
-            tuned_model = tune_model(**tune_kwargs)
+                # search_library="scikit-learn" shouldn't be passed to pycaret.time_series
+                tune_kwargs = {
+                    "estimator": best_model,
+                    "optimize": sort_metric,
+                    "n_iter": n_iter,
+                    "verbose": False,
+                    "choose_better": True
+                }
+                if task_type != "Time Series Forecasting":
+                    tune_kwargs["search_library"] = "scikit-learn"
+                    tune_kwargs["search_algorithm"] = "random"
+
+                tuned_model = tune_model(**tune_kwargs)
 
             if stop_event and stop_event.is_set():
                 raise StopIteration("Experiment cancelled after tuning.")
 
             # 6. Blending (only if we have multiple models)
-            if len(best_models) > 1:
+            if is_anomaly_task:
+                final_model = best_model
+                logger.info("Step: Skipping blend (not applicable for anomaly detection).")
+            elif len(best_models) > 1:
                 logger.info("Step: Blending top models...")
                 final_model = blend_models(
                     estimator_list=best_models,
@@ -163,15 +186,16 @@ def run_pycaret_experiment(
             save_model(final_model, model_path_base)
 
             # 8. Log metrics to our MLflow run
-            try:
-                final_metrics = pull()
-                if not final_metrics.empty:
-                    row = final_metrics.iloc[0]
-                    for k, v in row.items():
-                        if isinstance(v, (int, float)):
-                            mlflow.log_metric(k.lower().replace(" ", "_"), float(v))
-            except Exception as me:
-                logger.warning(f"Could not pull metrics: {me}")
+            if not is_anomaly_task:
+                try:
+                    final_metrics = pull()
+                    if not final_metrics.empty:
+                        row = final_metrics.iloc[0]
+                        for k, v in row.items():
+                            if isinstance(v, (int, float)):
+                                mlflow.log_metric(k.lower().replace(" ", "_"), float(v))
+                except Exception as me:
+                    logger.warning(f"Could not pull metrics: {me}")
 
             # Log model artifact
             model_pkl = f"{model_path_base}.pkl"

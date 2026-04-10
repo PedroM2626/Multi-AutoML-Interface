@@ -2,7 +2,7 @@ import os
 import mlflow
 
 
-def generate_consumption_code(model_type: str, run_id: str, target_column: str) -> str:
+def generate_consumption_code(model_type: str, run_id: str, target_column) -> str:
     """
     Generates a Python code snippet to load and run predictions with the trained model.
     Supports: autogluon, flaml, h2o, tpot, pycaret, lale.
@@ -30,6 +30,26 @@ import mlflow
         if data_category == "Multimodal" or task_type.startswith("Computer Vision"):
             predictor_import = "from autogluon.multimodal import MultiModalPredictor"
             predictor_loader = "MultiModalPredictor.load(local_path)"
+        elif data_category == "Tabular" and task_type == "Multi-Label Classification":
+            return base_code + f"""
+import glob
+from autogluon.tabular import TabularPredictor
+
+# 1. Download model from MLflow
+local_path = mlflow.artifacts.download_artifacts(run_id="{run_id}", artifact_path="model")
+
+# 2. Load one TabularPredictor per target
+predictors = {{}}
+for target_dir in glob.glob(os.path.join(local_path, "*")):
+    if os.path.isdir(target_dir):
+        target_name = os.path.basename(target_dir)
+        predictors[target_name] = TabularPredictor.load(target_dir)
+
+# 3. Predict each target independently
+# data = pd.read_csv("your_data.csv")
+# multi_target_predictions = {{name: predictor.predict(data) for name, predictor in predictors.items()}}
+# print(pd.DataFrame(multi_target_predictions))
+"""
         else:
             predictor_import = "from autogluon.tabular import TabularPredictor"
             predictor_loader = "TabularPredictor.load(local_path)"
@@ -116,6 +136,8 @@ model = mlflow.sklearn.load_model("runs:/{run_id}/model")
             pc_module = "pycaret.regression"
         elif task_type == "Time Series Forecasting":
             pc_module = "pycaret.time_series"
+        elif task_type == "Anomaly Detection":
+            pc_module = "pycaret.anomaly"
         else:
             pc_module = "pycaret.classification"
 
@@ -278,6 +300,8 @@ if task_type == "Regression":
     from pycaret.regression import load_model, predict_model
 elif task_type == "Time Series Forecasting":
     from pycaret.time_series import load_model, predict_model
+elif task_type == "Anomaly Detection":
+    from pycaret.anomaly import load_model, predict_model
 else:
     from pycaret.classification import load_model, predict_model
 
@@ -293,6 +317,8 @@ model = load_model(_mpath)
 
 def _predict(df):
     preds = predict_model(model, data=df)
+    if task_type == "Anomaly Detection" and "Anomaly" in preds.columns:
+        return preds["Anomaly"].tolist()
     if task_type == "Classification" and "prediction_label" in preds.columns:
         return preds["prediction_label"].tolist()
     else:

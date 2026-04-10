@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-4.4.0-blue)
+![Version](https://img.shields.io/badge/version-4.5.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -212,8 +212,8 @@ Legend: ✅ = implemented in this repository, ⚠️ = partial/beta path, ❌ = 
 | Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Tabular | Time Series Forecasting | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tabular | Multi-Label Classification | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -223,9 +223,10 @@ Legend: ✅ = implemented in this repository, ⚠️ = partial/beta path, ❌ = 
 | Multimodal (tabular+text/image) | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 Notes:
-- Tabular Multi-Label and Anomaly Detection are not wired in the current training UI yet.
+- Tabular Multi-Label is wired through AutoGluon (one predictor per target column, unified multi-target inference output).
+- Tabular Anomaly Detection is wired through PyCaret anomaly module (unsupervised flow, no target column required).
 - CV Object Detection and Segmentation are exposed through AutoGluon multimodal paths, but should be treated as beta until broader test coverage is added.
-- Some frameworks (for example PyCaret anomaly modules) may support additional tasks in their own APIs, but those flows are not integrated in this repository yet.
+- Some native framework capabilities still remain outside current integration (for example PyCaret clustering and additional AutoGluon NLP tasks).
 
 #### **Framework Native Coverage (Verified) vs Current Integration**
 
@@ -234,9 +235,9 @@ Below is a verified summary of extra task families supported by each framework n
 
 | Framework | Additional task families available natively | Status in this repository |
 |---|---|---|
-| AutoGluon | Text classification/regression/NER, multimodal NER, document prediction, semantic matching (image-text/text-text), tabular multi-label (multiple label columns) | Mostly not integrated in the current UI/training flow |
+| AutoGluon | Text classification/regression/NER, multimodal NER, document prediction, semantic matching (image-text/text-text) | Partially integrated (tabular multi-label now integrated) |
 | FLAML | `ts_forecast_classification`, `ts_forecast_panel`, NLP tasks (`seq-classification`, `seq-regression`, `token-classification`, `summarization`, `multichoice-classification`) | Not integrated in current flow |
-| PyCaret | Anomaly Detection and Clustering modules (in addition to classification/regression/time series) | Not integrated in current flow |
+| PyCaret | Clustering modules (in addition to classification/regression/time series/anomaly) | Partially integrated (anomaly now integrated) |
 | H2O AutoML | Primarily supervised tabular classification/regression (binary/multiclass/regression variants) | Already aligned with current integration scope |
 | TPOT | Primarily supervised classification/regression search spaces (including advanced/search variants) | Already aligned with current integration scope |
 | Lale | General pipeline optimization over many sklearn-compatible operators (can cover broader tasks depending on operator set) | Current integration is limited to classification/regression |
@@ -244,7 +245,7 @@ Below is a verified summary of extra task families supported by each framework n
 
 Practical conclusion:
 - Yes, there are more task types available in multiple frameworks than what the project currently exposes.
-- The most direct next gaps to implement here are: Tabular Multi-Label and Tabular Anomaly Detection.
+- The most direct next gap to implement here is PyCaret clustering (tabular unsupervised segmentation use cases).
 
 Reference scope used for this verification:
 - AutoGluon docs (Tabular + Multimodal sections)

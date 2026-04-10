@@ -8,7 +8,14 @@ from typing import Iterable
 DATA_CATEGORIES = ["Tabular", "Computer Vision", "Multimodal"]
 
 TASK_OPTIONS_BY_CATEGORY = {
-    "Tabular": ["Classification", "Regression", "Time Series Forecasting", "Ranking"],
+    "Tabular": [
+        "Classification",
+        "Regression",
+        "Multi-Label Classification",
+        "Anomaly Detection",
+        "Time Series Forecasting",
+        "Ranking",
+    ],
     "Computer Vision": [
         "Image Classification",
         "Multi-Label Classification",
@@ -21,6 +28,8 @@ TASK_OPTIONS_BY_CATEGORY = {
 TASK_FRAMEWORK_MAP = {
     ("Tabular", "Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
     ("Tabular", "Regression"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+    ("Tabular", "Multi-Label Classification"): ["AutoGluon"],
+    ("Tabular", "Anomaly Detection"): ["PyCaret"],
     ("Tabular", "Time Series Forecasting"): ["AutoGluon", "FLAML", "PyCaret"],
     ("Tabular", "Ranking"): ["FLAML"],
     ("Computer Vision", "Image Classification"): ["AutoGluon", "AutoKeras"],

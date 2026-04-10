@@ -1207,6 +1207,21 @@ elif menu == "Training":
         if data_category == "Computer Vision":
             target = "label"
             st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
+        elif data_category == "Tabular" and task_type == "Anomaly Detection":
+            target = None
+            st.info("Anomaly Detection is unsupervised in this interface, so no target column is required.")
+        elif data_category == "Tabular" and task_type == "Multi-Label Classification":
+            default_targets = st.session_state.get("target", [])
+            if not isinstance(default_targets, list):
+                default_targets = [default_targets] if default_targets in columns else []
+            target = st.multiselect(
+                "Select Target Columns",
+                columns,
+                default=[col for col in default_targets if col in columns],
+                help="Choose two or more target columns for tabular multi-label training.",
+            )
+            if len(target) < 2:
+                st.warning("Select at least two target columns to train a multi-label model.")
         else:
             target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
 
@@ -1233,6 +1248,8 @@ elif menu == "Training":
         st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
 
+        target_display = ", ".join(target) if isinstance(target, list) else (target if target else "N/A")
+
         # Datasets info card
         r_cnt = len(df)
         v_cnt = len(valid_df) if valid_df is not None else 0
@@ -1242,7 +1259,7 @@ elif menu == "Training":
             <span><span style="color:#8b949e;font-size:11px">TRAIN</span><br><span style="color:#58a6ff;font-weight:700">{r_cnt:,} rows</span></span>
             <span><span style="color:#8b949e;font-size:11px">VALID</span><br><span style="color:#3fb950;font-weight:700">{'None' if v_cnt==0 else f'{v_cnt:,} rows'}</span></span>
             <span><span style="color:#8b949e;font-size:11px">TEST</span><br><span style="color:#d29922;font-weight:700">{'None' if t_cnt==0 else f'{t_cnt:,} rows'}</span></span>
-            <span><span style="color:#8b949e;font-size:11px">TARGET</span><br><span style="color:#bc8cff;font-weight:700">{target}</span></span>
+            <span><span style="color:#8b949e;font-size:11px">TARGET</span><br><span style="color:#bc8cff;font-weight:700">{target_display}</span></span>
         </div>""", unsafe_allow_html=True)
 
         # ── Framework "What happens" preview ─────────────────────────────
@@ -1501,7 +1518,8 @@ elif menu == "Training":
         st.markdown("---")
         st.subheader("4. Launch Experiment")
 
-        if st.button("🚀 Start Training", type="primary"):
+        launch_disabled = data_category == "Tabular" and task_type == "Multi-Label Classification" and isinstance(target, list) and len(target) < 2
+        if st.button("🚀 Start Training", type="primary", disabled=launch_disabled):
             import time as _t
             _key = f"{framework.lower()}_{int(_t.time())}"
 
@@ -2023,6 +2041,27 @@ elif menu == "Experiments":
                 st.session_state['predictor'] = predictor_obj
                 st.session_state['model_type'] = normalized_type
                 st.session_state['run_id'] = run_id_input
+
+                try:
+                    run_obj = mlflow.tracking.MlflowClient().get_run(run_id_input)
+                    run_params = run_obj.data.params
+                    run_task_type = run_params.get("task_type")
+                    run_data_category = run_params.get("data_category")
+                    run_target = run_params.get("target")
+                    if run_task_type:
+                        st.session_state['task_type'] = run_task_type
+                    if run_data_category:
+                        st.session_state['data_category'] = run_data_category
+                    if run_target:
+                        if run_target.startswith("[") and run_target.endswith("]"):
+                            import json as _json
+
+                            st.session_state['target'] = _json.loads(run_target)
+                        else:
+                            st.session_state['target'] = run_target
+                except Exception:
+                    pass
+
                 st.success("Model loaded successfully!")
             except Exception as e:
                 st.error(f"Loading error: {e}")
@@ -2102,7 +2141,13 @@ elif menu == "Experiments":
             if df_session is not None:
                 # Assuming all columns except target are features
                 target_col = st.session_state.get('target', None)
-                features = [c for c in df_session.columns if c != target_col]
+                if isinstance(target_col, list):
+                    target_set = set(target_col)
+                    features = [c for c in df_session.columns if c not in target_set]
+                elif isinstance(target_col, str):
+                    features = [c for c in df_session.columns if c != target_col]
+                else:
+                    features = list(df_session.columns)
             else:
                 st.warning("Feature list unknown (Training data not in session). Please upload a file once to identify features, or use File Upload.")
                 features = []
@@ -2134,6 +2179,7 @@ elif menu == "Experiments":
                         predict_df=predict_df,
                         target_col=target_col,
                         training_df=train_df_ref,
+                        task_type=st.session_state.get('task_type'),
                     )
 
                     st.success("Predictions concluded!")
@@ -2143,14 +2189,21 @@ elif menu == "Experiments":
                     # Only show XAI for single manual entries to avoid lag on large file uploads
                     if input_mode == "Real-time Prediction (Manual Entry)":
                         st.markdown("---")
-                        if st.session_state.get('data_category', 'Tabular') == "Tabular" and st.button("🧠 Explain Prediction (SHAP)"):
+                        current_task_type = st.session_state.get('task_type', 'Classification')
+                        shap_supported_task = current_task_type not in ["Multi-Label Classification", "Anomaly Detection"]
+                        if st.session_state.get('data_category', 'Tabular') == "Tabular" and shap_supported_task and st.button("🧠 Explain Prediction (SHAP)"):
                             with st.spinner("Generating Explanations..."):
                                 from src.xai_utils import generate_shap_explanation
                                 train_data_ref = st.session_state.get('df')
                                 target_ref = st.session_state.get('target', "target")
                                 
                                 if train_data_ref is not None:
-                                    bg_data = train_data_ref.drop(columns=[target_ref], errors='ignore')
+                                    if isinstance(target_ref, list):
+                                        bg_data = train_data_ref.drop(columns=target_ref, errors='ignore')
+                                    elif isinstance(target_ref, str):
+                                        bg_data = train_data_ref.drop(columns=[target_ref], errors='ignore')
+                                    else:
+                                        bg_data = train_data_ref.copy()
                                     # For local explanation, evaluate on the single entry
                                     fig = generate_shap_explanation(
                                         model=predictor, 
@@ -2165,6 +2218,8 @@ elif menu == "Experiments":
                                         st.error("SHAP explanation not supported for this model architecture.")
                                 else:
                                     st.warning("Training data not available in session to generate background SHAP values.")
+                        elif st.session_state.get('data_category', 'Tabular') == "Tabular" and not shap_supported_task:
+                            st.info("SHAP explanations are currently enabled only for single-target tabular classification/regression tasks.")
                         elif st.session_state.get('data_category', 'Tabular') == "Multimodal":
                             st.info("Explainability for multimodal models is not enabled yet in this interface.")
 

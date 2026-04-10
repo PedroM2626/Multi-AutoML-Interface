@@ -6,6 +6,16 @@ import pandas as pd
 _PYCARET_CLASSIFICATION_MODULE = ".".join(["pycaret", "classification"])
 
 
+def _get_pycaret_module_name(task_type: str | None) -> str:
+    if task_type == "Regression":
+        return ".".join(["pycaret", "regression"])
+    if task_type == "Time Series Forecasting":
+        return ".".join(["pycaret", "time_series"])
+    if task_type == "Anomaly Detection":
+        return ".".join(["pycaret", "anomaly"])
+    return _PYCARET_CLASSIFICATION_MODULE
+
+
 def load_model_by_framework(framework_name: str, run_id: str):
     """
     Load a predictor from MLflow artifacts according to selected framework label.
@@ -33,7 +43,14 @@ def load_model_by_framework(framework_name: str, run_id: str):
 
     if framework_name == "PyCaret":
         mlflow = importlib.import_module("mlflow")
-        pycaret_cls = importlib.import_module(_PYCARET_CLASSIFICATION_MODULE)
+        task_type = "Classification"
+        try:
+            run = mlflow.tracking.MlflowClient().get_run(run_id)
+            task_type = run.data.params.get("task_type", "Classification")
+        except Exception:
+            pass
+
+        pycaret_cls = importlib.import_module(_get_pycaret_module_name(task_type))
         pycaret_load = getattr(pycaret_cls, "load_model")
 
         local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
@@ -108,8 +125,9 @@ def run_predictions(
     predictor,
     model_type: str,
     predict_df: pd.DataFrame,
-    target_col: str | None = None,
+    target_col: str | list[str] | None = None,
     training_df: pd.DataFrame | None = None,
+    task_type: str | None = None,
 ):
     """
     Execute predictions in a unified path and return (result_df, prediction_input_df).
@@ -117,8 +135,15 @@ def run_predictions(
     if predictor is None:
         raise ValueError("No model is loaded.")
 
-    if target_col and target_col in predict_df.columns:
-        prediction_input_df = predict_df.drop(columns=[target_col])
+    if isinstance(target_col, list):
+        target_columns = [col for col in target_col if col in predict_df.columns]
+    elif isinstance(target_col, str):
+        target_columns = [target_col] if target_col in predict_df.columns else []
+    else:
+        target_columns = []
+
+    if target_columns:
+        prediction_input_df = predict_df.drop(columns=target_columns)
     else:
         prediction_input_df = predict_df.copy()
 
@@ -133,12 +158,20 @@ def run_predictions(
 
         predictions = predict_with_h2o(predictor, prediction_input_df)
     elif model_type == "pycaret":
-        pycaret_cls = importlib.import_module(_PYCARET_CLASSIFICATION_MODULE)
+        pycaret_cls = importlib.import_module(_get_pycaret_module_name(task_type))
         pycaret_predict = getattr(pycaret_cls, "predict_model")
 
         preds_df = pycaret_predict(predictor, data=prediction_input_df)
-        label_col = "prediction_label" if "prediction_label" in preds_df.columns else preds_df.columns[-1]
-        predictions = preds_df[label_col]
+        if task_type == "Anomaly Detection" and "Anomaly" in preds_df.columns:
+            predictions = preds_df["Anomaly"]
+        elif task_type == "Anomaly Detection" and "Label" in preds_df.columns:
+            predictions = preds_df["Label"]
+        elif "prediction_label" in preds_df.columns:
+            predictions = preds_df["prediction_label"]
+        elif "Label" in preds_df.columns:
+            predictions = preds_df["Label"]
+        else:
+            predictions = preds_df.iloc[:, -1]
     elif model_type == "lale":
         if isinstance(predictor, dict):
             model = predictor["model"]
@@ -166,8 +199,13 @@ def run_predictions(
     else:
         predictions = predictor.predict(prediction_input_df)
 
-    predictions = _decode_predictions_if_needed(predictions, training_df=training_df, target_col=target_col)
+    decode_target = target_col if isinstance(target_col, str) else None
+    predictions = _decode_predictions_if_needed(predictions, training_df=training_df, target_col=decode_target)
 
     result_df = prediction_input_df.copy()
-    result_df["Predictions"] = predictions
+    if isinstance(predictions, pd.DataFrame):
+        for column_name in predictions.columns:
+            result_df[f"Prediction_{column_name}"] = predictions[column_name].values
+    else:
+        result_df["Predictions"] = predictions
     return result_df, prediction_input_df

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.experiment_manager import ExperimentEntry, ExperimentManager
-from src.prediction_service import load_model_by_framework, run_predictions
+from src.prediction_service import _get_pycaret_module_name, load_model_by_framework, run_predictions
 
 
 class DummyPredictor:
@@ -77,3 +77,27 @@ def test_batch_prediction_decodes_categorical_target_ids():
     )
 
     assert result_df["Predictions"].tolist() == ["cat", "dog"]
+
+
+def test_batch_prediction_drops_multiple_target_columns():
+    predictor = DummyPredictor(values=[1, 0])
+    predict_df = pd.DataFrame({"f1": [10, 20], "target_a": [0, 1], "target_b": [1, 0]})
+
+    result_df, pred_input_df = run_predictions(
+        predictor=predictor,
+        model_type="flaml",
+        predict_df=predict_df,
+        target_col=["target_a", "target_b"],
+        training_df=None,
+    )
+
+    assert "target_a" not in pred_input_df.columns
+    assert "target_b" not in pred_input_df.columns
+    assert "Predictions" in result_df.columns
+    assert result_df["Predictions"].tolist() == [1, 0]
+
+
+def test_pycaret_module_resolution_for_anomaly_task():
+    assert _get_pycaret_module_name("Anomaly Detection") == ".".join(["pycaret", "anomaly"])
+    assert _get_pycaret_module_name("Regression") == ".".join(["pycaret", "regression"])
+    assert _get_pycaret_module_name("Classification") == ".".join(["pycaret", "classification"])
