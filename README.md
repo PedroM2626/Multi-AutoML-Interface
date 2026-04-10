@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-4.5.0-blue)
+![Version](https://img.shields.io/badge/version-4.6.0-blue)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -195,7 +195,7 @@ pytest -q tests/test_regression_flows.py
 - **Automatic Data Lake**: When processing data, it is copied to the `data_lake/` folder and versioned via DVC, generating hashes for version control.
 
 #### **2. Experiment Configuration:**
-- **Data Category + Task Type**: Choose Tabular, Computer Vision, or Multimodal first; then select the compatible task type (Classification, Regression, Time Series, Ranking, or the relevant CV task).
+- **Data Category + Task Type**: Choose Tabular, Computer Vision, or Multimodal first; then select the compatible task type (Classification, Regression, Multi-Label, Anomaly Detection, Clustering, Time Series, Ranking, or the relevant CV task).
 - **Framework Agnostic**: Support for AutoGluon, FLAML, H2O, TPOT, PyCaret, and Lale.
 - **ONNX Integration**: Universal model export and import via ONNX for cross-platform deployment.
 - **Hugging Face Hub**: One-click deployment and discovery of models on the HF Hub.
@@ -214,6 +214,7 @@ Legend: ✅ = implemented in this repository, ⚠️ = partial/beta path, ❌ = 
 | Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -225,6 +226,7 @@ Legend: ✅ = implemented in this repository, ⚠️ = partial/beta path, ❌ = 
 Notes:
 - Tabular Multi-Label is wired through AutoGluon (one predictor per target column, unified multi-target inference output).
 - Tabular Anomaly Detection is wired through PyCaret anomaly module (unsupervised flow, no target column required).
+- Tabular Clustering is wired through PyCaret clustering module (unsupervised flow, no target column required).
 - CV Object Detection and Segmentation are exposed through AutoGluon multimodal paths, but should be treated as beta until broader test coverage is added.
 - Some native framework capabilities still remain outside current integration (for example PyCaret clustering and additional AutoGluon NLP tasks).
 
@@ -237,15 +239,15 @@ Below is a verified summary of extra task families supported by each framework n
 |---|---|---|
 | AutoGluon | Text classification/regression/NER, multimodal NER, document prediction, semantic matching (image-text/text-text) | Partially integrated (tabular multi-label now integrated) |
 | FLAML | `ts_forecast_classification`, `ts_forecast_panel`, NLP tasks (`seq-classification`, `seq-regression`, `token-classification`, `summarization`, `multichoice-classification`) | Not integrated in current flow |
-| PyCaret | Clustering modules (in addition to classification/regression/time series/anomaly) | Partially integrated (anomaly now integrated) |
+| PyCaret | Additional unsupervised and domain-specialized modules beyond this scope | Partially integrated (classification/regression/time-series/anomaly/clustering) |
 | H2O AutoML | Primarily supervised tabular classification/regression (binary/multiclass/regression variants) | Already aligned with current integration scope |
 | TPOT | Primarily supervised classification/regression search spaces (including advanced/search variants) | Already aligned with current integration scope |
 | Lale | General pipeline optimization over many sklearn-compatible operators (can cover broader tasks depending on operator set) | Current integration is limited to classification/regression |
 | AutoKeras | Image regression, text classification/regression, structured data classification/regression, multimodal/multitask APIs | Current integration is limited to CV image classification/multi-label classification |
 
 Practical conclusion:
-- Yes, there are more task types available in multiple frameworks than what the project currently exposes.
-- The most direct next gap to implement here is PyCaret clustering (tabular unsupervised segmentation use cases).
+- Yes, there are still more task types available in multiple frameworks than what the project currently exposes.
+- The currently integrated high-priority gaps are Tabular Multi-Label, Tabular Anomaly Detection, and Tabular Clustering.
 
 Reference scope used for this verification:
 - AutoGluon docs (Tabular + Multimodal sections)

@@ -26,12 +26,14 @@ def run_pycaret_experiment(
 ) -> Dict[str, Any]:
     """
     Run PyCaret experiment.
-    Dynamically loads classification, regression, time_series, or anomaly depending on task_type.
+    Dynamically loads classification, regression, time_series, anomaly, or clustering depending on task_type.
     """
     logger = logging.getLogger("pycaret")
     logger.info(f"Starting PyCaret experiment: {run_name} (Task: {task_type})")
     logger.info(f"Dataset shape: {train_df.shape}, Target: {target_col}")
     is_anomaly_task = task_type == "Anomaly Detection"
+    is_clustering_task = task_type == "Clustering"
+    is_unsupervised_task = is_anomaly_task or is_clustering_task
 
     # Dynamic imports based on task_type
     if task_type == "Regression":
@@ -46,6 +48,10 @@ def run_pycaret_experiment(
         from pycaret.anomaly import setup, create_model, assign_model, save_model
         sort_metric = None
         include_models = ["iforest"]
+    elif is_clustering_task:
+        from pycaret.clustering import setup, create_model, assign_model, save_model
+        sort_metric = None
+        include_models = ["kmeans"]
     else:
         from pycaret.classification import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "F1"
@@ -77,7 +83,7 @@ def run_pycaret_experiment(
             "n_jobs": n_jobs
         }
 
-        if not is_anomaly_task:
+        if not is_unsupervised_task:
             if not target_col:
                 raise ValueError("target_col is required for supervised PyCaret tasks.")
             setup_kwargs["target"] = target_col
@@ -85,7 +91,7 @@ def run_pycaret_experiment(
         if task_type == "Time Series Forecasting":
             setup_kwargs["fh"] = kwargs.get("fh", 12)
             setup_kwargs["seasonal_period"] = kwargs.get("seasonal_period", 12)
-        elif not is_anomaly_task:
+        elif not is_unsupervised_task:
             setup_kwargs["test_data"] = val_df
             setup_kwargs["normalize"] = True
             setup_kwargs["index"] = False
@@ -115,6 +121,15 @@ def run_pycaret_experiment(
                     anomaly_ratio = float(scored_df["Anomaly"].mean())
                     mlflow.log_metric("anomaly_ratio", anomaly_ratio)
                 best_models = [final_model]
+            elif is_clustering_task:
+                logger.info("Step: Training clustering model...")
+                final_model = create_model(include_models[0])
+                scored_df = assign_model(final_model)
+                cluster_col = "Cluster" if "Cluster" in scored_df.columns else ("Label" if "Label" in scored_df.columns else None)
+                if cluster_col:
+                    n_clusters = int(pd.Series(scored_df[cluster_col]).nunique())
+                    mlflow.log_metric("n_clusters", n_clusters)
+                best_models = [final_model]
             else:
                 logger.info("Step: Comparing models...")
                 n_select = 3
@@ -142,7 +157,7 @@ def run_pycaret_experiment(
             best_model = best_models[0]
 
             # 5. Tuning (Time Series tuning might require different params, keeping generic)
-            if not is_anomaly_task:
+            if not is_unsupervised_task:
                 logger.info("Step: Tuning best model...")
                 n_iter = 10 if time_limit is None or time_limit >= 300 else 5
 
@@ -164,9 +179,9 @@ def run_pycaret_experiment(
                 raise StopIteration("Experiment cancelled after tuning.")
 
             # 6. Blending (only if we have multiple models)
-            if is_anomaly_task:
+            if is_unsupervised_task:
                 final_model = best_model
-                logger.info("Step: Skipping blend (not applicable for anomaly detection).")
+                logger.info("Step: Skipping blend (not applicable for unsupervised tasks).")
             elif len(best_models) > 1:
                 logger.info("Step: Blending top models...")
                 final_model = blend_models(
@@ -186,7 +201,7 @@ def run_pycaret_experiment(
             save_model(final_model, model_path_base)
 
             # 8. Log metrics to our MLflow run
-            if not is_anomaly_task:
+            if not is_unsupervised_task:
                 try:
                     final_metrics = pull()
                     if not final_metrics.empty:

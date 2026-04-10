@@ -99,5 +99,6 @@ def test_batch_prediction_drops_multiple_target_columns():
 
 def test_pycaret_module_resolution_for_anomaly_task():
     assert _get_pycaret_module_name("Anomaly Detection") == ".".join(["pycaret", "anomaly"])
+    assert _get_pycaret_module_name("Clustering") == ".".join(["pycaret", "clustering"])
     assert _get_pycaret_module_name("Regression") == ".".join(["pycaret", "regression"])
     assert _get_pycaret_module_name("Classification") == ".".join(["pycaret", "classification"])

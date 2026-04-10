@@ -13,6 +13,8 @@ def _get_pycaret_module_name(task_type: str | None) -> str:
         return ".".join(["pycaret", "time_series"])
     if task_type == "Anomaly Detection":
         return ".".join(["pycaret", "anomaly"])
+    if task_type == "Clustering":
+        return ".".join(["pycaret", "clustering"])
     return _PYCARET_CLASSIFICATION_MODULE
 
 
@@ -165,6 +167,10 @@ def run_predictions(
         if task_type == "Anomaly Detection" and "Anomaly" in preds_df.columns:
             predictions = preds_df["Anomaly"]
         elif task_type == "Anomaly Detection" and "Label" in preds_df.columns:
+            predictions = preds_df["Label"]
+        elif task_type == "Clustering" and "Cluster" in preds_df.columns:
+            predictions = preds_df["Cluster"]
+        elif task_type == "Clustering" and "Label" in preds_df.columns:
             predictions = preds_df["Label"]
         elif "prediction_label" in preds_df.columns:
             predictions = preds_df["prediction_label"]

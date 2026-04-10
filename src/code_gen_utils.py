@@ -138,6 +138,8 @@ model = mlflow.sklearn.load_model("runs:/{run_id}/model")
             pc_module = "pycaret.time_series"
         elif task_type == "Anomaly Detection":
             pc_module = "pycaret.anomaly"
+        elif task_type == "Clustering":
+            pc_module = "pycaret.clustering"
         else:
             pc_module = "pycaret.classification"
 
@@ -302,6 +304,8 @@ elif task_type == "Time Series Forecasting":
     from pycaret.time_series import load_model, predict_model
 elif task_type == "Anomaly Detection":
     from pycaret.anomaly import load_model, predict_model
+elif task_type == "Clustering":
+    from pycaret.clustering import load_model, predict_model
 else:
     from pycaret.classification import load_model, predict_model
 
@@ -319,6 +323,8 @@ def _predict(df):
     preds = predict_model(model, data=df)
     if task_type == "Anomaly Detection" and "Anomaly" in preds.columns:
         return preds["Anomaly"].tolist()
+    if task_type == "Clustering" and "Cluster" in preds.columns:
+        return preds["Cluster"].tolist()
     if task_type == "Classification" and "prediction_label" in preds.columns:
         return preds["prediction_label"].tolist()
     else:

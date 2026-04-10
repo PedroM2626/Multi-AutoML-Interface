@@ -1207,9 +1207,9 @@ elif menu == "Training":
         if data_category == "Computer Vision":
             target = "label"
             st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
-        elif data_category == "Tabular" and task_type == "Anomaly Detection":
+        elif data_category == "Tabular" and task_type in ["Anomaly Detection", "Clustering"]:
             target = None
-            st.info("Anomaly Detection is unsupervised in this interface, so no target column is required.")
+            st.info(f"{task_type} is unsupervised in this interface, so no target column is required.")
         elif data_category == "Tabular" and task_type == "Multi-Label Classification":
             default_targets = st.session_state.get("target", [])
             if not isinstance(default_targets, list):
@@ -2190,7 +2190,7 @@ elif menu == "Experiments":
                     if input_mode == "Real-time Prediction (Manual Entry)":
                         st.markdown("---")
                         current_task_type = st.session_state.get('task_type', 'Classification')
-                        shap_supported_task = current_task_type not in ["Multi-Label Classification", "Anomaly Detection"]
+                        shap_supported_task = current_task_type not in ["Multi-Label Classification", "Anomaly Detection", "Clustering"]
                         if st.session_state.get('data_category', 'Tabular') == "Tabular" and shap_supported_task and st.button("🧠 Explain Prediction (SHAP)"):
                             with st.spinner("Generating Explanations..."):
                                 from src.xai_utils import generate_shap_explanation
