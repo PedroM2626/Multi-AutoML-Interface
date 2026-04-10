@@ -14,6 +14,9 @@ SESSION_DEFAULTS: dict = {
     "dvc_hashes": {},
     "cv_folds": 0,
     "task_type": "Classification",
+    "data_category": "Tabular",
+    "multimodal_text_columns": [],
+    "multimodal_image_columns": [],
     "framework": "AutoGluon",
     "target_stats": {},
 }

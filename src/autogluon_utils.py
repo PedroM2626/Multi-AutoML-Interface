@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 def train_model(train_data: pd.DataFrame, target: str, run_name: str, 
                 valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None, 
                 time_limit: int = 60, presets: str = 'medium_quality', seed: int = 42, cv_folds: int = 0,
-                stop_event=None, task_type: str = "Classification", telemetry_queue=None):
+                stop_event=None, task_type: str = "Classification", data_category: str = "Tabular",
+                multimodal_text_columns=None, multimodal_image_columns=None, telemetry_queue=None):
     """
     Trains an AutoGluon model and logs results to MLflow using generic artifact logging.
     Supports both Tabular data and Computer Vision tasks (via MultiModalPredictor).
     """
     is_cv_task = task_type and task_type.startswith("Computer Vision")
+    is_multimodal_task = data_category == "Multimodal"
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
     is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
     
@@ -40,6 +42,26 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         train_data = build_image_df(train_data)
         valid_data = build_image_df(valid_data)
         test_data = build_image_df(test_data)
+    elif is_multimodal_task:
+        from autogluon.multimodal import MultiModalPredictor
+
+        def _prepare_multimodal_df(path_df):
+            if path_df is None:
+                return path_df
+            if target not in path_df.columns:
+                return path_df
+            prepared_df = path_df.dropna(subset=[target]).copy()
+            for column in (multimodal_text_columns or []):
+                if column in prepared_df.columns:
+                    prepared_df[column] = prepared_df[column].fillna("").astype(str)
+            for column in (multimodal_image_columns or []):
+                if column in prepared_df.columns:
+                    prepared_df[column] = prepared_df[column].fillna("").astype(str)
+            return prepared_df
+
+        train_data = _prepare_multimodal_df(train_data)
+        valid_data = _prepare_multimodal_df(valid_data)
+        test_data = _prepare_multimodal_df(test_data)
     else:
         from autogluon.tabular import TabularPredictor
     
@@ -61,6 +83,10 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
         mlflow.log_param("time_limit", time_limit)
         mlflow.log_param("presets", presets)
         mlflow.log_param("seed", seed)
+        mlflow.log_param("data_category", data_category)
+        if is_multimodal_task:
+            mlflow.log_param("multimodal_text_columns", str(multimodal_text_columns or []))
+            mlflow.log_param("multimodal_image_columns", str(multimodal_image_columns or []))
         
         # Output directory for AutoGluon
         model_path = os.path.join("models", run_name)
@@ -79,7 +105,7 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
             test_data = test_data.dropna(subset=[target])
             mlflow.log_param("has_test_data", True)
             
-        if is_cv_task:
+        if is_cv_task or is_multimodal_task:
             mm_fit_args = {"train_data": train_data, "time_limit": time_limit}
             if valid_data is not None:
                 mm_fit_args["tuning_data"] = valid_data
@@ -89,6 +115,8 @@ def train_model(train_data: pd.DataFrame, target: str, run_name: str,
                 problem_type = "semantic_segmentation"
             elif task_type == "Computer Vision - Object Detection":
                 problem_type = "object_detection"
+            elif is_multimodal_task:
+                problem_type = "regression" if task_type == "Regression" else "classification"
                 
             mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
             predictor = MultiModalPredictor(label=target, problem_type=problem_type, path=model_path).fit(**mm_fit_args, presets=mm_presets)
@@ -221,13 +249,26 @@ def load_model_from_mlflow(run_id: str):
     Loads a model from MLflow artifacts.
     """
     import mlflow
-    from autogluon.tabular import TabularPredictor
+    try:
+        run = mlflow.tracking.MlflowClient().get_run(run_id)
+        data_category = run.data.params.get("data_category", "Tabular")
+        task_type = run.data.params.get("task_type", "Classification")
+    except Exception:
+        data_category = "Tabular"
+        task_type = "Classification"
     
     # Download the artifact folder
     local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
     
     # Load the predictor from the local path
-    predictor = TabularPredictor.load(local_path)
+    if data_category == "Multimodal" or task_type.startswith("Computer Vision"):
+        from autogluon.multimodal import MultiModalPredictor
+
+        predictor = MultiModalPredictor.load(local_path)
+    else:
+        from autogluon.tabular import TabularPredictor
+
+        predictor = TabularPredictor.load(local_path)
     return predictor
 
 def get_leaderboard(predictor):

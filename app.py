@@ -8,6 +8,8 @@ import logging
 import importlib
 import queue
 
+from src.task_catalog import DATA_CATEGORIES, get_framework_options, get_task_options, infer_multimodal_columns
+
 
 def _compat_fragment(*args, **kwargs):
     """Use st.fragment when available, otherwise behave as a no-op decorator."""
@@ -1164,32 +1166,70 @@ elif menu == "Training":
         
         columns = df.columns.tolist()
         
-        # Task Type Filtering
-        task_type = st.selectbox("Task Type", [
-            "Classification", "Regression", "Computer Vision - Multi-Label Classification", "Time Series Forecasting", "Ranking",
-            "Computer Vision - Image Classification", "Computer Vision - Object Detection", "Computer Vision - Image Segmentation"
-        ])
-        st.session_state['task_type'] = task_type
-        
-        task_fw_map = {
-            "Classification": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-            "Regression": ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-            "Computer Vision - Multi-Label Classification": ["AutoGluon", "AutoKeras"],
-            "Time Series Forecasting": ["AutoGluon", "FLAML", "PyCaret"],
-            "Ranking": ["FLAML"],
-            "Computer Vision - Image Classification": ["AutoGluon", "AutoKeras"],
-            "Computer Vision - Object Detection": ["AutoGluon"],
-            "Computer Vision - Image Segmentation": ["AutoGluon"]
+        # Data category first, then task type filtering
+        data_category_options = DATA_CATEGORIES
+        previous_data_category = st.session_state.get('data_category', data_category_options[0])
+        data_category = st.selectbox(
+            "Data Category",
+            data_category_options,
+            index=data_category_options.index(previous_data_category) if previous_data_category in data_category_options else 0,
+        )
+        st.session_state['data_category'] = data_category
+
+        data_category_help = {
+            "Tabular": "CSV/Excel with numeric, categorical, or text columns.",
+            "Computer Vision": "Image folders or ZIP archives with labels inferred from the directory structure.",
+            "Multimodal": "Mixed tabular + text + image-path columns in a single table.",
         }
-        available_frameworks = task_fw_map.get(task_type, ["FLAML"])
-        framework = st.selectbox("Select AutoML Framework", available_frameworks)
+        st.caption(data_category_help.get(data_category, "Choose the data family that matches your training set."))
+
+        task_type_options = get_task_options(data_category)
+        previous_task_type = st.session_state.get('task_type', task_type_options[0])
+        task_type = st.selectbox(
+            "Task Type",
+            task_type_options,
+            index=task_type_options.index(previous_task_type) if previous_task_type in task_type_options else 0,
+        )
+        st.session_state['task_type'] = task_type
+
+        available_frameworks = get_framework_options(data_category, task_type)
+        previous_framework = st.session_state.get('framework', available_frameworks[0])
+        framework = st.selectbox(
+            "Select AutoML Framework",
+            available_frameworks,
+            index=available_frameworks.index(previous_framework) if previous_framework in available_frameworks else 0,
+        )
         st.session_state['framework'] = framework
         
-        if task_type.startswith("Computer Vision"):
+        multimodal_text_columns = []
+        multimodal_image_columns = []
+
+        if data_category == "Computer Vision":
             target = "label"
             st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
         else:
             target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
+
+        if data_category == "Multimodal":
+            feature_columns = [col for col in columns if col != target]
+            suggested_text_columns, suggested_image_columns = infer_multimodal_columns(df, target)
+            st.info("Select the columns that should be treated as text or image paths. The remaining columns stay as tabular features.")
+            multimodal_text_columns = st.multiselect(
+                "Text Columns",
+                feature_columns,
+                default=[col for col in suggested_text_columns if col in feature_columns],
+                key="multimodal_text_columns",
+            )
+            remaining_feature_columns = [col for col in feature_columns if col not in multimodal_text_columns]
+            multimodal_image_columns = st.multiselect(
+                "Image Path Columns",
+                remaining_feature_columns,
+                default=[col for col in suggested_image_columns if col in remaining_feature_columns],
+                key="multimodal_image_columns",
+            )
+            if framework != "AutoGluon":
+                st.warning("Multimodal training is currently native only in AutoGluon in this interface.")
+
         st.session_state['target'] = target
         run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
 
@@ -1210,7 +1250,7 @@ elif menu == "Training":
             "AutoGluon": {
                 "color": "#58a6ff", "icon": "🤖",
                 "steps": [
-                    ("📊 Data Prep", "Validates columns, encodes categoricals, handles nulls."),
+                    ("📊 Data Prep", "Validates columns, handles nulls, and routes tabular, CV, or multimodal inputs."),
                     ("🏋️ Model Fit", "Trains LightGBM, XGBoost, CatBoost, RF, KNN in parallel."),
                     ("🏗️ Ensembling", "Stacks top models with weighted ensembling."),
                     ("📏 Evaluation", "Scores all models on validation set — builds leaderboard."),
@@ -1471,7 +1511,10 @@ elif menu == "Training":
                 _fn = train_autogluon
                 _kwargs = dict(train_data=df, target=target, run_name=run_name,
                                valid_data=valid_df, test_data=test_df,
-                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds, task_type=task_type)
+                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
+                               task_type=task_type, data_category=data_category,
+                               multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
+                               multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
                 _fw_key = "autogluon"
             elif framework == "AutoKeras":
                 from src.autokeras_utils import run_autokeras_experiment
@@ -2100,7 +2143,7 @@ elif menu == "Experiments":
                     # Only show XAI for single manual entries to avoid lag on large file uploads
                     if input_mode == "Real-time Prediction (Manual Entry)":
                         st.markdown("---")
-                        if st.button("🧠 Explain Prediction (SHAP)"):
+                        if st.session_state.get('data_category', 'Tabular') == "Tabular" and st.button("🧠 Explain Prediction (SHAP)"):
                             with st.spinner("Generating Explanations..."):
                                 from src.xai_utils import generate_shap_explanation
                                 train_data_ref = st.session_state.get('df')
@@ -2122,9 +2165,11 @@ elif menu == "Experiments":
                                         st.error("SHAP explanation not supported for this model architecture.")
                                 else:
                                     st.warning("Training data not available in session to generate background SHAP values.")
+                        elif st.session_state.get('data_category', 'Tabular') == "Multimodal":
+                            st.info("Explainability for multimodal models is not enabled yet in this interface.")
 
                     # ─── XAI (Explainable AI) for Computer Vision Predictions ───
-                    if input_mode == "Real-time Prediction (Manual Entry)" and "Computer Vision" in st.session_state.get('task_type', ""):
+                    if input_mode == "Real-time Prediction (Manual Entry)" and st.session_state.get('data_category', 'Tabular') == "Computer Vision":
                         st.markdown("---")
                         if st.button("👁️ Explain AI Decision (Saliency Map)"):
                             with st.spinner("Generating Saliency Map... (This might take a minute depending on image size)"):

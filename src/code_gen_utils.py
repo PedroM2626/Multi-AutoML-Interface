@@ -11,8 +11,10 @@ def generate_consumption_code(model_type: str, run_id: str, target_column: str) 
         client = mlflow.tracking.MlflowClient()
         run = client.get_run(run_id)
         task_type = run.data.params.get("task_type", "Classification")
+        data_category = run.data.params.get("data_category", "Tabular")
     except Exception:
         task_type = "Classification"
+        data_category = "Tabular"
 
     base_code = f"""# Sample code to consume the trained model
 # Run ID: {run_id}
@@ -25,14 +27,21 @@ import mlflow
 """
 
     if model_type == "autogluon":
+        if data_category == "Multimodal" or task_type.startswith("Computer Vision"):
+            predictor_import = "from autogluon.multimodal import MultiModalPredictor"
+            predictor_loader = "MultiModalPredictor.load(local_path)"
+        else:
+            predictor_import = "from autogluon.tabular import TabularPredictor"
+            predictor_loader = "TabularPredictor.load(local_path)"
+
         return base_code + f"""
-from autogluon.tabular import TabularPredictor
+{predictor_import}
 
 # 1. Download model from MLflow
 local_path = mlflow.artifacts.download_artifacts(run_id="{run_id}", artifact_path="model")
 
 # 2. Load model
-predictor = TabularPredictor.load(local_path)
+predictor = {predictor_loader}
 
 # 3. Predict
 # data = pd.read_csv("your_data.csv")
@@ -186,11 +195,27 @@ y_encoder    = bundle.get("y_encoder", None)
 def _load_code_for_deploy(model_type: str, run_id: str) -> str:
     """Returns the model-loading block used in the FastAPI main.py."""
     if model_type == "autogluon":
+        try:
+            client = mlflow.tracking.MlflowClient()
+            run = client.get_run(run_id)
+            task_type = run.data.params.get("task_type", "Classification")
+            data_category = run.data.params.get("data_category", "Tabular")
+        except Exception:
+            task_type = "Classification"
+            data_category = "Tabular"
+
+        if data_category == "Multimodal" or task_type.startswith("Computer Vision"):
+            import_block = "from autogluon.multimodal import MultiModalPredictor"
+            load_block = "model = MultiModalPredictor.load(_local)"
+        else:
+            import_block = "from autogluon.tabular import TabularPredictor"
+            load_block = "model = TabularPredictor.load(_local)"
+
         return f"""
-from autogluon.tabular import TabularPredictor
+{import_block}
 import mlflow
 _local = mlflow.artifacts.download_artifacts(run_id="{run_id}", artifact_path="model")
-model = TabularPredictor.load(_local)
+{load_block}
 
 def _predict(df):
     return model.predict(df).tolist()

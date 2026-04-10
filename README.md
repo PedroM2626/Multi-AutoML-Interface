@@ -26,7 +26,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **Integrated MLOps** with complete tracking via MLflow
 - **Unified interface** for training, evaluation, and prediction
 - **Flexible deployment** (web, Docker, desktop)
-- **Support for Multiple ML Tasks**: Classification, Regression, Multi-Label Classification, Time Series Forecasting, Computer Vision (Image Classification, Object Detection, Image Segmentation).
+- **Support for Multiple ML Tasks**: Classification, Regression, Multi-Label Classification, Time Series Forecasting, Computer Vision (Image Classification, Object Detection, Image Segmentation), and Multimodal.
 - **Detailed metrics and logging**
 
 ---
@@ -54,7 +54,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **🚀 One-Click API Deployment**: Generate a complete FastAPI + Docker package for any model in seconds.
 - **Storage Management**: Automatically cleans up local model files after MLflow sync.
 - **Advanced Prediction**: Batch processing via file upload or **Manual Entry Form**.
-- **Unified ML Task Selector**: Choose between Classification, Regression, Multi-Label Classification, Time Series Forecasting, and Computer Vision (Image Classification, Multi-Label, Object Detection, Image Segmentation).
+- **Unified ML Task Selector**: First choose the data category (Tabular, Computer Vision, or Multimodal), then pick the task type that is valid for that data family.
 - **Dynamic Framework Filtering**: View only the AutoML engines that support your selected task.
 
 ### 🖥️ **Multi-Deploy:**
@@ -195,12 +195,63 @@ pytest -q tests/test_regression_flows.py
 - **Automatic Data Lake**: When processing data, it is copied to the `data_lake/` folder and versioned via DVC, generating hashes for version control.
 
 #### **2. Experiment Configuration:**
-- **Task Type**: Classification, Regression, Multi-Label, Time Series, or Computer Vision (Image Classification, Object Detection, Segmentation).
+- **Data Category + Task Type**: Choose Tabular, Computer Vision, or Multimodal first; then select the compatible task type (Classification, Regression, Time Series, Ranking, or the relevant CV task).
 - **Framework Agnostic**: Support for AutoGluon, FLAML, H2O, TPOT, PyCaret, and Lale.
 - **ONNX Integration**: Universal model export and import via ONNX for cross-platform deployment.
 - **Hugging Face Hub**: One-click deployment and discovery of models on the HF Hub.
 - **MLOps Ready**: Integrated MLflow experiment tracking and DVC data versioning.
 - **Advanced parameters**: seed, time limits, folds, max textual features (TF-IDF), CV, forecasting horizon (TS), etc.
+
+#### **Task Type Support Matrix (Current Implementation)**
+
+Legend: ✅ = implemented in this repository, ⚠️ = partial/beta path, ❌ = not implemented in this repository.
+
+| Data Type | Task Type | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|---|
+| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Time Series Forecasting | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Multi-Label Classification | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Segmentation | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal (tabular+text/image) | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal (tabular+text/image) | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+Notes:
+- Tabular Multi-Label and Anomaly Detection are not wired in the current training UI yet.
+- CV Object Detection and Segmentation are exposed through AutoGluon multimodal paths, but should be treated as beta until broader test coverage is added.
+- Some frameworks (for example PyCaret anomaly modules) may support additional tasks in their own APIs, but those flows are not integrated in this repository yet.
+
+#### **Framework Native Coverage (Verified) vs Current Integration**
+
+The table above shows what is currently integrated in this repository.
+Below is a verified summary of extra task families supported by each framework natively (outside what is currently wired in this project):
+
+| Framework | Additional task families available natively | Status in this repository |
+|---|---|---|
+| AutoGluon | Text classification/regression/NER, multimodal NER, document prediction, semantic matching (image-text/text-text), tabular multi-label (multiple label columns) | Mostly not integrated in the current UI/training flow |
+| FLAML | `ts_forecast_classification`, `ts_forecast_panel`, NLP tasks (`seq-classification`, `seq-regression`, `token-classification`, `summarization`, `multichoice-classification`) | Not integrated in current flow |
+| PyCaret | Anomaly Detection and Clustering modules (in addition to classification/regression/time series) | Not integrated in current flow |
+| H2O AutoML | Primarily supervised tabular classification/regression (binary/multiclass/regression variants) | Already aligned with current integration scope |
+| TPOT | Primarily supervised classification/regression search spaces (including advanced/search variants) | Already aligned with current integration scope |
+| Lale | General pipeline optimization over many sklearn-compatible operators (can cover broader tasks depending on operator set) | Current integration is limited to classification/regression |
+| AutoKeras | Image regression, text classification/regression, structured data classification/regression, multimodal/multitask APIs | Current integration is limited to CV image classification/multi-label classification |
+
+Practical conclusion:
+- Yes, there are more task types available in multiple frameworks than what the project currently exposes.
+- The most direct next gaps to implement here are: Tabular Multi-Label and Tabular Anomaly Detection.
+
+Reference scope used for this verification:
+- AutoGluon docs (Tabular + Multimodal sections)
+- FLAML Task-Oriented AutoML + API task docs
+- PyCaret docs (Classification/Regression/Time Series/Clustering/Anomaly)
+- H2O AutoML docs
+- AutoKeras docs/tutorial index
 
 #### **3. Training & Monitoring:**
 - **Experiments Tab**: All training runs appear in a dedicated dashboard.
@@ -239,7 +290,8 @@ pytest -q tests/test_regression_flows.py
     'time_limit': 3600,
     'seed': 42,
     'num_bag_folds': 5,
-    'num_bag_sets': 1
+    'num_bag_sets': 1,
+    'data_category': 'Tabular'  # or 'Computer Vision' / 'Multimodal'
 }
 ```
 
