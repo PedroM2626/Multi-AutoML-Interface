@@ -122,7 +122,19 @@ function createWindow() {
     Menu.setApplicationMenu(menu);
 
     // Carregar a aplicação Streamlit
-    mainWindow.loadURL('http://localhost:8501');
+    const loadUrlWithRetry = (retries = 0) => {
+        mainWindow.loadURL('http://127.0.0.1:8501').catch((err) => {
+            console.log(`Server not ready, retrying... (${retries})`);
+            if (retries < 20) {
+                setTimeout(() => loadUrlWithRetry(retries + 1), 1000);
+            } else {
+                mainWindow.loadFile(path.join(__dirname, '..', 'error_loading.html')).catch(e => {
+                    console.error('Failed to load error_loading.html:', e);
+                });
+            }
+        });
+    };
+    loadUrlWithRetry();
 
     // Mostrar janela quando estiver pronta
     mainWindow.once('ready-to-show', () => {
@@ -171,7 +183,8 @@ function startStreamlit() {
         '--server.port', '8501',
         '--server.headless', 'true',
         '--server.enableCORS', 'false',
-        '--browser.gatherUsageStats', 'false'
+        '--browser.gatherUsageStats', 'false',
+        '--server.address', '127.0.0.1'
     ], {
         cwd: path.join(__dirname, '..'),
         stdio: 'pipe'

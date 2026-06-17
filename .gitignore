@@ -44,3 +44,12 @@ references/*
 .states/
 
 *venv*
+
+# Electron & Build artifacts
+node_modules/
+dist/
+*.exe
+*.dmg
+*.AppImage
+convert_utf8.py
+modify_pkg.py

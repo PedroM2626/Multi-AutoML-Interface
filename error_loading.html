@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi-AutoML Desktop - Loading Error</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            border-radius: 8px;
+            background-color: #262730;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            max-width: 500px;
+        }
+        h1 { color: #ff4b4b; }
+        p { line-height: 1.5; color: #e0e0e0; }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: #ff4b4b;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        button {
+            background-color: #ff4b4b;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover { background-color: #e04343; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1>Server not responding</h1>
+        <p>The Multi-AutoML Desktop background server is taking longer than expected to start, or failed to start.</p>
+        <p>If you are running the server manually in the background, ensure it is running on port <strong>8501</strong>.</p>
+        <button onclick="window.location.href='http://127.0.0.1:8501'">Retry Connection</button>
+    </div>
+</body>
+</html>
