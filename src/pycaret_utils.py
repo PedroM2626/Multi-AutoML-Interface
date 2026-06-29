@@ -40,7 +40,7 @@ def run_pycaret_experiment(
         from pycaret.regression import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "R2"
         include_models = ["lr", "rf", "et", "lightgbm"]
-    elif task_type == "Time Series Forecasting":
+    elif task_type in ["Time Series Forecasting", "Forecast"]:
         from pycaret.time_series import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "MASE"
         include_models = ["naive", "snaive", "arima", "ets"]
@@ -88,7 +88,7 @@ def run_pycaret_experiment(
                 raise ValueError("target_col is required for supervised PyCaret tasks.")
             setup_kwargs["target"] = target_col
         
-        if task_type == "Time Series Forecasting":
+        if task_type in ["Time Series Forecasting", "Forecast"]:
             setup_kwargs["fh"] = kwargs.get("fh", 12)
             setup_kwargs["seasonal_period"] = kwargs.get("seasonal_period", 12)
         elif not is_unsupervised_task:

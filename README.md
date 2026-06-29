@@ -13,6 +13,11 @@
 
 ## 🆕 What's New (Recent)
 
+- **Advanced ML Preprocessing & Modeling Pipeline**:
+  - **Temporal & Text Characteristics**: Tabular datasets now support specifying "Contains Temporal Data" (automatically applies chronological validation splits and generates lags/rolling window features) and "Contains Text / NLP Data" (automatically vectorizes text columns using a high-performance TF-IDF pipeline).
+  - **Forecast Task Type**: Replaces the old hardcoded Time Series task with a dedicated Forecast engine integrated across all frameworks.
+  - **Multi-Task Classification**: Support for predicting multiple target columns concurrently. The interface automatically orchestrates separate training runs for each target if the framework does not support it natively.
+  - **Semi-Supervised Learning**: Support for Self-Training Classification using target columns with unlabeled samples (marked as `-1` or `NaN`). The training pipeline dynamically wraps base classifiers in a `SelfTrainingClassifier` wrapper.
 - Added user-selectable parallelism (`n_jobs`) in the Training UI: choose Auto (all cores) or Manual (select number of jobs).
 - Added support for headerless tabular datasets: upload CSV/Excel files without a header row and the app will auto-generate `col_0, col_1, ...`.
 - Significant Streamlit performance improvements: heavy computations and plots are cached with `@st.cache_data`, server-init tasks run once with `@st.cache_resource`, and `st.session_state` initialization was consolidated to reduce rerun overhead.

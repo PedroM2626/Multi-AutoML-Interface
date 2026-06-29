@@ -1210,7 +1210,7 @@ elif menu == "Training":
         elif data_category == "Tabular" and task_type in ["Anomaly Detection", "Clustering"]:
             target = None
             st.info(f"{task_type} is unsupervised in this interface, so no target column is required.")
-        elif data_category == "Tabular" and task_type == "Multi-Label Classification":
+        elif data_category == "Tabular" and task_type in ["Multi-Label Classification", "Multi-Task Classification"]:
             default_targets = st.session_state.get("target", [])
             if not isinstance(default_targets, list):
                 default_targets = [default_targets] if default_targets in columns else []
@@ -1218,12 +1218,60 @@ elif menu == "Training":
                 "Select Target Columns",
                 columns,
                 default=[col for col in default_targets if col in columns],
-                help="Choose two or more target columns for tabular multi-label training.",
+                help="Choose two or more target columns for tabular training.",
             )
             if len(target) < 2:
-                st.warning("Select at least two target columns to train a multi-label model.")
+                st.warning("Select at least two target columns to train a model.")
         else:
             target = st.selectbox("Select Target Column", columns, index=columns.index(st.session_state.get('target', columns[0])) if st.session_state.get('target') in columns else 0)
+
+        # 📊 Data Characteristics & Semi-Supervised UI
+        is_ts = False
+        is_nlp = False
+        selected_nlp_cols = []
+        date_col = None
+        forecast_horizon = 1
+        semi_supervised = False
+
+        if data_category == "Tabular":
+            st.markdown("#### 📊 Data Characteristics")
+            is_ts = st.checkbox(
+                "📅 Contains Temporal / Time Series Data",
+                value=st.session_state.get('is_time_series', False) or task_type == 'Forecast',
+                help="Enable to extract date features and apply chronological validation."
+            )
+            st.session_state['is_time_series'] = is_ts
+
+            is_nlp = st.checkbox(
+                "📝 Contains Text / NLP Data",
+                value=st.session_state.get('is_nlp', False),
+                help="Enable to select text columns for NLP preprocessing."
+            )
+            st.session_state['is_nlp'] = is_nlp
+
+            col_char1, col_char2 = st.columns(2)
+            with col_char1:
+                if is_ts or task_type == 'Forecast':
+                    date_col = st.selectbox("📅 Date Column", columns, key="app_date_col")
+                    if task_type == 'Forecast':
+                        forecast_horizon = st.number_input("⏳ Forecast Horizon", min_value=1, value=1, key="app_horizon")
+            with col_char2:
+                if is_nlp:
+                    selected_nlp_cols = st.multiselect(
+                        "📝 Text Column(s) for NLP Processing",
+                        [c for c in columns if c != target and (not isinstance(target, list) or c not in target)],
+                        default=st.session_state.get('selected_nlp_cols', []),
+                        key="app_nlp_cols"
+                    )
+                    st.session_state['selected_nlp_cols'] = selected_nlp_cols
+
+            if task_type == "Classification":
+                semi_supervised = st.checkbox(
+                    "Self-Training / Semi-Supervised Learning",
+                    value=st.session_state.get('semi_supervised', False),
+                    help="Enable to train on labeled and unlabeled data (unlabeled target rows must be empty/NaN or -1)."
+                )
+                st.session_state['semi_supervised'] = semi_supervised
 
         if data_category == "Multimodal":
             feature_columns = [col for col in columns if col != target]
@@ -1521,103 +1569,162 @@ elif menu == "Training":
         launch_disabled = data_category == "Tabular" and task_type == "Multi-Label Classification" and isinstance(target, list) and len(target) < 2
         if st.button("🚀 Start Training", type="primary", disabled=launch_disabled):
             import time as _t
-            _key = f"{framework.lower()}_{int(_t.time())}"
-
-            # Build kwargs dict for the trainer
-            if framework == "AutoGluon":
-                from src.autogluon_utils import train_model as train_autogluon
-                _fn = train_autogluon
-                _kwargs = dict(train_data=df, target=target, run_name=run_name,
-                               valid_data=valid_df, test_data=test_df,
-                               time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
-                               task_type=task_type, data_category=data_category,
-                               multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
-                               multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
-                _fw_key = "autogluon"
-            elif framework == "AutoKeras":
-                from src.autokeras_utils import run_autokeras_experiment
-                _fn = run_autokeras_experiment
-                _kwargs = dict(train_data=df, target=target, run_name=run_name,
-                               valid_data=valid_df, task_type=task_type, time_limit=time_limit)
-                _fw_key = "autokeras"
-            elif framework == "FLAML":
-                from src.flaml_utils import train_flaml_model
-                _fn = train_flaml_model
-                _kwargs = dict(train_data=df, target=target, run_name=run_name,
-                               valid_data=valid_df, test_data=test_df,
-                               time_budget=time_budget, task=task, metric=metric,
-                               estimator_list=estimator_list, seed=seed, cv_folds=cv_folds,
-                               n_jobs=global_n_jobs)
-                _fw_key = "flaml"
-            elif framework == "H2O AutoML":
-                from src.h2o_utils import train_h2o_model
-                _fn = train_h2o_model
-                _kwargs = dict(train_data=df, target=target, run_name=run_name,
-                               valid_data=valid_df, test_data=test_df,
-                               max_runtime_secs=max_runtime_secs, max_models=max_models,
-                               nfolds=nfolds, balance_classes=balance_classes,
-                               seed=seed, sort_metric=sort_metric, exclude_algos=exclude_algos)
-                _fw_key = "h2o"
-            elif framework == "PyCaret":
-                from src.pycaret_utils import run_pycaret_experiment
-                _fn = run_pycaret_experiment
+            import threading
+            
+            # Apply preprocessing
+            if data_category == "Tabular" and (is_ts or is_nlp or semi_supervised or task_type in ["Forecast", "Multi-Task Classification"]):
+                from src.processor import AutoMLDataProcessor
+                st.info("Applying AutoMLDataProcessor temporal/NLP/target feature engineering...")
+                processor = AutoMLDataProcessor(
+                    target_column=target,
+                    task_type=task_type.lower().replace(" classification", "").replace(" ", "_"),
+                    date_col=date_col,
+                    forecast_horizon=forecast_horizon,
+                    is_time_series=is_ts,
+                    semi_supervised=semi_supervised
+                )
+                df_proc, y_proc = processor.fit_transform(df, nlp_cols=selected_nlp_cols)
                 
-                # Fetch TS params if applicable
-                _fh = st.session_state.get('pycaret_fh', 12) if task_type == 'Time Series Forecasting' else None
-                _sp = st.session_state.get('pycaret_sp', 12) if task_type == 'Time Series Forecasting' else None
+                if isinstance(y_proc, pd.DataFrame):
+                    df_to_train = pd.concat([df_proc, y_proc], axis=1)
+                elif y_proc is not None:
+                    target_name = target if isinstance(target, str) else target[0]
+                    df_to_train = df_proc.copy()
+                    df_to_train[target_name] = y_proc
+                else:
+                    df_to_train = df_proc
                 
-                _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
-                               val_df=valid_df, time_limit=time_limit,
-                               task_type=task_type, fh=_fh, seasonal_period=_sp,
-                               n_jobs=global_n_jobs,
-                               log_queue=None)  # patched below after _entry creation
-                _fw_key = "pycaret"
-            elif framework == "Lale":
-                from src.lale_utils import run_lale_experiment
-                _fn = run_lale_experiment
-                _kwargs = dict(train_df=df, target_col=target, run_name=run_name,
-                               val_df=valid_df, time_limit=time_limit, task_type=task_type,
-                               log_queue=None)  # patched below after _entry creation
-                _fw_key = "lale"
-            else:  # TPOT
-                from src.tpot_utils import train_tpot_model
-                _fn = train_tpot_model
-                _kwargs = dict(df=df, target_column=target, run_name=run_name,
-                               valid_data=valid_df, test_data=test_df,
-                               generations=generations, population_size=population_size,
-                               cv=cv, scoring=scoring, max_time_mins=max_time_mins,
-                               max_eval_time_mins=max_eval_time_mins,
-                               random_state=seed, verbosity=verbosity, n_jobs=global_n_jobs,
-                               config_dict=config_dict, tfidf_max_features=tfidf_max_features,
-                               tfidf_ngram_range=tfidf_ngram_range)
-                _fw_key = "tpot"
+                if valid_df is not None:
+                    valid_df_proc, y_val_proc = processor.transform(valid_df)
+                    if isinstance(y_val_proc, pd.DataFrame):
+                        valid_df_to_train = pd.concat([valid_df_proc, y_val_proc], axis=1)
+                    elif y_val_proc is not None:
+                        target_name = target if isinstance(target, str) else target[0]
+                        valid_df_to_train = valid_df_proc.copy()
+                        valid_df_to_train[target_name] = y_val_proc
+                    else:
+                        valid_df_to_train = valid_df_proc
+                else:
+                    valid_df_to_train = None
+                    
+                if test_df is not None:
+                    test_df_proc, y_test_proc = processor.transform(test_df)
+                    if isinstance(y_test_proc, pd.DataFrame):
+                        test_df_to_train = pd.concat([test_df_proc, y_test_proc], axis=1)
+                    elif y_test_proc is not None:
+                        target_name = target if isinstance(target, str) else target[0]
+                        test_df_to_train = test_df_proc.copy()
+                        test_df_to_train[target_name] = y_test_proc
+                    else:
+                        test_df_to_train = test_df_proc
+                else:
+                    test_df_to_train = None
+                
+                df = df_to_train
+                valid_df = valid_df_to_train
+                test_df = test_df_to_train
 
-            _entry = ExperimentEntry(
-                key=_key,
-                metadata={
-                    "framework": framework,
-                    "framework_key": _fw_key,
-                    "run_name": run_name,
-                    "target": target,
-                    "config_snapshot": {k: v for k, v in _kwargs.items()
-                                         if k not in ("train_data", "df", "valid_data",
-                                                       "valid_df", "test_data", "test_df")}
-                }
-            )
+            # Support multi-task loop for all frameworks
+            target_cols = target if isinstance(target, list) else [target]
+            is_multi = len(target_cols) > 1
+            
+            targets_to_run = target_cols if is_multi else [target]
+            
+            for t_col in targets_to_run:
+                local_target = t_col
+                local_run_name = f"{run_name}_{t_col}" if is_multi else run_name
+                _key = f"{framework.lower()}_{local_target}_{int(_t.time())}" if is_multi else f"{framework.lower()}_{int(_t.time())}"
 
-            _t_obj = threading.Thread(
-                target=run_training_worker,
-                args=(_entry, _fn, _kwargs),
-                daemon=True
-            )
-            _entry.thread = _t_obj
-            # Patch log_queue for frameworks that need it (assigned after _entry is created)
-            if "log_queue" in _kwargs and _kwargs["log_queue"] is None:
-                _kwargs["log_queue"] = _entry.log_queue
-            exp_manager.add(_entry)
-            _t_obj.start()
+                if framework == "AutoGluon":
+                    from src.autogluon_utils import train_model as train_autogluon
+                    _fn = train_autogluon
+                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, test_data=test_df,
+                                   time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
+                                   task_type=task_type, data_category=data_category,
+                                   multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
+                                   multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
+                    _fw_key = "autogluon"
+                elif framework == "AutoKeras":
+                    from src.autokeras_utils import run_autokeras_experiment
+                    _fn = run_autokeras_experiment
+                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, task_type=task_type, time_limit=time_limit)
+                    _fw_key = "autokeras"
+                elif framework == "FLAML":
+                    from src.flaml_utils import train_flaml_model
+                    _fn = train_flaml_model
+                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, test_data=test_df,
+                                   time_budget=time_budget, task=task, metric=metric,
+                                   estimator_list=estimator_list, seed=seed, cv_folds=cv_folds,
+                                   n_jobs=global_n_jobs)
+                    _fw_key = "flaml"
+                elif framework == "H2O AutoML":
+                    from src.h2o_utils import train_h2o_model
+                    _fn = train_h2o_model
+                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, test_data=test_df,
+                                   max_runtime_secs=max_runtime_secs, max_models=max_models,
+                                   nfolds=nfolds, balance_classes=balance_classes,
+                                   seed=seed, sort_metric=sort_metric, exclude_algos=exclude_algos)
+                    _fw_key = "h2o"
+                elif framework == "PyCaret":
+                    from src.pycaret_utils import run_pycaret_experiment
+                    _fn = run_pycaret_experiment
+                    _fh = st.session_state.get('pycaret_fh', 12) if task_type in ['Time Series Forecasting', 'Forecast'] else None
+                    _sp = st.session_state.get('pycaret_sp', 12) if task_type in ['Time Series Forecasting', 'Forecast'] else None
+                    _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
+                                   val_df=valid_df, time_limit=time_limit,
+                                   task_type=task_type, fh=_fh, seasonal_period=_sp,
+                                   n_jobs=global_n_jobs,
+                                   log_queue=None)
+                    _fw_key = "pycaret"
+                elif framework == "Lale":
+                    from src.lale_utils import run_lale_experiment
+                    _fn = run_lale_experiment
+                    _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
+                                   val_df=valid_df, time_limit=time_limit, task_type=task_type,
+                                   log_queue=None)
+                    _fw_key = "lale"
+                else:  # TPOT
+                    from src.tpot_utils import train_tpot_model
+                    _fn = train_tpot_model
+                    _kwargs = dict(df=df, target_column=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, test_data=test_df,
+                                   generations=generations, population_size=population_size,
+                                   cv=cv, scoring=scoring, max_time_mins=max_time_mins,
+                                   max_eval_time_mins=max_eval_time_mins,
+                                   random_state=seed, verbosity=verbosity, n_jobs=global_n_jobs,
+                                   config_dict=config_dict, tfidf_max_features=tfidf_max_features,
+                                   tfidf_ngram_range=tfidf_ngram_range)
+                    _fw_key = "tpot"
 
-            st.success(f"🚀 Experiment **{run_name}** queued! Navigate to the **Experiments** tab to monitor progress.")
+                _entry = ExperimentEntry(
+                    key=_key,
+                    metadata={
+                        "framework": framework,
+                        "framework_key": _fw_key,
+                        "run_name": local_run_name,
+                        "target": local_target,
+                        "config_snapshot": {k: v for k, v in _kwargs.items()
+                                             if k not in ("train_data", "df", "valid_data",
+                                                           "valid_df", "test_data", "test_df")}
+                    }
+                )
+
+                _t_obj = threading.Thread(
+                    target=run_training_worker,
+                    args=(_entry, _fn, _kwargs),
+                    daemon=True
+                )
+                _entry.thread = _t_obj
+                if "log_queue" in _kwargs and _kwargs["log_queue"] is None:
+                    _kwargs["log_queue"] = _entry.log_queue
+                exp_manager.add(_entry)
+                _t_obj.start()
+
+            st.success(f"🚀 Experiment(s) queued! Navigate to the **Experiments** tab to monitor progress.")
             st.info("You can start another training right away or switch tabs — training runs in the background.")
     else:
         st.warning("Please upload or select Data Lake training sets first.")

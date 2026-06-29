@@ -39,7 +39,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
     is_multimodal_task = data_category == "Multimodal"
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
     is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
-    is_tabular_multilabel = data_category == "Tabular" and task_type == "Multi-Label Classification"
+    is_tabular_multilabel = data_category == "Tabular" and task_type in ["Multi-Label Classification", "Multi-Task Classification"]
     target_columns = target if isinstance(target, list) else [target]
 
     if is_tabular_multilabel:
