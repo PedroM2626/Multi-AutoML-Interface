@@ -7,9 +7,9 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "build-win": "electron-builder --win",
-    "build-mac": "electron-builder --mac",
-    "build-linux": "electron-builder --linux",
+    "build-win": "electron-builder --win --publish never",
+    "build-mac": "electron-builder --mac --publish never",
+    "build-linux": "electron-builder --linux --publish never",
     "dev": "concurrently \"npm run streamlit\" \"wait-on http://localhost:8501 && electron .\"",
     "streamlit": "streamlit run app.py --server.port 8501",
     "postinstall": "electron-builder install-app-deps"
