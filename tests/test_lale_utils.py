@@ -1,9 +1,11 @@
 import pytest
 import pandas as pd
 import threading
-from src.lale_utils import run_lale_experiment
-import mlflow
 import os
+import mlflow
+
+pytest.importorskip("lale")
+from src.lale_utils import run_lale_experiment
 
 @pytest.fixture
 def mock_classification_data():

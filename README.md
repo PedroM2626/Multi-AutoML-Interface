@@ -1,7 +1,7 @@
 # Multi-AutoML Interface
 
 ![Version](https://img.shields.io/badge/version-4.6.0-blue)
-![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -109,7 +109,7 @@ Note: The Hugging Face Spaces entry above links to a demo deployment provided fo
 ## 🚀 **Quick Start**
 
 ### 📋 **Prerequisites:**
-- **Python 3.11+**
+- **Python 3.12**
 - **Node.js 16+** (for desktop app)
 - **Java 11+** (for H2O AutoML)
 - **Git**

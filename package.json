@@ -29,10 +29,6 @@
     "concurrently": "^8.2.2",
     "wait-on": "^7.2.0"
   },
-  "dependencies": {
-    "node-pty": "^1.0.0",
-    "python-shell": "^5.0.0"
-  },
   "build": {
     "appId": "com.multi-automl.desktop",
     "productName": "Multi-AutoML Desktop",

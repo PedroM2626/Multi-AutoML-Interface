@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Iterable
 
 
-DATA_CATEGORIES = ["Tabular", "Computer Vision", "Multimodal"]
+DATA_CATEGORIES = ["Tabular", "Sequential", "Text", "Computer Vision", "Multimodal"]
 
 TASK_OPTIONS_BY_CATEGORY = {
     "Tabular": [
@@ -13,10 +13,23 @@ TASK_OPTIONS_BY_CATEGORY = {
         "Regression",
         "Multi-Label Classification",
         "Multi-Task Classification",
+        "Semi-Supervised Classification",
         "Anomaly Detection",
         "Clustering",
         "Forecast",
         "Ranking",
+    ],
+    "Sequential": [
+        "Classification",
+        "Regression",
+        "Forecast",
+        "Anomaly Detection",
+        "Clustering",
+    ],
+    "Text": [
+        "Classification",
+        "Regression",
+        "Clustering",
     ],
     "Computer Vision": [
         "Image Classification",
@@ -32,10 +45,19 @@ TASK_FRAMEWORK_MAP = {
     ("Tabular", "Regression"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
     ("Tabular", "Multi-Label Classification"): ["AutoGluon"],
     ("Tabular", "Multi-Task Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+    ("Tabular", "Semi-Supervised Classification"): ["PyCaret"],
     ("Tabular", "Anomaly Detection"): ["PyCaret"],
     ("Tabular", "Clustering"): ["PyCaret"],
     ("Tabular", "Forecast"): ["AutoGluon", "FLAML", "PyCaret"],
     ("Tabular", "Ranking"): ["FLAML"],
+    ("Sequential", "Classification"): ["PyCaret", "AutoGluon"],
+    ("Sequential", "Regression"): ["PyCaret", "AutoGluon"],
+    ("Sequential", "Forecast"): ["AutoGluon", "FLAML", "PyCaret"],
+    ("Sequential", "Anomaly Detection"): ["PyCaret"],
+    ("Sequential", "Clustering"): ["PyCaret"],
+    ("Text", "Classification"): ["AutoGluon", "PyCaret"],
+    ("Text", "Regression"): ["AutoGluon", "PyCaret"],
+    ("Text", "Clustering"): ["PyCaret"],
     ("Computer Vision", "Image Classification"): ["AutoGluon", "AutoKeras"],
     ("Computer Vision", "Multi-Label Classification"): ["AutoGluon", "AutoKeras"],
     ("Computer Vision", "Object Detection"): ["AutoGluon"],

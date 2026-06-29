@@ -2,14 +2,16 @@ from src.task_catalog import DATA_CATEGORIES, get_framework_options, get_task_op
 
 
 def test_tabular_catalog_includes_expected_tasks_and_frameworks():
-    assert DATA_CATEGORIES == ["Tabular", "Computer Vision", "Multimodal"]
+    assert DATA_CATEGORIES == ["Tabular", "Sequential", "Text", "Computer Vision", "Multimodal"]
     assert get_task_options("Tabular") == [
         "Classification",
         "Regression",
         "Multi-Label Classification",
+        "Multi-Task Classification",
+        "Semi-Supervised Classification",
         "Anomaly Detection",
         "Clustering",
-        "Time Series Forecasting",
+        "Forecast",
         "Ranking",
     ]
     assert get_framework_options("Tabular", "Classification") == ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"]
