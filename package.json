@@ -50,16 +50,13 @@
       }
     ],
     "win": {
-      "target": "nsis",
-      "icon": "electron/assets/icon.ico"
+      "target": "nsis"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "electron/assets/icon.icns"
+      "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "electron/assets/icon.png"
+      "target": "AppImage"
     },
     "nsis": {
       "oneClick": false,
