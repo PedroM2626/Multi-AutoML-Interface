@@ -9,6 +9,7 @@ import importlib
 import queue
 
 from src.task_catalog import DATA_CATEGORIES, get_framework_options, get_task_options, infer_multimodal_columns
+from src.orchestrator import UniversalAutoMLOrchestrator
 
 
 def _compat_fragment(*args, **kwargs):
@@ -1636,42 +1637,28 @@ elif menu == "Training":
                 _key = f"{framework.lower()}_{local_target}_{int(_t.time())}" if is_multi else f"{framework.lower()}_{int(_t.time())}"
 
                 if framework == "AutoGluon":
-                    from src.autogluon_utils import train_model as train_autogluon
-                    _fn = train_autogluon
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
                                    time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
                                    task_type=task_type, data_category=data_category,
                                    multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
                                    multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
-                    _fw_key = "autogluon"
                 elif framework == "AutoKeras":
-                    from src.autokeras_utils import run_autokeras_experiment
-                    _fn = run_autokeras_experiment
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, task_type=task_type, time_limit=time_limit)
-                    _fw_key = "autokeras"
                 elif framework == "FLAML":
-                    from src.flaml_utils import train_flaml_model
-                    _fn = train_flaml_model
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
                                    time_budget=time_budget, task=task, metric=metric,
                                    estimator_list=estimator_list, seed=seed, cv_folds=cv_folds,
                                    n_jobs=global_n_jobs)
-                    _fw_key = "flaml"
                 elif framework == "H2O AutoML":
-                    from src.h2o_utils import train_h2o_model
-                    _fn = train_h2o_model
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
                                    max_runtime_secs=max_runtime_secs, max_models=max_models,
                                    nfolds=nfolds, balance_classes=balance_classes,
                                    seed=seed, sort_metric=sort_metric, exclude_algos=exclude_algos)
-                    _fw_key = "h2o"
                 elif framework == "PyCaret":
-                    from src.pycaret_utils import run_pycaret_experiment
-                    _fn = run_pycaret_experiment
                     _fh = st.session_state.get('pycaret_fh', 12) if task_type in ['Time Series Forecasting', 'Forecast'] else None
                     _sp = st.session_state.get('pycaret_sp', 12) if task_type in ['Time Series Forecasting', 'Forecast'] else None
                     _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
@@ -1679,17 +1666,11 @@ elif menu == "Training":
                                    task_type=task_type, fh=_fh, seasonal_period=_sp,
                                    n_jobs=global_n_jobs,
                                    log_queue=None)
-                    _fw_key = "pycaret"
                 elif framework == "Lale":
-                    from src.lale_utils import run_lale_experiment
-                    _fn = run_lale_experiment
                     _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
                                    val_df=valid_df, time_limit=time_limit, task_type=task_type,
                                    log_queue=None)
-                    _fw_key = "lale"
                 else:  # TPOT
-                    from src.tpot_utils import train_tpot_model
-                    _fn = train_tpot_model
                     _kwargs = dict(df=df, target_column=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
                                    generations=generations, population_size=population_size,
@@ -1698,31 +1679,10 @@ elif menu == "Training":
                                    random_state=seed, verbosity=verbosity, n_jobs=global_n_jobs,
                                    config_dict=config_dict, tfidf_max_features=tfidf_max_features,
                                    tfidf_ngram_range=tfidf_ngram_range)
-                    _fw_key = "tpot"
 
-                _entry = ExperimentEntry(
-                    key=_key,
-                    metadata={
-                        "framework": framework,
-                        "framework_key": _fw_key,
-                        "run_name": local_run_name,
-                        "target": local_target,
-                        "config_snapshot": {k: v for k, v in _kwargs.items()
-                                             if k not in ("train_data", "df", "valid_data",
-                                                           "valid_df", "test_data", "test_df")}
-                    }
-                )
-
-                _t_obj = threading.Thread(
-                    target=run_training_worker,
-                    args=(_entry, _fn, _kwargs),
-                    daemon=True
-                )
-                _entry.thread = _t_obj
-                if "log_queue" in _kwargs and _kwargs["log_queue"] is None:
-                    _kwargs["log_queue"] = _entry.log_queue
-                exp_manager.add(_entry)
-                _t_obj.start()
+                # Call orchestrator to queue the experiment in the background
+                orchestrator = UniversalAutoMLOrchestrator(framework, _kwargs)
+                _entry = orchestrator.queue_experiment(local_run_name, exp_manager=exp_manager)
 
             st.success(f"🚀 Experiment(s) queued! Navigate to the **Experiments** tab to monitor progress.")
             st.info("You can start another training right away or switch tabs — training runs in the background.")
