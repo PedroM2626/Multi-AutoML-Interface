@@ -34,7 +34,7 @@ class DenseTfidfVectorizer(BaseEstimator, TransformerMixin):
         return self.vectorizer.get_feature_names_out()
 
 class AutoMLDataProcessor:
-    def __init__(self, target_column=None, task_type=None, date_col=None, forecast_horizon=1, nlp_config=None, scaler_type='standard', is_time_series=False, semi_supervised=False, strict_cv=False):
+    def __init__(self, target_column=None, task_type=None, date_col=None, forecast_horizon=1, nlp_config=None, scaler_type='standard', is_time_series=False, semi_supervised=False, strict_cv=False, enable_dfs=False, dfs_depth=1):
         self.target_column = target_column
         self.task_type = task_type
         self.date_col = date_col
@@ -46,6 +46,8 @@ class AutoMLDataProcessor:
         self.is_time_series = is_time_series or (task_type == 'time_series' or task_type == 'forecast')
         self.semi_supervised = semi_supervised
         self.strict_cv = strict_cv
+        self.enable_dfs = enable_dfs
+        self.dfs_depth = dfs_depth
 
     def _resolve_target_columns(self, df):
         if not self.target_column:
@@ -53,6 +55,35 @@ class AutoMLDataProcessor:
         if isinstance(self.target_column, list):
             return [c for c in self.target_column if c in df.columns]
         return [self.target_column] if self.target_column in df.columns else []
+
+    def _apply_dfs(self, X):
+        if self.enable_dfs and not self.is_time_series and not self.nlp_cols:
+            try:
+                import featuretools as ft
+                logger.info("Applying Deep Feature Synthesis (DFS)...")
+                dfs_df = X.copy()
+                # Need an index for featuretools
+                dfs_df['_dfs_id'] = range(len(dfs_df))
+                es = ft.EntitySet(id="dataset")
+                es = es.add_dataframe(dataframe_name="data", dataframe=dfs_df, index="_dfs_id")
+                
+                feature_matrix, _ = ft.dfs(
+                    entityset=es,
+                    target_dataframe_name="data",
+                    max_depth=self.dfs_depth,
+                    features_only=False,
+                    verbose=False
+                )
+                if '_dfs_id' in feature_matrix.columns:
+                    feature_matrix = feature_matrix.drop(columns=['_dfs_id'])
+                
+                logger.info(f"DFS completed. New feature matrix shape: {feature_matrix.shape}")
+                return feature_matrix
+            except ImportError:
+                logger.warning("DFS failed: 'featuretools' is not installed. Please add it to requirements.")
+            except Exception as e:
+                logger.warning(f"DFS failed: {e}")
+        return X
 
     def _apply_ts_features(self, df, y=None):
         df = df.copy()
@@ -107,6 +138,8 @@ class AutoMLDataProcessor:
         else:
             X = df
             y = None
+
+        X = self._apply_dfs(X)
 
         # Exclude date column from direct modeling if it still exists
         cols_to_fit = [c for c in X.columns if c != self.date_col]
@@ -235,6 +268,8 @@ class AutoMLDataProcessor:
         else:
             X = df
             y = None
+
+        X = self._apply_dfs(X)
 
         if self.preprocessor:
             X_processed = self.preprocessor.transform(X)

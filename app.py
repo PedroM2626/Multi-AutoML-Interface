@@ -1570,15 +1570,23 @@ elif menu == "Training":
         st.subheader("4. Launch Experiment")
 
         strict_cv = st.checkbox("Enable Strict CV (Data Leakage Prevention)", value=True, help="Bypasses global stateful transformations before training to prevent validation data leaking into training folds.")
+        
+        with st.expander("🧪 Deep Feature Synthesis (DFS)", expanded=False):
+            enable_dfs = st.checkbox("Enable Deep Feature Synthesis", value=False)
+            if enable_dfs:
+                dfs_depth = st.slider("Max Synthesis Depth", 1, 3, 1, help="Depth 1 = Pairwise interactions. Depth 2+ can consume massive RAM.")
+            else:
+                dfs_depth = 1
+
         launch_disabled = data_category == "Tabular" and task_type == "Multi-Label Classification" and isinstance(target, list) and len(target) < 2
         if st.button("🚀 Start Training", type="primary", disabled=launch_disabled):
             import time as _t
             import threading
             
             # Apply preprocessing
-            if data_category == "Tabular" and (is_ts or is_nlp or semi_supervised or task_type in ["Forecast", "Multi-Task Classification"]):
+            if data_category == "Tabular" and (is_ts or is_nlp or semi_supervised or task_type in ["Forecast", "Multi-Task Classification"] or enable_dfs):
                 from src.processor import AutoMLDataProcessor
-                st.info("Applying AutoMLDataProcessor temporal/NLP/target feature engineering...")
+                st.info("Applying AutoMLDataProcessor temporal/NLP/target/DFS feature engineering...")
                 processor = AutoMLDataProcessor(
                     target_column=target,
                     task_type=task_type.lower().replace(" classification", "").replace(" ", "_"),
@@ -1586,7 +1594,9 @@ elif menu == "Training":
                     forecast_horizon=forecast_horizon,
                     is_time_series=is_ts,
                     semi_supervised=semi_supervised,
-                    strict_cv=strict_cv
+                    strict_cv=strict_cv,
+                    enable_dfs=enable_dfs,
+                    dfs_depth=dfs_depth
                 )
                 df_proc, y_proc = processor.fit_transform(df, nlp_cols=selected_nlp_cols)
                 
