@@ -171,19 +171,48 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
             pass
 
         result = train_fn(**kwargs)
+        
+        # --- Extract run_id for notebook logging ---
+        run_id = None
+        if isinstance(result, tuple):
+            run_id = result[-1] if len(result) > 1 else None
+        elif isinstance(result, dict):
+            run_id = result.get("run_id")
+
+        # --- Generate White-box Notebook ---
+        try:
+            from src.notebook_generator import WhiteboxNotebookGenerator
+            nb_config = {
+                "task": entry.metadata.get("task", "classification"),
+                "target": "target_column"
+            }
+            nb_params = {
+                "model_name": entry.metadata.get("framework_key", "AutoML Model")
+            }
+            gen = WhiteboxNotebookGenerator(nb_config, nb_params)
+            nb_path = gen.generate()
+            if run_id:
+                import mlflow
+                # MLflow requires us to be in the context of the run or pass run_id.
+                # However, some MLflow APIs need the client
+                client = mlflow.tracking.MlflowClient()
+                client.log_artifact(run_id, nb_path)
+            entry.log_queue.put(f"[Worker] Whitebox Notebook generated: {nb_path}")
+        except Exception as e:
+            entry.log_queue.put(f"[Worker] Notebook generation failed: {e}")
 
         # Normalise result into a standard dict
         if isinstance(result, tuple):
             if len(result) == 2:
-                predictor, run_id = result
+                predictor, run_id_res = result
                 entry.result_queue.put({
-                    "success": True, "predictor": predictor, "run_id": run_id,
+                    "success": True, "predictor": predictor, "run_id": run_id_res,
                     "type": entry.metadata.get("framework_key", "unknown")
                 })
             elif len(result) == 4:
-                tpot, pipeline, run_id, info = result
+                tpot, pipeline, run_id_res, info = result
                 entry.result_queue.put({
-                    "success": True, "predictor": pipeline, "run_id": run_id, "info": info, "type": "tpot"
+                    "success": True, "predictor": pipeline, "run_id": run_id_res, "info": info, "type": "tpot"
                 })
             else:
                 entry.result_queue.put({
