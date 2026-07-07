@@ -34,7 +34,7 @@ class DenseTfidfVectorizer(BaseEstimator, TransformerMixin):
         return self.vectorizer.get_feature_names_out()
 
 class AutoMLDataProcessor:
-    def __init__(self, target_column=None, task_type=None, date_col=None, forecast_horizon=1, nlp_config=None, scaler_type='standard', is_time_series=False, semi_supervised=False):
+    def __init__(self, target_column=None, task_type=None, date_col=None, forecast_horizon=1, nlp_config=None, scaler_type='standard', is_time_series=False, semi_supervised=False, strict_cv=False):
         self.target_column = target_column
         self.task_type = task_type
         self.date_col = date_col
@@ -45,6 +45,7 @@ class AutoMLDataProcessor:
         self.nlp_cols = []
         self.is_time_series = is_time_series or (task_type == 'time_series' or task_type == 'forecast')
         self.semi_supervised = semi_supervised
+        self.strict_cv = strict_cv
 
     def _resolve_target_columns(self, df):
         if not self.target_column:
@@ -126,26 +127,31 @@ class AutoMLDataProcessor:
 
         transformers = []
 
-        if numeric_features:
-            num_pipeline = Pipeline([
-                ('imputer', SimpleImputer(strategy='median')),
-                ('scaler', StandardScaler())
-            ])
-            transformers.append(('num', num_pipeline, numeric_features))
+        if self.strict_cv:
+            # Bypass stateful scaling and imputation to prevent data leakage.
+            # Rely on the underlying frameworks (AutoGluon, FLAML, TPOT) to handle it securely inside their CV loops.
+            pass
+        else:
+            if numeric_features:
+                num_pipeline = Pipeline([
+                    ('imputer', SimpleImputer(strategy='median')),
+                    ('scaler', StandardScaler())
+                ])
+                transformers.append(('num', num_pipeline, numeric_features))
 
-        if categorical_low:
-            cat_pipeline = Pipeline([
-                ('imputer', SimpleImputer(strategy='most_frequent')),
-                ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-            ])
-            transformers.append(('cat_low', cat_pipeline, categorical_low))
+            if categorical_low:
+                cat_pipeline = Pipeline([
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+                ])
+                transformers.append(('cat_low', cat_pipeline, categorical_low))
 
-        if categorical_high:
-            cat_high_pipeline = Pipeline([
-                ('imputer', SimpleImputer(strategy='most_frequent')),
-                ('ordinal', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
-            ])
-            transformers.append(('cat_high', cat_high_pipeline, categorical_high))
+            if categorical_high:
+                cat_high_pipeline = Pipeline([
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('ordinal', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1))
+                ])
+                transformers.append(('cat_high', cat_high_pipeline, categorical_high))
 
         # NLP vectorization using TF-IDF
         for text_col in self.nlp_cols:

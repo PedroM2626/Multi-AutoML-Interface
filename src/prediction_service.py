@@ -1,6 +1,9 @@
 import os
 import importlib
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 _PYCARET_CLASSIFICATION_MODULE = ".".join(["pycaret", "classification"])
@@ -78,6 +81,7 @@ def load_model_by_framework(framework_name: str, run_id: str):
         for root, _, files in os.walk(local_path):
             for file_name in files:
                 if file_name.endswith(".pkl"):
+                    logger.warning("Loading Lale model via joblib. Ensure the model artifact is from a trusted source (CWE-502).")
                     bundle = joblib.load(os.path.join(root, file_name))
                     break
             if bundle is not None:

@@ -25,7 +25,7 @@ class TestExternalIntegrations(unittest.TestCase):
         import onnxruntime as ort
 
         # Test Export
-        path = export_to_onnx(self.model, "flaml", "target", self.onnx_path, input_sample=self.X[:1])
+        path = export_to_onnx(self.model, "flaml", "target", self.onnx_path, input_sample=self.X[:1].to_numpy().astype(np.float32))
         self.assertTrue(os.path.exists(path))
         
         # Test Load

@@ -266,5 +266,6 @@ def load_flaml_model(run_id: str):
         for file in files:
             if file.endswith(".pkl"):
                 with open(os.path.join(root, file), "rb") as f:
+                    logger.warning("Loading FLAML model via pickle. Ensure the model artifact is from a trusted source (CWE-502).")
                     return pickle.load(f)
     raise FileNotFoundError("FLAML model not found in artifacts.")

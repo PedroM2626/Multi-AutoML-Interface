@@ -1569,6 +1569,7 @@ elif menu == "Training":
         st.markdown("---")
         st.subheader("4. Launch Experiment")
 
+        strict_cv = st.checkbox("Enable Strict CV (Data Leakage Prevention)", value=True, help="Bypasses global stateful transformations before training to prevent validation data leaking into training folds.")
         launch_disabled = data_category == "Tabular" and task_type == "Multi-Label Classification" and isinstance(target, list) and len(target) < 2
         if st.button("🚀 Start Training", type="primary", disabled=launch_disabled):
             import time as _t
@@ -1584,7 +1585,8 @@ elif menu == "Training":
                     date_col=date_col,
                     forecast_horizon=forecast_horizon,
                     is_time_series=is_ts,
-                    semi_supervised=semi_supervised
+                    semi_supervised=semi_supervised,
+                    strict_cv=strict_cv
                 )
                 df_proc, y_proc = processor.fit_transform(df, nlp_cols=selected_nlp_cols)
                 

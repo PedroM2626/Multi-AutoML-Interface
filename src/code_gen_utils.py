@@ -82,6 +82,8 @@ for root, dirs, files in os.walk(local_path):
     for f in files:
         if f.endswith(".pkl"):
             with open(os.path.join(root, f), "rb") as fh:
+                # WARNING: pickle.load is insecure and can execute arbitrary code (CWE-502).
+                # Ensure the model file comes from a trusted source before deserializing.
                 model = pickle.load(fh)
             break
 
@@ -183,6 +185,8 @@ bundle = None
 for root, dirs, files in os.walk(local_path):
     for f in files:
         if f.endswith(".pkl"):
+            # WARNING: joblib.load is insecure and can execute arbitrary code (CWE-502).
+            # Ensure the model file comes from a trusted source before deserializing.
             bundle = joblib.load(os.path.join(root, f))
             break
 
@@ -253,6 +257,8 @@ for root, _, files in os.walk(_local):
     for f in files:
         if f.endswith(".pkl"):
             with open(os.path.join(root, f), "rb") as fh:
+                # WARNING: pickle.load is insecure and can execute arbitrary code (CWE-502).
+                # Ensure the model file comes from a trusted source before deserializing.
                 model = pickle.load(fh)
             break
 if model is None:
@@ -342,6 +348,8 @@ _bundle = None
 for root, _, files in os.walk(_local):
     for f in files:
         if f.endswith(".pkl"):
+            # WARNING: joblib.load is insecure and can execute arbitrary code (CWE-502).
+            # Ensure the model file comes from a trusted source before deserializing.
             _bundle = joblib.load(os.path.join(root, f))
             break
 if _bundle is None:
