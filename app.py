@@ -777,7 +777,7 @@ if menu == "Data Upload":
         </div>
     </div>""", unsafe_allow_html=True)
 
-    upload_tab, cv_upload_tab = st.tabs(["📄 Tabular Data (CSV/Excel)", "🖼️ Computer Vision Data (Images/ZIP)"])
+    upload_tab, cv_upload_tab = st.tabs(["📄 Tabular, Text & Sequential (CSV/Excel)", "🖼️ Computer Vision Data (Images/ZIP)"])
     
     with upload_tab:
         upload_col, info_col = st.columns([2, 1])
@@ -796,6 +796,7 @@ if menu == "Data Upload":
             <div class="preview-card">
                 <h4>📖 About the Data Lake</h4>
                 <p>Files are versioned using DVC and stored with a content hash. The same dataset at different times can be compared by hash. All frameworks read from this shared storage.</p>
+                <p><strong>Note:</strong> Upload CSV/Excel files here for standard Tabular, NLP/Text (columns with text), and Time Series/Sequential data.</p>
             </div>""", unsafe_allow_html=True)
 
         if upload_btn and uploaded_file is not None:
