@@ -184,7 +184,8 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
             from src.notebook_generator import WhiteboxNotebookGenerator
             nb_config = {
                 "task": entry.metadata.get("task", "classification"),
-                "target": "target_column"
+                "target": entry.metadata.get("target", "target_column"),
+                "dataset_path": entry.metadata.get("dataset_path")
             }
             nb_params = {
                 "model_name": entry.metadata.get("framework_key", "AutoML Model")

@@ -1044,6 +1044,7 @@ elif menu == "Training":
             st.session_state['valid_df'] = valid_df
             st.session_state['test_df'] = test_df
             st.session_state['dvc_hashes'] = dvc_hashes
+            st.session_state['dataset_path'] = os.path.abspath(train_path)
             
         except Exception as e:
             st.error(f"Error loading datasets from Data Lake: {e}")
@@ -1681,6 +1682,8 @@ elif menu == "Training":
                                    config_dict=config_dict, tfidf_max_features=tfidf_max_features,
                                    tfidf_ngram_range=tfidf_ngram_range)
 
+                _kwargs["dataset_path"] = st.session_state.get('dataset_path')
+                
                 # Call orchestrator to queue the experiment in the background
                 orchestrator = UniversalAutoMLOrchestrator(framework, _kwargs)
                 _entry = orchestrator.queue_experiment(local_run_name, exp_manager=exp_manager)

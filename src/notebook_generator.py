@@ -44,17 +44,29 @@ class WhiteboxNotebookGenerator:
             "from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score\n"
         )
         
-        # 4. Data Loading (Simulated for reproducibility)
+        # 4. Data Loading
         self._add_markdown("### 2. Data Loading")
-        self._add_markdown("Load your original dataset here. The code below assumes you have loaded it into a pandas DataFrame named `df`.")
-        self._add_code(
-            "# Replace with your actual dataset path\n"
-            "# df = pd.read_csv('your_dataset.csv')\n\n"
-            f"target_col = '{target_col}'\n"
-            "# X = df.drop(columns=[target_col])\n"
-            "# y = df[target_col]\n"
-            "# X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)"
-        )
+        dataset_path = self.config.get('dataset_path')
+        if dataset_path:
+            self._add_markdown("Loading the exact dataset used during the AutoML session.")
+            safe_path = dataset_path.replace('\\', '\\\\')
+            self._add_code(
+                f"df = pd.read_csv('{safe_path}')\n\n"
+                f"target_col = '{target_col}'\n"
+                f"X = df.drop(columns=[target_col])\n"
+                f"y = df[target_col]\n"
+                f"X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)"
+            )
+        else:
+            self._add_markdown("Load your original dataset here. The code below assumes you have loaded it into a pandas DataFrame named `df`.")
+            self._add_code(
+                "# Replace with your actual dataset path\n"
+                "# df = pd.read_csv('your_dataset.csv')\n\n"
+                f"target_col = '{target_col}'\n"
+                "# X = df.drop(columns=[target_col])\n"
+                "# y = df[target_col]\n"
+                "# X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)"
+            )
         
         # 5. Model Definition
         self._add_markdown("### 3. Model Definition")
@@ -67,16 +79,28 @@ class WhiteboxNotebookGenerator:
         
         # 6. Training & Evaluation
         self._add_markdown("### 4. Training and Evaluation")
-        self._add_code(
-            "# Train the model\n"
-            "# model.fit(X_train, y_train)\n\n"
-            "# Predict and Evaluate\n"
-            "# preds = model.predict(X_test)\n"
-            f"# if '{task_type}' == 'classification':\n"
-            "#     print('Accuracy:', accuracy_score(y_test, preds))\n"
-            "# else:\n"
-            "#     print('MSE:', mean_squared_error(y_test, preds))"
-        )
+        if dataset_path:
+            self._add_code(
+                "# Train the model\n"
+                "model.fit(X_train, y_train)\n\n"
+                "# Predict and Evaluate\n"
+                "preds = model.predict(X_test)\n"
+                f"if '{task_type}' == 'classification':\n"
+                "    print('Accuracy:', accuracy_score(y_test, preds))\n"
+                "else:\n"
+                "    print('MSE:', mean_squared_error(y_test, preds))"
+            )
+        else:
+            self._add_code(
+                "# Train the model\n"
+                "# model.fit(X_train, y_train)\n\n"
+                "# Predict and Evaluate\n"
+                "# preds = model.predict(X_test)\n"
+                f"# if '{task_type}' == 'classification':\n"
+                "#     print('Accuracy:', accuracy_score(y_test, preds))\n"
+                "# else:\n"
+                "#     print('MSE:', mean_squared_error(y_test, preds))"
+            )
         
         # Save to disk
         if not output_path:

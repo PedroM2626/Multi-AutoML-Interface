@@ -79,8 +79,9 @@ class UniversalAutoMLOrchestrator:
                 "framework_key": self.fw_key,
                 "run_name": run_name,
                 "target": target_col,
+                "dataset_path": kwargs.get("dataset_path"),
                 "config_snapshot": {k: v for k, v in kwargs.items()
-                                   if k not in ("train_data", "df", "valid_data", "val_df", "test_data", "test_df")}
+                                   if k not in ("train_data", "df", "valid_data", "val_df", "test_data", "test_df", "dataset_path")}
             }
         )
         
