@@ -33,7 +33,16 @@ class WhiteboxNotebookGenerator:
         task_type = self.config.get('task', 'Unknown Task')
         target_col = self.config.get('target', 'Unknown Target')
         model_name = self.best_params.get('model_name', 'Unknown Model')
-        self._add_markdown(f"**Task Type:** {task_type.capitalize()}\n**Target Column:** {target_col}\n**Selected Model:** {model_name}")
+        opt_metric = self.config.get('optimization_metric', 'accuracy')
+        
+        self._add_markdown(
+            f"**Task Type:** {task_type.capitalize()}\n"
+            f"**Target Column:** {target_col}\n"
+            f"**Selected Model:** {model_name}\n"
+            f"**Optimization Metric:** `{opt_metric.upper()}`"
+        )
+        
+        self._add_markdown(f"> **Optimization Target:** This pipeline was automatically tuned by Multi-AutoML-Interface to optimize the **{opt_metric.upper()}** metric.")
         
         # 3. Imports
         self._add_markdown("### 1. Setup & Imports")
@@ -41,7 +50,7 @@ class WhiteboxNotebookGenerator:
             "import pandas as pd\n"
             "import numpy as np\n"
             "from sklearn.model_selection import train_test_split\n"
-            "from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score\n"
+            "from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error\n"
         )
         
         # 4. Data Loading
@@ -79,16 +88,27 @@ class WhiteboxNotebookGenerator:
         
         # 6. Training & Evaluation
         self._add_markdown("### 4. Training and Evaluation")
+        
+        metric_map = {
+            'accuracy': ('accuracy_score', ''),
+            'f1': ('f1_score', ", average='macro'"),
+            'precision': ('precision_score', ", average='macro'"),
+            'recall': ('recall_score', ", average='macro'"),
+            'roc_auc': ('roc_auc_score', ''),
+            'r2': ('r2_score', ''),
+            'rmse': ('mean_squared_error', ", squared=False"),
+            'mae': ('mean_absolute_error', ''),
+            'mape': ('mean_absolute_percentage_error', '')
+        }
+        metric_fn, metric_kwargs = metric_map.get(opt_metric, ('accuracy_score' if task_type == 'classification' else 'mean_squared_error', ''))
+        
         if dataset_path:
             self._add_code(
                 "# Train the model\n"
                 "model.fit(X_train, y_train)\n\n"
                 "# Predict and Evaluate\n"
                 "preds = model.predict(X_test)\n"
-                f"if '{task_type}' == 'classification':\n"
-                "    print('Accuracy:', accuracy_score(y_test, preds))\n"
-                "else:\n"
-                "    print('MSE:', mean_squared_error(y_test, preds))"
+                f"print('{opt_metric.upper()}:', {metric_fn}(y_test, preds{metric_kwargs}))"
             )
         else:
             self._add_code(
@@ -96,10 +116,7 @@ class WhiteboxNotebookGenerator:
                 "# model.fit(X_train, y_train)\n\n"
                 "# Predict and Evaluate\n"
                 "# preds = model.predict(X_test)\n"
-                f"# if '{task_type}' == 'classification':\n"
-                "#     print('Accuracy:', accuracy_score(y_test, preds))\n"
-                "# else:\n"
-                "#     print('MSE:', mean_squared_error(y_test, preds))"
+                f"# print('{opt_metric.upper()}:', {metric_fn}(y_test, preds{metric_kwargs}))"
             )
         
         # Save to disk
