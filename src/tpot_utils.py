@@ -422,6 +422,13 @@ def train_tpot_model(df, target_column, run_name,
             tpot.export(pipeline_path)
             logger.info(f"Pipeline exported to {pipeline_path}")
             
+            # Also save the complete pipeline (preprocessor + model) for reliable inference
+            import joblib
+            full_pipeline_path = f"tpot_models/full_pipeline_{run_name}.pkl"
+            joblib.dump(final_pipeline, full_pipeline_path)
+            mlflow.log_artifact(full_pipeline_path)
+            logger.info(f"Full pipeline (with preprocessor) saved to {full_pipeline_path}")
+            
             # Save model info
             info_path = f"tpot_models/model_info_{run_name}.txt"
             with open(info_path, "w") as f:

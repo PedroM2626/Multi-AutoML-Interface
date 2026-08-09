@@ -88,35 +88,38 @@ def run_autokeras_experiment(train_data: pd.DataFrame, target: str, run_name: st
         # Estimate max trials based on time_limit pseudo translation (1 trial ~ 100s for small data)
         max_trials = max(1, time_limit // 100)
         
-        def dataset_to_numpy(ds):
-            x_all, y_all = [], []
-            for x, y in ds:
-                x_all.append(x.numpy())
-                y_all.append(y.numpy())
-            if not x_all: return None, None
-            return np.concatenate(x_all, axis=0), np.concatenate(y_all, axis=0)
-            
-        x_train, y_train = dataset_to_numpy(train_ds)
+        # Use tf.data.Dataset directly to avoid loading entire dataset into RAM
+        use_dataset_directly = hasattr(train_ds, 'element_spec')
         
-        x_val, y_val = None, None
-        if val_ds:
-            x_val, y_val = dataset_to_numpy(val_ds)
+        if use_dataset_directly:
+            x_train, y_train = train_ds, None  # AutoKeras accepts tf.data.Dataset
+            x_val, y_val = val_ds, None
+        else:
+            def dataset_to_numpy(ds):
+                x_all, y_all = [], []
+                for x, y in ds:
+                    x_all.append(x.numpy())
+                    y_all.append(y.numpy())
+                if not x_all: return None, None
+                return np.concatenate(x_all, axis=0), np.concatenate(y_all, axis=0)
+            
+            x_train, y_train = dataset_to_numpy(train_ds)
+            x_val, y_val = None, None
+            if val_ds:
+                x_val, y_val = dataset_to_numpy(val_ds)
             
         if task_type == "Computer Vision - Image Classification":
             clf = ak.ImageClassifier(overwrite=True, max_trials=max_trials, directory=model_path)
-            if val_ds:
-                clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=5) # Default short epoch
-            else:
-                clf.fit(x_train, y_train, epochs=5)
         elif task_type == "Computer Vision - Multi-Label Classification":
             clf = ak.ImageClassifier(overwrite=True, max_trials=max_trials, directory=model_path, multi_label=True)
-            if val_ds:
-                clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=5) # Default short epoch
-            else:
-                clf.fit(x_train, y_train, epochs=5)
         else:
             # We don't natively support bounding boxes or segmentation masks right now without specific parser
             raise NotImplementedError(f"AutoKeras task '{task_type}' requires labels not inherently present in the directory structure or is unsupported by AutoKeras basic API.")
+
+        if use_dataset_directly:
+            clf.fit(x_train, validation_data=x_val, epochs=5)
+        else:
+            clf.fit(x_train, y_train, validation_data=(x_val, y_val) if x_val is not None else None, epochs=5)
             
         if stop_event and stop_event.is_set():
             raise StopIteration("Training cancelled by user")

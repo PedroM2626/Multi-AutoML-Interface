@@ -175,7 +175,16 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
         # --- Extract run_id for notebook logging ---
         run_id = None
         if isinstance(result, tuple):
-            run_id = result[-1] if len(result) > 1 else None
+            # TPOT returns (tpot, pipeline, run_id, info_dict) - run_id is at index 2
+            if len(result) == 4:
+                run_id = result[2]
+            elif len(result) > 1:
+                run_id = result[-1]
+            else:
+                run_id = None
+            # Ensure run_id is a string (not a dict)
+            if isinstance(run_id, dict):
+                run_id = run_id.get('run_id', None)
         elif isinstance(result, dict):
             run_id = result.get("run_id")
 

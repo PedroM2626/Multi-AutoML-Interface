@@ -1153,6 +1153,8 @@ elif menu == "Training":
                     base_df, fresh_val_df = train_test_split(base_df, test_size=adj_val_pct, random_state=42)
                     valid_df_session = fresh_val_df
                     st.session_state['valid_df'] = valid_df_session
+                else:
+                    st.warning(f"Dataset too small ({len(base_df)} rows) for validation split. Using training data only.")
                 
         # Update current working df
         df = base_df
@@ -1163,7 +1165,7 @@ elif menu == "Training":
     st.subheader("3. AutoML Configuration")
     
     if st.session_state.get('df') is not None:
-        df = st.session_state.get('df')
+        df = st.session_state.get('active_df', st.session_state.get('df'))
         valid_df = st.session_state.get('valid_df', None)
         test_df = st.session_state.get('test_df', None)
         
@@ -1255,6 +1257,9 @@ elif menu == "Training":
             col_char1, col_char2 = st.columns(2)
             with col_char1:
                 if is_ts or task_type == 'Forecast':
+                    # Clear stale widget keys if previous value not in current columns
+                    if 'app_date_col' in st.session_state and st.session_state['app_date_col'] not in columns:
+                        del st.session_state['app_date_col']
                     date_col = st.selectbox("📅 Date Column", columns, key="app_date_col")
                     if task_type == 'Forecast':
                         forecast_horizon = st.number_input("⏳ Forecast Horizon", min_value=1, value=1, key="app_horizon")
@@ -1442,7 +1447,7 @@ elif menu == "Training":
                 task = 'classification'
             elif task_type == 'Regression':
                 task = 'regression'
-            elif task_type == 'Time Series Forecasting':
+            elif task_type in ['Time Series Forecasting', 'Forecast']:
                 task = 'ts_forecast'
             elif task_type == 'Ranking':
                 task = 'rank'
@@ -1684,6 +1689,10 @@ elif menu == "Training":
                     _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
                                    val_df=valid_df, time_limit=time_limit, task_type=task_type,
                                    log_queue=None)
+                elif framework == "HuggingFace":
+                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
+                                   valid_data=valid_df, test_data=test_df,
+                                   time_limit=time_limit, task_type=task_type)
                 else:  # TPOT
                     _kwargs = dict(df=df, target_column=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
@@ -2139,7 +2148,11 @@ elif menu == "Experiments":
                         if run_target.startswith("[") and run_target.endswith("]"):
                             import json as _json
 
-                            st.session_state['target'] = _json.loads(run_target)
+                            import ast
+                            try:
+                                st.session_state['target'] = _json.loads(run_target)
+                            except _json.JSONDecodeError:
+                                st.session_state['target'] = ast.literal_eval(run_target)
                         else:
                             st.session_state['target'] = run_target
                 except Exception:
@@ -2212,9 +2225,13 @@ elif menu == "Experiments":
         if input_mode == "Batch Prediction (CSV/Excel)":
             predict_file = st.file_uploader("Upload prediction dataset", type=["csv", "xlsx", "xls"])
             if predict_file is not None:
-                from src.data_utils import load_data
-                predict_df = load_data(predict_file)
-                st.dataframe(predict_df.head())
+                try:
+                    from src.data_utils import load_data
+                    predict_df = load_data(predict_file)
+                    st.dataframe(predict_df.head())
+                except Exception as e:
+                    st.error(f"Error loading prediction file: {e}")
+                    predict_df = None
                 execute_pred = st.button("Execute Prediction")
         else:
             st.subheader("📝 Manual Entry")
@@ -2243,7 +2260,9 @@ elif menu == "Experiments":
                         # Basic guess of type based on training data
                         dtype = df_session[feat].dtype
                         if pd.api.types.is_numeric_dtype(dtype):
-                            manual_data[feat] = st.number_input(feat, value=float(df_session[feat].median()))
+                            _median = df_session[feat].median()
+                            _default = float(_median) if not pd.isna(_median) else 0.0
+                            manual_data[feat] = st.number_input(feat, value=_default)
                         else:
                             options = df_session[feat].unique().tolist()
                             manual_data[feat] = st.selectbox(feat, options)

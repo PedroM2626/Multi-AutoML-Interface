@@ -194,9 +194,9 @@ def generate_cv_saliency_map(model, image_path: str, target_size=(224, 224), ste
         # 4. Generate visual overlay
         colormap = cv2.applyColorMap(saliency_avg, cv2.COLORMAP_JET)
         
-        orig_cv = cv2.cvtColor(np.array(original_img), cv2.COLORRGB_BGR) # To match cv2
+        orig_cv = cv2.cvtColor(np.array(original_img), cv2.COLOR_RGB2BGR) # To match cv2
         final_overlay = cv2.addWeighted(orig_cv, 0.6, colormap, 0.4, 0)
-        final_rgb = cv2.cvtColor(final_overlay, cv2.COLORBGR_RGB)
+        final_rgb = cv2.cvtColor(final_overlay, cv2.COLOR_BGR2RGB)
         
         # Cleanup
         for p in occluded_paths:

@@ -78,8 +78,10 @@ def prepare_data_for_h2o(train_data: pd.DataFrame, target: str):
     """Prepares data for H2O AutoML"""
     import h2o
     
-    # Drop null values
-    train_data_clean = train_data.dropna(subset=[target])
+    if target in train_data.columns:
+        train_data_clean = train_data.dropna(subset=[target])
+    else:
+        train_data_clean = train_data.copy()
     
     # For textual data, create basic numerical features
     if train_data_clean.select_dtypes(include=['object']).shape[1] > 0:
@@ -153,7 +155,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             features = [col for col in clean_data.columns if col != target]
             mlflow.log_param("features", features)
             
-            # Configurar AutoML
+            # Configure AutoML
             aml = H2OAutoML(
                 max_runtime_secs=max_runtime_secs,
                 max_models=max_models,
@@ -170,17 +172,20 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             # Watcher thread for graceful cancellation
             import threading
             _cancel_watcher = None
+            _training_done = threading.Event()
             if stop_event is not None:
                 def _h2o_watch():
-                    stop_event.wait()
-                    try:
-                        import h2o as _h2o
-                        jobs = _h2o.cluster().jobs()
-                        for job in jobs:
-                            if job.status == 'RUNNING':
-                                job.cancel()
-                    except Exception:
-                        pass
+                    while not _training_done.is_set():
+                        if stop_event.wait(timeout=5):
+                            try:
+                                import h2o as _h2o
+                                jobs = _h2o.cluster().jobs()
+                                for job in jobs:
+                                    if job.status == 'RUNNING':
+                                        job.cancel()
+                            except Exception:
+                                pass
+                            break
                 _cancel_watcher = threading.Thread(target=_h2o_watch, daemon=True)
                 _cancel_watcher.start()
             
@@ -258,6 +263,9 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 logger.warning("Encoding error detected, retrying with lower verbosity...")
                 aml.project_name = aml.project_name + "_retry"
                 aml.train(**train_kwargs)
+
+            if stop_event is not None:
+                _training_done.set()
 
             training_duration = time.time() - start_time
             

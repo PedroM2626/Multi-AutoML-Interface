@@ -169,7 +169,7 @@ def run_pycaret_experiment(
                     "verbose": False,
                     "choose_better": True
                 }
-                if task_type != "Time Series Forecasting":
+                if task_type not in ["Time Series Forecasting", "Forecast"]:
                     tune_kwargs["search_library"] = "scikit-learn"
                     tune_kwargs["search_algorithm"] = "random"
 

@@ -128,11 +128,14 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 automl_single = AutoML()
                 
                 # Start watcher thread for cancel
+                _training_done_single = threading.Event()
                 if stop_event is not None:
-                    def _watch_single(a=automl_single):
-                        stop_event.wait()
-                        try: a._state.time_budget = 0
-                        except: pass
+                    def _watch_single(a=automl_single, done=_training_done_single):
+                        while not done.is_set():
+                            if stop_event.wait(timeout=5):
+                                try: a._state.time_budget = 0
+                                except: pass
+                                break
                     threading.Thread(target=_watch_single, daemon=True).start()
                 
                 # Temporarily end MLflow run to prevent FLAML from capturing locks
@@ -148,6 +151,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                     if active_run:
                         mlflow.start_run(run_id=active_run.info.run_id)
                 
+                _training_done_single.set()
                 predictors_by_target[target_name] = automl_single
                 
             automl = MultiFLAMLPredictor(predictors_by_target)
@@ -188,11 +192,14 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 settings["callbacks"] = [_telemetry_callback]
                 
             automl = AutoML()
+            _training_done = threading.Event()
             if stop_event is not None:
-                def _watch():
-                    stop_event.wait()
-                    try: automl._state.time_budget = 0
-                    except: pass
+                def _watch(done=_training_done):
+                    while not done.is_set():
+                        if stop_event.wait(timeout=5):
+                            try: automl._state.time_budget = 0
+                            except: pass
+                            break
                 threading.Thread(target=_watch, daemon=True).start()
                 
             # Temporarily end MLflow run to prevent FLAML from capturing locks
@@ -207,6 +214,8 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
             finally:
                 if active_run:
                     mlflow.start_run(run_id=active_run.info.run_id)
+            
+            _training_done.set()
         
         if stop_event and stop_event.is_set():
             raise StopIteration("Training cancelled by user")

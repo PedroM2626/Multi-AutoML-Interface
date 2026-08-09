@@ -73,7 +73,8 @@ class MLflowCache:
         """Clears all cache"""
         self._cache.clear()
         self._timestamps.clear()
-        logger.info("Cache cleared")
+        get_cached_experiment_list.cache_clear()
+        logger.info("Cache cleared (including experiment list LRU cache)")
     
     def clear_experiment_cache(self, experiment_name: str):
         """Clears cache for a specific experiment"""

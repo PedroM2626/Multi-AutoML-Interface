@@ -218,8 +218,9 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                 mlflow.log_param("is_multilabel", True)
                 
             # Streaming updates thread
+            _ag_training_done = threading.Event()
             def _push_ag_telemetry():
-                while not (stop_event and stop_event.is_set()):
+                while not _ag_training_done.is_set() and not (stop_event and stop_event.is_set()):
                     try:
                         if os.path.exists(model_path):
                             # AutoGluon sometimes locks the file, so we try-except
@@ -249,6 +250,8 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                 t_telemetry.start()
 
             predictor = TabularPredictor(label=target, path=model_path).fit(**fit_args)
+            if telemetry_queue:
+                _ag_training_done.set()
         
         # Check if cancelled before continuing
         if stop_event and stop_event.is_set():

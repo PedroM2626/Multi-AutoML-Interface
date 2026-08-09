@@ -192,7 +192,8 @@ class AutoMLDataProcessor:
             transformers.append((f'text_{text_col}', DenseTfidfVectorizer(max_features=tfidf_max), [text_col]))
 
         if transformers:
-            self.preprocessor = ColumnTransformer(transformers=transformers, remainder='drop')
+            _remainder = 'passthrough' if self.strict_cv else 'drop'
+            self.preprocessor = ColumnTransformer(transformers=transformers, remainder=_remainder)
             X_processed = self.preprocessor.fit_transform(X)
             # Reconstruct DataFrame with appropriate column names
             feature_names = []
@@ -324,7 +325,12 @@ class AutoMLDataProcessor:
                         if labeled_mask.any():
                             # Transform only seen labels, set unseen/unlabeled to -1
                             labeled_y = y_series[labeled_mask]
-                            y_processed[labeled_mask] = self.label_encoder.transform(labeled_y)
+                            try:
+                                labeled_y = self.label_encoder.transform(labeled_y)
+                            except ValueError as e:
+                                import logging
+                                logging.getLogger(__name__).warning(f"Label encoder transform failed (unseen labels?): {e}. Returning raw labels.")
+                            y_processed[labeled_mask] = labeled_y
                         y_processed = pd.Series(y_processed, index=y_series.index)
                 else:
                     if hasattr(self, 'label_encoder'):
