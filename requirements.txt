@@ -109,3 +109,5 @@ websockets==16.0
 Werkzeug==3.1.8
 yarl==1.24.2
 zipp==4.1.0
+xgboost==3.4.0
+nbformat==5.11.0

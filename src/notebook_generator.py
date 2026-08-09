@@ -61,7 +61,7 @@ class WhiteboxNotebookGenerator:
             "import numpy as np\n"
             "import mlflow\n"
             "from sklearn.model_selection import train_test_split\n"
-            "from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error\n"
+            "from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, r2_score, mean_squared_error, root_mean_squared_error, mean_absolute_error, mean_absolute_percentage_error\n"
             "from src.processor import AutoMLDataProcessor\n"
         )
         
@@ -124,7 +124,7 @@ class WhiteboxNotebookGenerator:
             'recall': ('recall_score', ", average='macro'"),
             'roc_auc': ('roc_auc_score', ''),
             'r2': ('r2_score', ''),
-            'rmse': ('mean_squared_error', ", squared=False"),
+            'rmse': ('root_mean_squared_error', ''),
             'mae': ('mean_absolute_error', ''),
             'mape': ('mean_absolute_percentage_error', '')
         }

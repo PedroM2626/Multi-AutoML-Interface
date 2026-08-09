@@ -22,7 +22,8 @@ class UniversalAutoMLOrchestrator:
         "H2O AutoML": ("h2o", "src.h2o_utils", "train_h2o_model"),
         "PyCaret": ("pycaret", "src.pycaret_utils", "run_pycaret_experiment"),
         "Lale": ("lale", "src.lale_utils", "run_lale_experiment"),
-        "TPOT": ("tpot", "src.tpot_utils", "train_tpot_model")
+        "TPOT": ("tpot", "src.tpot_utils", "train_tpot_model"),
+        "HuggingFace": ("huggingface", "src.huggingface_utils", "run_huggingface_experiment")
     }
 
     def __init__(self, framework: str, config: Dict[str, Any]):

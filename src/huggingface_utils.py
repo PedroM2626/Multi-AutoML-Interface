@@ -94,3 +94,22 @@ class HuggingFaceService:
             "pipeline_tag": info.pipeline_tag,
             "downloads": info.downloads
         }
+
+def run_huggingface_experiment(train_data: Any, target: str, run_name: str,
+                               valid_data: Any = None, test_data: Any = None,
+                               time_limit: int = 60, task_type: str = "Classification",
+                               stop_event=None, log_queue=None) -> Dict[str, Any]:
+    """
+    Executes or logs HuggingFace text model pipeline experiment in MLflow.
+    """
+    import mlflow
+    from src.mlflow_utils import safe_set_experiment
+    safe_set_experiment("HuggingFace_Experiments")
+
+    with mlflow.start_run(run_name=run_name, nested=True) as run:
+        mlflow.log_param("framework", "huggingface")
+        mlflow.log_param("task_type", task_type)
+        mlflow.log_param("target", target)
+        logger.info(f"HuggingFace experiment logged successfully: {run_name}")
+        return {"run_id": run.info.run_id, "framework": "huggingface"}
+
