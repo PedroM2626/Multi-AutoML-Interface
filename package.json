@@ -1,6 +1,6 @@
 {
   "name": "multi-automl-desktop",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "description": "Multi-AutoML Interface - Desktop Application",
   "main": "electron/main.js",
   "homepage": "./",
@@ -21,7 +21,7 @@
     "electron",
     "streamlit"
   ],
-  "author": "Seu Nome",
+  "author": "Pedro Morato Lahoz",
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0",
