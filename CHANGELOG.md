@@ -8,6 +8,32 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.0.2 - 2026-09-28
+
+### Fixed
+
+- **FLAML training crashed with the app's own default settings.** `estimator_list`
+  defaults to `['lgbm', 'rf']`: LightGBM is not in `requirements.txt`, so the search died
+  inside FLAML with `TypeError: 'NoneType' object is not callable`, and the telemetry
+  callback FLAML forwards to every learner took six arguments while LightGBM calls it with
+  one `CallbackEnv` - with mixed lists sklearn then raised
+  `BaseForest.fit() got an unexpected keyword argument 'callbacks'`. LightGBM is now a
+  declared dependency, the callback matches the `CallbackEnv` contract, it is registered
+  only for learners that accept it, and a missing learner package is named before the
+  search instead of failing deep inside cross-validation. Verified end to end in a clean
+  environment: train -> MLflow run -> pickle -> trusted reload -> predictions -> notebook.
+- **Three more vulnerable pins**, found by the `pip-audit` gate added in 5.0.1: anyio
+  `4.14.1 -> 4.14.2`, pyasn1 `0.6.3 -> 0.6.4`, sqlparse `0.5.5 -> 0.6.0`. `pip-audit
+  --strict` over `requirements.txt` now reports no known vulnerabilities, and it is that
+  gate - not the earlier spot check behind the 5.0.1 note - that found them.
+
+### Corrected
+
+- The 5.0.1 entry claimed OSV reported no applicable vulnerability for any pin in
+  `requirements.txt`. That was checked against a subset of ~40 packages; the full
+  resolved audit found the three above. The published 5.0.1 release notes were edited to
+  drop the overstatement.
+
 ## 5.0.1 - 2026-09-28
 
 Second release, published after an audit of the codebase and of the packaged app. It
@@ -84,8 +110,8 @@ several runtime defects and leaves the end-of-life Electron 28 shell.
 - **Dependency advisories:** mlflow and mlflow-tracing to 3.16.1 and cryptography to
   50.0.1, which closes the two advisories 5.0.0 had to leave open (CVE-2026-69247,
   CVE-2026-71211). OSV reports no applicable vulnerability for any pin in
-  `requirements.txt` and `npm audit` reports none for the desktop toolchain.
-  The unused `skops` pin was dropped.
+  The unused `skops` pin was dropped. (Spot-checked against a subset of packages at the
+  time; the full audit added in this release then found three more, see 5.0.2.)
 
 ### Added
 
