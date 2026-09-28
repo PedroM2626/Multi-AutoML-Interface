@@ -42,24 +42,37 @@ def heal_mlruns(mlruns_path="mlruns", min_age_seconds=3600):
                     logger.error(f"Error moving {item_path}: {e}")
 
 def safe_set_experiment(experiment_name):
-    """Safely set MLflow experiment"""
+    """
+    Point MLflow at the configured backend and select the experiment.
+
+    An explicit MLFLOW_TRACKING_URI takes precedence: that is how a multi-session
+    deployment shares one store (server or database) instead of a per-container
+    directory. Without it the app keeps its local-first default of ./mlruns, which
+    MLflow 3 only accepts once MLFLOW_ALLOW_FILE_STORE is set - otherwise every call
+    raises and no run is ever recorded.
+    """
     try:
         import mlflow
         import os
-        
-        # Configure tracking URI to project directory
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        mlruns_path = os.path.join(project_root, "mlruns")
-        
-        # Ensure directory and trash exist
-        os.makedirs(mlruns_path, exist_ok=True)
-        os.makedirs(os.path.join(mlruns_path, ".trash"), exist_ok=True)
-        
-        # Configure tracking URI
-        normalized_path = mlruns_path.replace('\\', '/')
-        tracking_uri = f"file:///{normalized_path}"
+
+        configured_uri = os.environ.get("MLFLOW_TRACKING_URI")
+        if configured_uri:
+            tracking_uri = configured_uri
+        else:
+            # Configure tracking URI to project directory
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            mlruns_path = os.path.join(project_root, "mlruns")
+
+            # Ensure directory and trash exist
+            os.makedirs(mlruns_path, exist_ok=True)
+            os.makedirs(os.path.join(mlruns_path, ".trash"), exist_ok=True)
+
+            normalized_path = mlruns_path.replace('\\', '/')
+            tracking_uri = f"file:///{normalized_path}"
+            os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+
         mlflow.set_tracking_uri(tracking_uri)
-        
+
         # Set experiment
         mlflow.set_experiment(experiment_name)
         
