@@ -1,6 +1,8 @@
 # Multi-AutoML Interface
 
 ![Version](https://img.shields.io/badge/version-5.0.0-blue)
+[![Release](https://img.shields.io/github/v/release/PedroM2626/Multi-AutoML-Interface)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
+[![Downloads](https://img.shields.io/github/downloads/PedroM2626/Multi-AutoML-Interface/total)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -120,7 +122,7 @@ source venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs only the core stack (Streamlit, MLflow, FLAML, FastAPI, scikit-learn, XGBoost, and supporting libraries). `requirements-compiled.txt` provides the full pinned stack compiled with pip-compile on Python 3.11.
+`requirements.txt` installs only the core stack (Streamlit, MLflow, FLAML, FastAPI, scikit-learn, XGBoost, and supporting libraries). For a fully reproducible environment, compile your own lock from it: `pip-compile requirements.txt` (the lock file itself is not committed).
 
 #### **Optional framework backends:**
 
@@ -233,7 +235,18 @@ npm run build-mac    # macOS (DMG)
 npm run build-linux  # Linux (AppImage)
 ```
 
-The Electron build is also produced automatically by the `Build Desktop App` workflow in `.github/workflows/build-electron.yml` (Windows, macOS, Linux on Node 20).
+The Electron build is also produced automatically by the `Build Desktop App` workflow in `.github/workflows/build-electron.yml` (Windows, macOS, Linux on Node 20); that workflow only keeps temporary artifacts.
+
+### Prebuilt installers
+
+Published installers live in [GitHub Releases](https://github.com/PedroM2626/Multi-AutoML-Interface/releases). A release is created automatically by `.github/workflows/release.yml` whenever a `vMAJOR.MINOR.PATCH` tag is pushed, and the tag must match `version` in `package.json`:
+
+```bash
+npm version 5.0.1          # bumps package.json
+git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
+```
+
+The installers bundle the Electron shell and the UI, **not** a Python runtime: `pip install -r requirements.txt` is still required on the target machine. They are also unsigned/unnotarized, so SmartScreen and Gatekeeper warn on first launch. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ---
 
@@ -328,7 +341,8 @@ Multi-AutoML-Interface/
 ├── 📄 pyproject.toml               # Project metadata & tooling config
 ├── 📄 requirements.txt             # Lightweight core dependencies
 ├── 📄 requirements-dev.txt         # Dev tooling (ruff, pytest)
-├── 📄 requirements-compiled.txt    # Full pinned stack (pip-compile, Python 3.11)
+├── 📄 requirements-compiled.txt    # pip-compile lock (generated locally, not committed)
+├── 📄 CHANGELOG.md                 # Release notes
 ├── 📄 render.yaml                  # Render deployment config
 ├── 🐳 Dockerfile                   # Docker configuration
 ├── 🐳 Dockerfile.autogluon_cv      # AutoGluon computer-vision image (Python 3.10, torch + mmcv)

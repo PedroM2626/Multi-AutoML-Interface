@@ -1,0 +1,160 @@
+name: Release Desktop App
+
+# Publishes installers as GitHub Release assets. Triggered by version tags, e.g.:
+#   npm version 5.1.0 && git tag -a v5.1.0 -m "v5.1.0" && git push origin v5.1.0
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v5.0.0). Leave empty to use the selected branch."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "name=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Check version matches tag
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="${{ steps.tag.outputs.name }}"
+          if [ "v${VERSION}" != "${TAG}" ]; then
+            echo "::error::Tag ${TAG} does not match package.json version v${VERSION}"
+            exit 1
+          fi
+          echo "Version consistent: ${VERSION}"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build Windows installer (NSIS)
+        if: matrix.os == 'windows-latest'
+        run: npx electron-builder --win --x64 -p never
+
+      - name: Build macOS disk images (unsigned)
+        if: matrix.os == 'macos-latest'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --x64 --arm64 -p never
+
+      - name: Build Linux AppImage
+        if: matrix.os == 'ubuntu-latest'
+        run: npx electron-builder --linux AppImage -p never
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then echo "name=$INPUT_TAG" >> "$GITHUB_OUTPUT"; else echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: dist
+
+      - name: List assets
+        run: ls -lh dist
+
+      - name: Collect changelog section
+        id: notes
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          {
+            echo "## Multi-AutoML Interface ${VERSION}"
+            echo
+            awk -v head="## ${VERSION}" '
+              $0 ~ "^"head { found=1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md
+            echo
+            echo "### Prerequisites"
+            echo
+            echo "The desktop installers bundle the Electron shell and the Streamlit UI, **not** the Python"
+            echo "runtime. Install Python 3.11/3.12 and the app dependencies first:"
+            echo
+            echo '```bash'
+            echo "pip install -r requirements.txt"
+            echo '```'
+            echo
+            echo "AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras, HuggingFace) are optional"
+            echo "and lazy-imported; see the README for what each one needs."
+            echo
+            echo "Installers are **not code-signed or notarized**, so SmartScreen and Gatekeeper will warn"
+            echo "on first launch."
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+          if ! grep -q "^## ${VERSION}" CHANGELOG.md; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Multi-AutoML Interface ${{ steps.tag.outputs.name }}
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: ${{ steps.notes.outputs.missing == 'true' }}
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
