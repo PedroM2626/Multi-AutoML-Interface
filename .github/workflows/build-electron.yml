@@ -30,7 +30,10 @@ jobs:
           cache: 'npm'
 
       - name: Install Node dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Audit Node dependencies
+        run: npm audit --audit-level=high
 
       - name: Build Electron App (Windows)
         if: matrix.os == 'windows-latest'
