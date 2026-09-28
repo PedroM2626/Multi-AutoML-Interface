@@ -10,8 +10,12 @@ from src.onnx_utils import _check_onnx_availability
 class TestExternalIntegrations(unittest.TestCase):
     def setUp(self):
         # Create a simple scikit-learn model for testing export
-        self.X = pd.DataFrame(np.random.rand(10, 4), columns=['a', 'b', 'c', 'd'])
-        self.y = np.random.randint(0, 2, 10)
+        rng = np.random.default_rng(20260928)
+        self.X = pd.DataFrame(rng.random((10, 4)), columns=['a', 'b', 'c', 'd'])
+        # A seeded, balanced target: np.random.randint(0, 2, 10) can return a single
+        # class, and LogisticRegression then refuses to fit ("needs samples of at least
+        # 2 classes"), which made this test flaky across platforms.
+        self.y = np.array([0, 1] * 5)
         self.model = LogisticRegression()
         self.model.fit(self.X, self.y)
         self.onnx_path = "tests/test_model.onnx"
