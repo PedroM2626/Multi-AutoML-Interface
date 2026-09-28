@@ -59,9 +59,10 @@ def safe_set_experiment(experiment_name):
         if configured_uri:
             tracking_uri = configured_uri
         else:
-            # Configure tracking URI to project directory
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            mlruns_path = os.path.join(project_root, "mlruns")
+            # Relative to the working directory, not to this file: the installed desktop
+            # app runs in a per-user writable workspace, while its sources sit under
+            # Program Files where the process cannot create mlruns/.
+            mlruns_path = os.path.abspath("mlruns")
 
             # Ensure directory and trash exist
             os.makedirs(mlruns_path, exist_ok=True)

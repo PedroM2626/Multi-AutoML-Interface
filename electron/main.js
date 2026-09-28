@@ -12,6 +12,39 @@ let pythonPath;
 const APP_PORT = 8501;
 const APP_URLS = [`http://127.0.0.1:${APP_PORT}`, `http://localhost:${APP_PORT}`];
 
+// Directory holding the interpreter + dependencies shipped inside the installer
+// (built by scripts/prepare_python_runtime.js).
+const RUNTIME_ROOT = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime')
+    : path.join(__dirname, '..', 'runtime');
+
+// Source of the Streamlit app (app.py, src/).
+const APP_ROOT = path.join(__dirname, '..');
+
+function resolvePython() {
+    // Prefer the bundled runtime; fall back to the system interpreter for source checkouts.
+    const manifestPath = path.join(RUNTIME_ROOT, 'runtime-manifest.json');
+    if (fs.existsSync(manifestPath)) {
+        try {
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            const exe = path.join(RUNTIME_ROOT, manifest.interpreter);
+            if (fs.existsSync(exe)) return { exe, source: 'bundled' };
+        } catch (error) {
+            console.error('runtime-manifest.json is unreadable:', error);
+        }
+    }
+    return { exe: process.platform === 'win32' ? 'python' : 'python3', source: 'system' };
+}
+
+// app.py writes mlruns/, models/ and data_lake/ relative to its working directory. For the
+// installed app that would be Program Files, which normal users cannot write to, so runs
+// happen in a per-user workspace while the sources stay in the app folder.
+function workspaceRoot() {
+    const dir = app.isPackaged ? path.join(app.getPath('userData'), 'workspace') : APP_ROOT;
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
 function createWindow() {
     // Criar janela principal
     mainWindow = new BrowserWindow({
@@ -187,38 +220,42 @@ function createWindow() {
 
 // Iniciar Streamlit
 function startStreamlit() {
-    const platform = process.platform;
-    
-    // Encontrar Python
-    if (platform === 'win32') {
-        pythonPath = 'python';
-    } else if (platform === 'darwin') {
-        pythonPath = 'python3';
-    } else {
-        pythonPath = 'python3';
-    }
+    const { spawn, execFileSync } = require('child_process');
+    const resolved = resolvePython();
+    pythonPath = resolved.exe;
+    const workspace = workspaceRoot();
 
-    // Verificar se Python existe
-    const { spawn } = require('child_process');
-    const pythonCheck = spawn(pythonPath, ['--version']);
-    
-    pythonCheck.on('error', (error) => {
-        console.error('Python não encontrado:', error);
-        dialog.showErrorBox('Erro', 'Python não encontrado. Por favor, instale Python 3.8+ para continuar.');
+    // Fail with something actionable instead of a generic "Streamlit failed to start":
+    // the bundled runtime is only usable if the app's own dependencies import cleanly.
+    try {
+        execFileSync(pythonPath, ['-c', 'import streamlit, mlflow'], { stdio: 'pipe', timeout: 120000 });
+    } catch (error) {
+        const detail = resolved.source === 'bundled'
+            ? `O runtime incluído no instalador (${pythonPath}) não está funcionando: as bibliotecas do app não importam.`
+            : `Nenhum runtime embutido foi encontrado e o Python do sistema (${pythonPath}) não tem as dependências do app.`;
+        console.error('Python environment check failed:', String(error).slice(0, 300));
+        dialog.showErrorBox(
+            'Ambiente Python indisponível',
+            `${detail}\n\nReinstale o aplicativo ou execute "pip install -r requirements.txt" no interpretador usado.`
+        );
         app.quit();
-    });
+        return;
+    }
 
     // Start Streamlit. CORS is left at its secure default even though the server binds
     // to loopback: with CORS disabled, any page open in the user's browser could read
     // and post to http://127.0.0.1:<port>.
     streamlitProcess = spawn(pythonPath, [
-        '-m', 'streamlit', 'run', 'app.py',
+        '-m', 'streamlit', 'run', path.join(APP_ROOT, 'app.py'),
         '--server.port', String(APP_PORT),
         '--server.headless', 'true',
         '--browser.gatherUsageStats', 'false',
         '--server.address', '127.0.0.1'
     ], {
-        cwd: path.join(__dirname, '..'),
+        cwd: workspace,
+        // app.py lives in the app folder, the process runs in the writable workspace, so
+        // the sources have to stay importable (from src.xxx import ...).
+        env: { ...process.env, PYTHONPATH: APP_ROOT },
         stdio: 'pipe'
     });
 
