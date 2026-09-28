@@ -47,8 +47,9 @@ several runtime defects and leaves the end-of-life Electron 28 shell.
   exited when training returned, so a failed run left them polling inside the shared
   process; they are released from a `finally`. Two concurrent FLAML runs wrote the same
   `flaml.log`, now named per run.
-- **Requests that could hang forever.** `dvc init`/`dvc add` and the Java probe ran
-  without timeouts. They now bound at 120/900/5 seconds.
+- **Requests that could hang forever.** `dvc init` and `dvc add` ran without timeouts and
+  so could block a session indefinitely; they now bound at 120 and 900 seconds, and the
+  interpreter probe in `run.py` at 10.
 - **Run history destroyed by the auto-healer.** `heal_mlruns` deleted any numeric
   `mlruns/` directory lacking `meta.yaml`, which under multi-session is an experiment
   being written right now. It quarantines to `mlruns/.trash` instead and skips anything
