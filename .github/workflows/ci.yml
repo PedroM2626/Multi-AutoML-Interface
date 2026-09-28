@@ -32,7 +32,7 @@ jobs:
             pip install ruff pytest
           fi
           # Minimal runtime deps required by tests/test_regression_flows.py
-          pip install --force-reinstall numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.15.0 flaml==2.6.0 streamlit==1.58.0
+          pip install --force-reinstall numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 streamlit==1.58.0
 
       - name: Ruff critical lint
         run: ruff check .
@@ -41,7 +41,7 @@ jobs:
         run: python -m compileall app.py run.py src tests
 
       - name: Regression flow tests
-        run: pytest -q tests/test_regression_flows.py tests/test_streamlit_gui.py
+        run: pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py
 
   nightly-complete:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -65,18 +65,28 @@ jobs:
             echo "requirements-dev.txt not found; installing minimal CI tooling"
             pip install ruff pytest
           fi
-          pip install --force-reinstall numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.15.0 flaml==2.6.0 streamlit==1.58.0
+          pip install --force-reinstall numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 streamlit==1.58.0
 
       - name: Quick validation gates
         run: |
           ruff check .
           python -m compileall app.py run.py src tests
-          pytest -q tests/test_regression_flows.py tests/test_streamlit_gui.py
+          pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py
 
       - name: Optional integration stack install
+        id: stack
         continue-on-error: true
         run: pip install -r requirements.txt
 
-      - name: Optional integration suite (best effort)
-        continue-on-error: true
-        run: pytest -q tests
+      - name: Dependency vulnerability gate
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit -r requirements.txt --strict
+
+      - name: Full suite (authoritative when the stack installed)
+        if: steps.stack.outcome == 'success'
+        run: pytest -o addopts="" -q tests
+
+      - name: Report unusable integration stack
+        if: steps.stack.outcome != 'success'
+        run: echo "::warning::requirements.txt failed to install, so the full suite was not run. The nightly gate is limited to the quick gates above."

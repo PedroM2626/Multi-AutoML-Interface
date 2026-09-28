@@ -1,9 +1,15 @@
 name: Build Desktop App
 
 on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch: # Permite rodar o workflow manualmente pela aba Actions
+  # Smoke-test the desktop packaging only when its inputs change. Tag pushes are built
+  # and published by release.yml, so a full 3-OS matrix on every push to main was waste.
+  pull_request:
+    paths:
+      - "electron/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/build-electron.yml"
+  workflow_dispatch: # Allows running the workflow manually from the Actions tab
 
 jobs:
   build:
