@@ -85,33 +85,21 @@ jobs:
         id: sign
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # electron-builder picks a classic certificate up from the environment, so no
-          # config is needed there. Azure Trusted Signing needs explicit config keys, and
-          # without any credential the build has to be told not to try signing.
+          # electron-builder reads certificates and notarization credentials straight from
+          # its documented environment variables, so no config override is needed - and
+          # `-c.win.sign=...` is rejected by the 26.x schema, which is how the first
+          # packaging run failed. Without credentials the build is left unsigned and the
+          # release notes say so.
           method="none"
-          args=""
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            if [ -n "$AZURE_TENANT_ID" ]; then
-              method="azure-trusted-signing"
-              args="-c.win.sign.type=azure -c.win.sign.codeSigningAccountName=${{ vars.AZURE_CODE_SIGNING_ACCOUNT }} -c.win.sign.certificateProfileName=${{ vars.AZURE_CERTIFICATE_PROFILE }}"
-            elif [ -n "$WIN_CSC_LINK" ]; then
-              method="authenticode-certificate"
-            else
-              args="-c.win.sign=false"
-            fi
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_TEAM_ID" ]; then
-              method="developer-id-plus-notarization"
-            else
-              args="-c.mac.notarize=null"
-            fi
+          if [ "${{ matrix.os }}" = "windows-latest" ] && [ -n "$WIN_CSC_LINK" ]; then
+            method="authenticode-certificate"
+          elif [ "${{ matrix.os }}" = "macos-latest" ] && [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            method="developer-id-plus-notarization"
           fi
           echo "method=$method" >> "$GITHUB_OUTPUT"
-          echo "builder_args=$args" >> "$GITHUB_OUTPUT"
           if [ "$method" = "none" ]; then
             echo "::warning::No signing credentials for ${{ matrix.os }}; the artifact will be unsigned."
           fi
@@ -128,11 +116,8 @@ jobs:
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_ENDPOINT: ${{ vars.AZURE_ENDPOINT }}
-        run: npx electron-builder --win --x64 -p never ${{ steps.sign.outputs.builder_args }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.sign.outputs.method == 'none' && 'false' || 'true' }}
+        run: npx electron-builder --win --x64 -p never
 
       - name: Build macOS disk images
         if: matrix.os == 'macos-latest'
@@ -143,7 +128,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.sign.outputs.method == 'none' && 'false' || 'true' }}
-        run: npx electron-builder --mac --x64 --arm64 -p never ${{ steps.sign.outputs.builder_args }}
+        run: npx electron-builder --mac --x64 --arm64 -p never
 
       - name: Build Linux AppImage
         if: matrix.os == 'ubuntu-latest'

@@ -640,10 +640,11 @@ curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
 
 | Platform | Route | Repository secrets | Repository variables / notes |
 |---|---|---|---|
-| Windows | Azure Artifact Signing (formerly Trusted Signing) | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | `AZURE_CODE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`, optional `AZURE_ENDPOINT`. The workflow passes `-c.win.sign.type=azure ...`. Requires a **paid** Azure subscription (free/trial/sponsored subscriptions are rejected by the service), an completed identity validation, and a supported country/region; the service does not issue EV certificates, so SmartScreen reputation still builds up with download history. |
-| Windows | Classic Authenticode (.p12 from a CA) | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | No config needed: electron-builder picks these up from the environment. |
+| Windows | Classic Authenticode (`.p12` from a CA) | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | No configuration needed: electron-builder reads these from the environment. |
 | macOS | Developer ID + notarization | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Distributing outside the Mac App Store requires a Developer ID certificate and Apple notarization, which in turn requires an Apple Developer Program membership ($99/yr, verified from apple.com). |
 | Linux | none (AppImage has no signing convention) | — | The workflow publishes a `SHA-256` file per AppImage instead. |
+
+Azure Artifact Signing (formerly Trusted Signing) is a supported alternative for Windows - it needs a **paid** Azure subscription (free/trial/sponsored subscriptions are rejected by the service), a completed identity validation and a supported country/region, and it issues no EV certificates, so SmartScreen reputation still accumulates with download history - but wiring it requires an explicit `win.sign` configuration block, which is **not** currently in the workflow: passing it as `-c.win.sign.type=azure` is rejected by electron-builder 26's configuration schema (verified), so it has to be added and tested against a real account. Until then only the certificate routes above are live.
 
 Verification steps run after each build: `Get-AuthenticodeSignature` on Windows, `codesign --display` plus `xcrun stapler validate` on macOS. Their output is uploaded as a `signature-report-<os>` artifact.
 

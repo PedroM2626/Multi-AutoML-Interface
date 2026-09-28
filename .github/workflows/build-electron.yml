@@ -62,11 +62,13 @@ jobs:
 
       - name: Package unpacked app (no installer, no signing)
         env:
+          # Smoke builds must not discover or generate a certificate: without this,
+          # electron-builder self-signs every executable inside the bundled runtime.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           case "${{ matrix.os }}" in
-            windows-latest) npx electron-builder --win --x64 --dir -c.win.sign=false ;;
-            macos-latest)   npx electron-builder --mac --x64 --arm64 --dir -c.mac.notarize=null ;;
+            windows-latest) npx electron-builder --win --x64 --dir ;;
+            macos-latest)   npx electron-builder --mac --x64 --arm64 --dir ;;
             ubuntu-latest)  npx electron-builder --linux --dir ;;
           esac
 

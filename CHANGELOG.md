@@ -38,13 +38,16 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
 ### Added
 
-- **Signing is wired up, and verified.** `release.yml` signs Windows installers through
-  Azure Artifact Signing or a classic Authenticode certificate, and macOS through a
-  Developer ID certificate plus notarization, depending on which repository secrets exist.
-  A build that had credentials but produced an unsigned artifact now fails, the signature
-  reports are uploaded as artifacts, and the release notes state which case applied. With no
-  credentials the build stays unsigned and says so. See *Code signing and notarization* in
-  `docs/DOCUMENTATION.md`.
+- **Signing is wired up, and verified.** `release.yml` signs Windows installers from
+  `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` and macOS from `MAC_CSC_LINK`/`MAC_CSC_KEY_PASSWORD`
+  plus `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`, because electron-builder
+  reads those from the environment. A build that had credentials but produced an unsigned
+  artifact now fails, signature reports are uploaded as artifacts, and the release notes
+  state which case applied. With no credentials the build stays unsigned and says so.
+  Azure Artifact Signing is documented as an alternative but is not wired: it needs an
+  explicit `win.sign` configuration block, and passing it on the command line
+  (`-c.win.sign.type=azure`) is rejected by electron-builder 26's schema - as is
+  `-c.win.sign=false`, which is what broke the first packaging runs.
 - `npm run runtime` builds just the bundled interpreter, and the packaging scripts run it
   before electron-builder, so `npm run build-win` produces a working installer in one step.
 
