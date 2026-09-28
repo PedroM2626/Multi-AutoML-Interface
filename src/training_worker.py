@@ -84,6 +84,20 @@ class _ThreadAwareIO(io.TextIOBase):
         except Exception:
             pass
 
+    def isatty(self) -> bool:
+        # io.TextIOBase answers False, which silently turns off the progress bars of
+        # H2O/FLAML/tqdm even when the app really runs in a terminal.
+        try:
+            return bool(self._original.isatty())
+        except Exception:
+            return False
+
+    def fileno(self) -> int:
+        try:
+            return self._original.fileno()
+        except Exception as e:
+            raise io.UnsupportedOperation(f"stdout router has no file descriptor: {e}")
+
     @property
     def encoding(self):
         return getattr(self._original, 'encoding', 'utf-8') or 'utf-8'
