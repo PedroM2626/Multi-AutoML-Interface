@@ -1,6 +1,7 @@
 import json
 import nbformat as nbf
 import os
+import tempfile
 import uuid
 from typing import Dict, Any, List
 import logging
@@ -118,7 +119,8 @@ class WhiteboxNotebookGenerator:
             )
             self._add_code(
                 "from src.prediction_service import load_model_by_framework\n\n"
-                f"model, model_type = load_model_by_framework({framework!r}, {run_id!r})\n"
+                "# trust_artifacts acknowledges that the model is restored with pickle/joblib.\n"
+                f"model, model_type = load_model_by_framework({framework!r}, {run_id!r}, trust_artifacts=True)\n"
                 "print('Loaded model:', model_type)"
             )
         else:
@@ -191,8 +193,13 @@ class WhiteboxNotebookGenerator:
         
         # Save to disk
         if not output_path:
-            filename = f"automl_candidate_pipeline_{uuid.uuid4().hex[:6]}.ipynb"
-            output_path = os.path.join(os.getcwd(), filename)
+            # The installed desktop app runs with a read-only working directory inside
+            # Program Files, so write next to the other transient artifacts.
+            output_dir = os.path.join(tempfile.gettempdir(), "multi-automl-notebooks")
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(
+                output_dir, f"automl_candidate_pipeline_{uuid.uuid4().hex[:6]}.ipynb"
+            )
             
         with open(output_path, 'w', encoding='utf-8') as f:
             nbf.write(self.nb, f)
