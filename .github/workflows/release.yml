@@ -2,6 +2,11 @@ name: Release Desktop App
 
 # Publishes installers as GitHub Release assets. Triggered by version tags, e.g.:
 #   npm version 5.1.0 && git tag -a v5.1.0 -m "v5.1.0" && git push origin v5.1.0
+#
+# Each installer carries a standalone CPython with requirements.txt already installed
+# (scripts/prepare_python_runtime.js), so the target machine needs no Python. Signing is
+# driven by repository secrets/variables and degrades to an unsigned build that the
+# release notes label as such.
 
 on:
   push:
@@ -15,6 +20,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  RUNTIME_PYTHON_VERSION: "3.12"
 
 jobs:
   build:
@@ -52,6 +60,14 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Set up Python (build tooling only)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv (fetches the bundled CPython)
+        run: python -m pip install uv
+
       - name: Check version matches tag
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -62,25 +78,114 @@ jobs:
           fi
           echo "Version consistent: ${VERSION}"
 
-      - name: Install Node dependencies
-        run: npm ci
-
       - name: Audit Node dependencies
-        run: npm audit --audit-level=high
+        run: npm ci && npm audit --audit-level=high
+
+      - name: Report signing availability
+        id: sign
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # electron-builder picks a classic certificate up from the environment, so no
+          # config is needed there. Azure Trusted Signing needs explicit config keys, and
+          # without any credential the build has to be told not to try signing.
+          method="none"
+          args=""
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            if [ -n "$AZURE_TENANT_ID" ]; then
+              method="azure-trusted-signing"
+              args="-c.win.sign.type=azure -c.win.sign.codeSigningAccountName=${{ vars.AZURE_CODE_SIGNING_ACCOUNT }} -c.win.sign.certificateProfileName=${{ vars.AZURE_CERTIFICATE_PROFILE }}"
+            elif [ -n "$WIN_CSC_LINK" ]; then
+              method="authenticode-certificate"
+            else
+              args="-c.win.sign=false"
+            fi
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_TEAM_ID" ]; then
+              method="developer-id-plus-notarization"
+            else
+              args="-c.mac.notarize=null"
+            fi
+          fi
+          echo "method=$method" >> "$GITHUB_OUTPUT"
+          echo "builder_args=$args" >> "$GITHUB_OUTPUT"
+          if [ "$method" = "none" ]; then
+            echo "::warning::No signing credentials for ${{ matrix.os }}; the artifact will be unsigned."
+          fi
+
+      - name: Build the bundled Python runtime
+        run: npm run runtime
 
       - name: Build Windows installer (NSIS)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win --x64 -p never
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ENDPOINT: ${{ vars.AZURE_ENDPOINT }}
+        run: npx electron-builder --win --x64 -p never ${{ steps.sign.outputs.builder_args }}
 
-      - name: Build macOS disk images (unsigned)
+      - name: Build macOS disk images
         if: matrix.os == 'macos-latest'
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --mac --x64 --arm64 -p never
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.sign.outputs.method == 'none' && 'false' || 'true' }}
+        run: npx electron-builder --mac --x64 --arm64 -p never ${{ steps.sign.outputs.builder_args }}
 
       - name: Build Linux AppImage
         if: matrix.os == 'ubuntu-latest'
         run: npx electron-builder --linux AppImage -p never
+
+      - name: Verify signatures
+        if: success()
+        env:
+          METHOD: ${{ steps.sign.outputs.method }}
+        run: |
+          mkdir -p dist-signature
+          case "${{ matrix.os }}" in
+            windows-latest)
+              for f in dist/*.exe; do
+                [ -e "$f" ] || continue
+                powershell -NoProfile -Command \
+                  "\$s = Get-AuthenticodeSignature '$f'; \$s.Status; \$s.SignerCertificate.Subject" \
+                  > "dist-signature/$(basename "$f").sig.txt" 2>&1 || true
+                cat "dist-signature/$(basename "$f").sig.txt"
+                if [ "$METHOD" != "none" ] && ! grep -qi "Valid" "dist-signature/$(basename "$f").sig.txt"; then
+                  echo "::error::$f is not signed although credentials were provided"
+                  exit 1
+                fi
+              done
+              ;;
+            macos-latest)
+              APP="$(find dist -maxdepth 3 -name '*.app' -type d | head -1)"
+              if [ -n "$APP" ]; then
+                codesign --display --verbose=4 "$APP" > dist-signature/app.codesign.txt 2>&1 || true
+                cat dist-signature/app.codesign.txt
+                if [ "$METHOD" != "none" ] && ! grep -q "Authority=Developer ID" dist-signature/app.codesign.txt; then
+                  echo "::error::$APP is not signed with a Developer ID certificate"
+                  exit 1
+                fi
+              fi
+              for d in dist/*.dmg; do
+                [ -e "$d" ] || continue
+                xcrun stapler validate "$d" > "dist-signature/$(basename "$d").staple.txt" 2>&1 || true
+                cat "dist-signature/$(basename "$d").staple.txt"
+              done
+              ;;
+            ubuntu-latest)
+              sha256sum dist/*.AppImage > dist-signature/AppImage.sha256 || true
+              cat dist-signature/AppImage.sha256
+              ;;
+          esac
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -91,6 +196,14 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signature report
+        uses: actions/upload-artifact@v4
+        with:
+          name: signature-report-${{ matrix.os }}
+          path: dist-signature
+          if-no-files-found: ignore
           retention-days: 30
 
   release:
@@ -120,6 +233,13 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Download signature reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: signature-report-*
+          merge-multiple: true
+          path: signature-report
+
       - name: List assets
         run: ls -lh dist
 
@@ -136,20 +256,34 @@ jobs:
               found { print }
             ' CHANGELOG.md
             echo
-            echo "### Prerequisites"
+            echo "### What is inside"
             echo
-            echo "The desktop installers bundle the Electron shell and the Streamlit UI, **not** the Python"
-            echo "runtime. Install Python 3.11/3.12 and the app dependencies first:"
+            echo "Each installer bundles a standalone CPython with everything in"
+            echo "\`requirements.txt\` already installed, so **no Python setup is needed** on the"
+            echo "target machine. Runs, models and the data lake are written to a per-user"
+            echo "workspace (the app's Electron \`userData\` directory):"
             echo
-            echo '```bash'
-            echo "pip install -r requirements.txt"
-            echo '```'
+            echo "| Operating system | Location |"
+            echo "|---|---|"
+            echo "| Windows | \`%APPDATA%\\multi-automl-desktop\\workspace\\` |"
+            echo "| macOS | \`~/Library/Application Support/multi-automl-desktop/workspace/\\` |"
+            echo "| Linux | \`~/.config/multi-automl-desktop/workspace/\\` |"
             echo
-            echo "AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras, HuggingFace) are optional"
-            echo "and lazy-imported; see the README for what each one needs."
+            echo "The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras,"
+            echo "HuggingFace) stay optional and are lazy-imported; the app runs with whichever"
+            echo "of them you install into the bundled runtime. H2O additionally needs Java 11+."
             echo
-            echo "Installers are **not code-signed or notarized**, so SmartScreen and Gatekeeper will warn"
-            echo "on first launch."
+            if [ -s signature-report/app.codesign.txt ] || grep -lq "Valid" signature-report/* 2>/dev/null; then
+              echo "### Signing"
+              echo
+              echo "Windows installers are Authenticode-signed and the macOS build is signed with a"
+              echo "Developer ID certificate and notarized."
+            else
+              echo "### Signing"
+              echo
+              echo "These builds are **not code-signed or notarized**, so SmartScreen and Gatekeeper"
+              echo "will warn on first launch."
+            fi
           } > RELEASE_NOTES.md
           cat RELEASE_NOTES.md
           if ! grep -q "^## ${VERSION}" CHANGELOG.md; then

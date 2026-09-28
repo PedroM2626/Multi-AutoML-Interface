@@ -1,24 +1,33 @@
 name: Build Desktop App
 
+# Packaging smoke test: builds the unpacked app for each OS and checks that the bundled
+# Python runtime and the app sources landed where electron/main.js expects them.
+# Real installers (signed, compressed) are produced by release.yml on version tags, so this
+# workflow deliberately uploads nothing - a 1.2 GB payload per OS would only cost storage.
+
 on:
-  # Smoke-test the desktop packaging only when its inputs change. Tag pushes are built
-  # and published by release.yml, so a full 3-OS matrix on every push to main was waste.
   pull_request:
     paths:
       - "electron/**"
       - "package.json"
       - "package-lock.json"
+      - "requirements.txt"
+      - "scripts/prepare_python_runtime.js"
       - ".github/workflows/build-electron.yml"
   workflow_dispatch: # Allows running the workflow manually from the Actions tab
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
-    
+
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
-        
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,32 +38,49 @@ jobs:
           node-version: "20"
           cache: 'npm'
 
+      - name: Set up Python (build tooling for the bundled runtime)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install uv
+
       - name: Install Node dependencies
         run: npm ci
 
       - name: Audit Node dependencies
         run: npm audit --audit-level=high
 
-      - name: Build Electron App (Windows)
-        if: matrix.os == 'windows-latest'
-        run: npm run build-win
+      - name: Build the bundled Python runtime
+        run: npm run runtime
 
-      - name: Build Electron App (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Package unpacked app (no installer, no signing)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build-mac
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          case "${{ matrix.os }}" in
+            windows-latest) npx electron-builder --win --x64 --dir -c.win.sign=false ;;
+            macos-latest)   npx electron-builder --mac --x64 --arm64 --dir -c.mac.notarize=null ;;
+            ubuntu-latest)  npx electron-builder --linux --dir ;;
+          esac
 
-      - name: Build Electron App (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: npm run build-linux
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: multi-automl-desktop-${{ matrix.os }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
-          retention-days: 7
+      - name: Check the packaged layout
+        run: |
+          unpacked="$(find dist -maxdepth 1 -type d -name '*unpacked*' | head -1)"
+          test -n "$unpacked" || { echo "::error::no unpacked directory produced"; exit 1; }
+          echo "packaged into: $unpacked"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            test -f "$unpacked/resources/runtime/python.exe"
+          else
+            test -x "$unpacked/resources/runtime/bin/python"
+          fi
+          test -f "$unpacked/resources/runtime/runtime-manifest.json"
+          test -f "$unpacked/resources/app/app.py"
+          test -d "$unpacked/resources/app/src"
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            if (!m.interpreter || !m.requirementsHash) { console.error('manifest incomplete'); process.exit(1); }
+            console.log('runtime manifest OK:', m.platform, m.arch, 'python', m.python);
+          " "$unpacked/resources/runtime/runtime-manifest.json"
