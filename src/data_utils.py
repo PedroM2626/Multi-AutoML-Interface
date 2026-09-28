@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import hashlib
 import time
@@ -6,6 +7,30 @@ import sys
 import pandas as pd
 import zipfile
 import shutil
+
+_SAFE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def safe_path_component(name, fallback="dataset"):
+    """
+    Reduces user-supplied text (run names, dataset names, file prefixes) to a single
+    safe path component, so it cannot escape the directory it is joined into.
+    """
+    cleaned = _SAFE_COMPONENT_RE.sub("_", str(name or "").strip()).strip("._-")
+    return cleaned[:80] or fallback
+
+
+def resolve_inside_dir(path, parent_dir):
+    """
+    Resolve `path` and assert it stays inside `parent_dir`. Used before destructive
+    operations on directories whose name comes from user input.
+    """
+    parent = os.path.realpath(parent_dir)
+    resolved = os.path.realpath(path)
+    if resolved != parent and not resolved.startswith(parent + os.sep):
+        raise ValueError(f"Refusing to operate outside {parent_dir}/: {path}")
+    return resolved
+
 
 def load_data(file, no_header=False):
     """
@@ -72,7 +97,8 @@ def save_to_data_lake(df, filename_prefix="dataset"):
     
     # Generate unique filename based on time
     timestamp = int(time.time())
-    file_path = os.path.join(data_lake_dir, f"{filename_prefix}_{timestamp}.csv")
+    safe_prefix = safe_path_component(filename_prefix, fallback="dataset")
+    file_path = os.path.join(data_lake_dir, f"{safe_prefix}_{timestamp}.csv")
     
     # Save the dataframe
     df.to_csv(file_path, index=False)
@@ -131,7 +157,7 @@ def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=Fa
     Supports ZIP extraction or direct copying.
     Returns the path to the dataset directory and a hash.
     """
-    data_lake_dir = os.path.join("data_lake", "images", dataset_name)
+    data_lake_dir = os.path.join("data_lake", "images", safe_path_component(dataset_name, fallback="image_dataset"))
     os.makedirs(data_lake_dir, exist_ok=True)
     
     timestamp = int(time.time())
@@ -139,9 +165,13 @@ def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=Fa
     os.makedirs(target_dir, exist_ok=True)
 
     if is_zip and len(uploaded_files) == 1:
-        # Extract ZIP
+        # Extract ZIP, rejecting members that would write outside target_dir
         zip_file = uploaded_files[0]
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+            for member in zip_ref.infolist():
+                member_path = os.path.realpath(os.path.join(target_dir, member.filename))
+                if not member_path.startswith(os.path.realpath(target_dir) + os.sep):
+                    raise ValueError(f"Unsafe path in archive: {member.filename}")
             zip_ref.extractall(target_dir)
     else:
         # Multiple Image Files

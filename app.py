@@ -10,6 +10,7 @@ import queue
 
 from src.task_catalog import DATA_CATEGORIES, get_framework_options, get_task_options, infer_multimodal_columns
 from src.orchestrator import UniversalAutoMLOrchestrator
+from src.data_utils import safe_path_component
 
 
 def _compat_fragment(*args, **kwargs):
@@ -1302,7 +1303,10 @@ elif menu == "Training":
                 st.warning("Multimodal training is currently native only in AutoGluon in this interface.")
 
         st.session_state['target'] = target
-        run_name = st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}")
+        run_name = safe_path_component(
+            st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}"),
+            fallback=f"{framework.lower()}_run",
+        )
 
         target_display = ", ".join(target) if isinstance(target, list) else (target if target else "N/A")
 

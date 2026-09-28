@@ -9,6 +9,7 @@ import json
 from typing import Dict
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
+from src.data_utils import resolve_inside_dir
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             mlflow.log_param("multimodal_image_columns", str(multimodal_image_columns or []))
         
         # Output directory for AutoGluon
-        model_path = os.path.join("models", run_name)
+        model_path = resolve_inside_dir(os.path.join("models", run_name), "models")
         if os.path.exists(model_path):
             shutil.rmtree(model_path)
             
