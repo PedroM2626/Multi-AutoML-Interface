@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-5.0.0-blue)
+![Version](https://img.shields.io/badge/version-5.0.1-blue)
 [![Release](https://img.shields.io/github/v/release/PedroM2626/Multi-AutoML-Interface)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 [![Downloads](https://img.shields.io/github/downloads/PedroM2626/Multi-AutoML-Interface/total)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
