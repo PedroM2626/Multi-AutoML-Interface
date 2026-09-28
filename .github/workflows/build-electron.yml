@@ -25,6 +25,7 @@ jobs:
         shell: bash
 
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
@@ -51,6 +52,10 @@ jobs:
 
       - name: Audit Node dependencies
         run: npm audit --audit-level=high
+
+      - name: Install OpenMP runtime (needed by xgboost on macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install libomp
 
       - name: Build the bundled Python runtime
         run: npm run runtime

@@ -100,6 +100,41 @@ function findExternallyManagedMarkers(root) {
     return found;
 }
 
+// xgboost's libxgboost.dylib links @rpath/libomp.dylib, and a standalone CPython has no
+// OpenMP runtime of its own. On macOS that means `import xgboost` (and therefore FLAML's
+// default boosting search) fails on any machine without Homebrew, so the library is
+// copied into the interpreter's lib directory - one of the paths dyld already searches.
+function bundleLibomp(interpreterExe) {
+    if (process.platform !== 'darwin') return;
+    const libDir = path.join(path.dirname(interpreterExe), 'lib');
+    const target = path.join(libDir, 'libomp.dylib');
+    if (fs.existsSync(target)) return;
+
+    let source = null;
+    const prefixes = [];
+    try {
+        prefixes.push(run('brew', ['--prefix', 'libomp']).trim());
+    } catch {
+        /* brew is optional; the known prefixes are tried below */
+    }
+    for (const prefix of ['/opt/homebrew/opt/libomp', '/usr/local/opt/libomp', ...prefixes]) {
+        const candidate = path.join(prefix, 'lib', 'libomp.dylib');
+        if (fs.existsSync(candidate)) {
+            source = candidate;
+            break;
+        }
+    }
+    if (!source) {
+        throw new Error(
+            'libomp.dylib was not found; the bundled macOS runtime needs it for xgboost. ' +
+            'Install it with: brew install libomp'
+        );
+    }
+    fs.mkdirSync(libDir, { recursive: true });
+    fs.copyFileSync(source, target);
+    console.log(`Bundled OpenMP runtime: ${path.relative(OUT_DIR, target)} (from ${source})`);
+}
+
 function main() {
     const force = process.argv.includes('--force');
     const digest = requirementsHash();
@@ -141,6 +176,8 @@ function main() {
     // uv only refuses installs into a tree that is still inside its own managed directory;
     // this copy has left it, so uv is safe to use and several times faster than pip here.
     uv(['pip', 'install', '--system', '--python', path.join(OUT_DIR, interpreter), '-r', REQUIREMENTS]);
+
+    bundleLibomp(path.join(OUT_DIR, interpreter));
 
     const probe = run(path.join(OUT_DIR, interpreter), [
         '-c',

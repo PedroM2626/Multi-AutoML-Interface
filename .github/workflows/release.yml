@@ -116,6 +116,10 @@ jobs:
             echo "::warning::No signing credentials for ${{ matrix.os }}; the artifact will be unsigned."
           fi
 
+      - name: Install OpenMP runtime (needed by xgboost on macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install libomp
+
       - name: Build the bundled Python runtime
         run: npm run runtime
 
