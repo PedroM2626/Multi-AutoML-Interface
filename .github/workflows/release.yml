@@ -111,23 +111,36 @@ jobs:
       - name: Build the bundled Python runtime
         run: npm run runtime
 
-      - name: Build Windows installer (NSIS)
-        if: matrix.os == 'windows-latest'
+      # The certificate variables are only set in the signed variants: mapping a missing
+      # secret yields an empty string, and electron-builder then treats CSC_LINK as a
+      # certificate path and dies with "<repo> not a file".
+      - name: Build Windows installer (NSIS, unsigned)
+        if: matrix.os == 'windows-latest' && steps.sign.outputs.method == 'none'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win --x64 -p never
+
+      - name: Build Windows installer (NSIS, Authenticode)
+        if: matrix.os == 'windows-latest' && steps.sign.outputs.method != 'none'
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.sign.outputs.method == 'none' && 'false' || 'true' }}
         run: npx electron-builder --win --x64 -p never
 
-      - name: Build macOS disk images
-        if: matrix.os == 'macos-latest'
+      - name: Build macOS disk images (unsigned)
+        if: matrix.os == 'macos-latest' && steps.sign.outputs.method == 'none'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --x64 --arm64 -p never
+
+      - name: Build macOS disk images (Developer ID + notarization)
+        if: matrix.os == 'macos-latest' && steps.sign.outputs.method != 'none'
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.sign.outputs.method == 'none' && 'false' || 'true' }}
         run: npx electron-builder --mac --x64 --arm64 -p never
 
       - name: Build Linux AppImage
