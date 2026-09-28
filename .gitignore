@@ -61,3 +61,6 @@ modify_pkg.py
 # Written to the working directory by the white-box notebook exporter
 automl_candidate_pipeline_*.ipynb
 .audit-scratch/
+
+# Bundled Python runtime built by scripts/prepare_python_runtime.js for the installers
+runtime/
