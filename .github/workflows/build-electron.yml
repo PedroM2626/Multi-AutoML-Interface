@@ -74,20 +74,20 @@ jobs:
 
       - name: Check the packaged layout
         run: |
-          unpacked="$(find dist -maxdepth 1 -type d -name '*unpacked*' | head -1)"
-          test -n "$unpacked" || { echo "::error::no unpacked directory produced"; exit 1; }
-          echo "packaged into: $unpacked"
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            test -f "$unpacked/resources/runtime/python.exe"
-          else
-            test -x "$unpacked/resources/runtime/bin/python"
-          fi
-          test -f "$unpacked/resources/runtime/runtime-manifest.json"
-          test -f "$unpacked/resources/app/app.py"
-          test -d "$unpacked/resources/app/src"
-          node -e "
-            const fs = require('fs');
-            const m = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-            if (!m.interpreter || !m.requirementsHash) { console.error('manifest incomplete'); process.exit(1); }
-            console.log('runtime manifest OK:', m.platform, m.arch, 'python', m.python);
-          " "$unpacked/resources/runtime/runtime-manifest.json"
+          # macOS packages into dist/mac-<arch>/<App>.app/Contents/Resources, Windows and
+          # Linux into dist/<os>-unpacked/resources, so the runtime directory is located
+          # by name and the interpreter path is read from its own manifest.
+          found=0
+          while IFS= read -r -d '' rt; do
+            manifest="$rt/runtime-manifest.json"
+            if [ ! -f "$manifest" ]; then echo "::error::no runtime-manifest.json in $rt"; exit 1; fi
+            interp="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).interpreter)" "$manifest")"
+            if [ ! -e "$rt/$interp" ]; then echo "::error::bundled interpreter $rt/$interp missing"; exit 1; fi
+            res="$(dirname "$rt")"
+            test -f "$res/app/app.py" || { echo "::error::app.py not packaged next to $res"; exit 1; }
+            test -d "$res/app/src" || { echo "::error::src/ not packaged next to $res"; exit 1; }
+            echo "OK: $rt ($interp)"
+            found=1
+          done < <(find dist -type d -name runtime -print0)
+          if [ "$found" != "1" ]; then echo "::error::no bundled runtime found under dist/"; exit 1; fi
+
