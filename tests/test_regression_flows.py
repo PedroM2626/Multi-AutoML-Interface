@@ -70,6 +70,28 @@ def test_load_by_run_id_rejects_path_like_run_id():
             load_model_by_framework("FLAML", bad, trust_artifacts=True)
 
 
+def test_flaml_callback_and_learner_guards():
+    from src.flaml_utils import _supports_callbacks, _require_learner_packages
+
+    # 'auto' and mixed sklearn/boosting lists reject FLAML's callbacks kwarg outright.
+    assert _supports_callbacks(["lgbm"]) is True
+    assert _supports_callbacks(["lgbm", "rf"]) is False
+    assert _supports_callbacks("auto") is False
+    assert _supports_callbacks([]) is False
+
+    # A learner whose package is missing must be named before the search starts.
+    try:
+        import lightgbm  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
+    if installed:
+        _require_learner_packages(["lgbm"])
+    else:
+        with pytest.raises(ImportError, match="lightgbm"):
+            _require_learner_packages(["lgbm"])
+
+
 def test_load_by_run_id_invalid_framework():
     with pytest.raises(ValueError):
         load_model_by_framework("UnknownFramework", "run_123")

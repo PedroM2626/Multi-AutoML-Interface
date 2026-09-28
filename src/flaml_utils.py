@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import threading
 import pandas as pd
 import mlflow
@@ -11,6 +12,42 @@ from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
 
 logger = logging.getLogger(__name__)
+
+# FLAML resolves these learner names through optional packages. When one is absent it
+# ends up calling None deep inside cross-validation ("TypeError: 'NoneType' object is
+# not callable"), so the missing package is reported before the search starts.
+_LEARNER_PACKAGES = {"lgbm": "lightgbm", "catboost": "catboost", "xgboost": "xgboost"}
+
+# FLAML forwards the "callbacks" setting to the estimator's own fit(). Only the
+# LightGBM-family learners accept it; sklearn forests raise
+# "BaseForest.fit() got an unexpected keyword argument 'callbacks'", and "auto" mixes
+# both kinds, so live telemetry is limited to searches that use boosting learners only.
+_CALLBACK_LEARNERS = ("lgbm", "xgboost", "catboost")
+
+
+def _supports_callbacks(estimator_list) -> bool:
+    if not isinstance(estimator_list, (list, tuple)) or not estimator_list:
+        return False
+    return all(
+        any(learner in str(name) for learner in _CALLBACK_LEARNERS)
+        for name in estimator_list
+    )
+
+
+def _require_learner_packages(estimator_list):
+    if not isinstance(estimator_list, (list, tuple)):
+        return
+    missing = sorted({
+        package
+        for name in estimator_list
+        for learner, package in _LEARNER_PACKAGES.items()
+        if learner in str(name) and importlib.util.find_spec(package) is None
+    })
+    if missing:
+        raise ImportError(
+            f"FLAML needs {' and '.join(missing)} for the selected estimators. "
+            f"Install it with: pip install {' '.join(missing)}"
+        )
 
 class MultiFLAMLPredictor:
     def __init__(self, predictors_by_target):
@@ -36,6 +73,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
     """
     import json
     safe_set_experiment("FLAML_Experiments")
+    _require_learner_packages(estimator_list)
     logging.info(f"Starting FLAML training for run: {run_name}")
     
     # Ensure flaml logger is also at INFO level
@@ -110,17 +148,19 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                     local_settings["y_val"] = y_v
                 
                 # Telemetry callback
-                if telemetry_queue:
-                    def _telemetry_callback(iter_count, time_used, best_loss, best_config, estimator, trial_id, tgt=target_name):
+                if telemetry_queue and _supports_callbacks(estimator_list):
+                    def _telemetry_callback(callback_env, tgt=target_name):
+                        # FLAML hands these to LightGBM, which calls each callback with a
+                        # single CallbackEnv; a wider signature raises TypeError at the
+                        # call site, outside this function's own try/except.
                         try:
+                            results = getattr(callback_env, "evaluation_result_list", None) or []
+                            best_loss = results[0][2] if results and len(results[0]) > 2 else None
                             telemetry_queue.put({
                                 "status": "running",
                                 "target": tgt,
-                                "iterations": iter_count,
-                                "time_used": time_used,
-                                "best_loss": best_loss,
-                                "best_estimator": str(estimator),
-                                "best_config_preview": str(best_config)[:200]
+                                "iterations": getattr(callback_env, "iteration", 0),
+                                "best_loss": best_loss
                             })
                         except Exception: pass
                     local_settings["callbacks"] = [_telemetry_callback]
@@ -178,16 +218,17 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 settings["X_val"] = X_val
                 settings["y_val"] = y_val
                 
-            if telemetry_queue:
-                def _telemetry_callback(iter_count, time_used, best_loss, best_config, estimator, trial_id):
+            if telemetry_queue and _supports_callbacks(estimator_list):
+                def _telemetry_callback(callback_env):
+                    # One CallbackEnv argument, as LightGBM invokes it; see the note in the
+                    # multi-target branch above.
                     try:
+                        results = getattr(callback_env, "evaluation_result_list", None) or []
+                        best_loss = results[0][2] if results and len(results[0]) > 2 else None
                         telemetry_queue.put({
                             "status": "running",
-                            "iterations": iter_count,
-                            "time_used": time_used,
-                            "best_loss": best_loss,
-                            "best_estimator": str(estimator),
-                            "best_config_preview": str(best_config)[:200]
+                            "iterations": getattr(callback_env, "iteration", 0),
+                            "best_loss": best_loss
                         })
                     except Exception: pass
                 settings["callbacks"] = [_telemetry_callback]
