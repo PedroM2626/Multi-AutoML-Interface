@@ -169,7 +169,7 @@ The training pipeline is split across three modules:
 
 | Runtime | Python | Notes |
 |---|---|---|
-| Full local app via `run.py` | **3.11 minimum (hard requirement for PyCaret/Lale)** | PyCaret and Lale require Python 3.11 with a matching scikit-learn. `run.py` re-launches itself on a Python 3.11 interpreter (`py -3.11`, `python3.11`, or `python`) when the current one is older, and refuses to start if none is found. Newer interpreters (3.12+) pass the check. |
+| Full local app via `run.py` | **3.11 preferred (hard requirement for PyCaret/Lale)** | PyCaret and Lale require Python 3.11 with a matching scikit-learn. `run.py` re-launches itself on a Python 3.11 interpreter (`py -3.11`, `python3.11`, or `python`) whenever the current one differs, refuses to start on an interpreter older than 3.11, and on a newer one (3.12+) starts with a warning that PyCaret/Lale may fail to import. It also binds the dev server to `127.0.0.1` unless `--server.address` or `STREAMLIT_SERVER_ADDRESS` is given, because Streamlit otherwise listens on every interface. |
 | Core app (without PyCaret/Lale) | 3.12 | The Streamlit app itself, CI, and the base Docker image run on Python 3.12. |
 | Docker base image | 3.12 | `Dockerfile` uses `python:3.12-slim`. |
 | CI workflows | 3.12 | `actions/setup-python` with `python-version: "3.12"`. |
@@ -524,7 +524,7 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 | Variable | Where used | Purpose |
 |---|---|---|
 | `HUGGINGFACE_TOKEN` | `src/huggingface_utils.py` | Fallback Hugging Face Hub token when none is typed in the UI |
-| `MLFLOW_TRACKING_URI` | `docker-compose.yml`, `Dockerfile.autogluon_cv`, `Dockerfile.autokeras_cv` | Redirects MLflow to a remote/local server instead of `file:///mlruns` |
+| `MLFLOW_TRACKING_URI` | `src/mlflow_utils.py` (read), `docker-compose.yml`, `Dockerfile.autogluon_cv`, `Dockerfile.autokeras_cv` | Redirects MLflow to a remote/local server instead of `file:///mlruns`. `safe_set_experiment` honours it when present and only falls back to the local store when it is unset. |
 | `MLFLOW_TRACKING_USERNAME` | `app.py` (DagsHub connect) | Credentials for authenticated MLflow backends (set programmatically) |
 | `MLFLOW_TRACKING_PASSWORD` | `app.py` (DagsHub connect) | Credentials for authenticated MLflow backends (set programmatically) |
 | `STREAMLIT_SERVER_PORT` | `Dockerfile`, `docker-compose.yml`, `render.yaml` | Streamlit port (default `8501`) |
@@ -534,7 +534,7 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 | `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`, `PIP_NO_CACHE_DIR` | `Dockerfile` | Container hygiene defaults |
 | `OMP_NUM_THREADS` | `Dockerfile.autogluon_cv` (set to `2`) | Prevents thread-locking in small containers |
 | `GH_TOKEN` | `.github/workflows/build-electron.yml` (macOS job) | electron-builder publishing token (from `secrets.GITHUB_TOKEN`) |
-| `MLFLOW_ALLOW_FILE_STORE` | `tests/conftest.py` (test-only) | Allows file-based MLflow stores during tests |
+| `MLFLOW_ALLOW_FILE_STORE` | `src/mlflow_utils.py`, `docker-compose.yml`, `tests/conftest.py` | MLflow 3 refuses a file-based tracking store unless this is set; the app opts in for its own `mlruns/` default. Already set when the caller provided it. |
 
 > Note: H2O cluster memory is not controlled by an environment variable in this codebase — it is fixed in `src/h2o_utils.py` via `h2o.init(max_mem_size="4G", nthreads=-1)` (2G when loading models for prediction).
 
@@ -548,8 +548,8 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 
 | Service | Image / Build | Published port | Notes |
 |---|---|---|---|
-| `autogluon-ui` | Builds the project `Dockerfile` | **8501** | Streamlit app; gets `MLFLOW_TRACKING_URI=http://mlflow-ui:5000`; mounts the project as `/app`; waits for MLflow health |
-| `mlflow-ui` | `ghcr.io/mlflow/mlflow:v2.11.1` | **5000** | `mlflow server` with `./mlruns` mounted as backend store and artifact root |
+| `autogluon-ui` | Builds the project `Dockerfile` | **8501**, published on `127.0.0.1` only | Streamlit app; gets `MLFLOW_TRACKING_URI=http://mlflow-ui:5000`; mounts `data_lake/` and `mlruns/` (not the whole repository); waits for MLflow health |
+| `mlflow-ui` | `ghcr.io/mlflow/mlflow:v3.16.1` | **5000**, published on `127.0.0.1` only | `mlflow server` with `./mlruns` mounted as backend store and artifact root; version-matched to the `mlflow==3.16.1` client |
 
 ```bash
 docker compose up --build
@@ -634,6 +634,21 @@ curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
 
 ---
 
+### Multi-session deployment notes
+
+One Streamlit process serves several users, so anything process-global needs care:
+
+| Concern | Behaviour in this codebase |
+|---|---|
+| Network exposure | `run.py` and the Electron shell bind `127.0.0.1` (Streamlit listens on every interface when no address is given); containers set `--server.address=0.0.0.0` deliberately. Streamlit's CORS/XSRF defaults stay enabled - `--server.enableCORS=false` is used nowhere. Compose publishes 8501/5000 on loopback, so an internet-facing deployment must terminate TLS **and** authentication in a reverse proxy. |
+| Shared MLflow client | `safe_set_experiment` honours `MLFLOW_TRACKING_URI` and only falls back to the local `mlruns/` store when it is unset. A shared deployment should point every session at one server/database store. |
+| Per-user credentials | The DagsHub panel accepts a personal token only when the server is bound to loopback. Otherwise credentials would land in `os.environ`, which every other session inherits, so a single service account has to come from the container environment. |
+| Model loading | Every framework restores models through pickle/joblib (CWE-502): loading by Run ID requires the explicit trust confirmation, and a run id may not contain characters that form a path. |
+| Filesystem writes | Run names, dataset names and file prefixes are reduced to a single safe path component; destructive cleanup asserts it stays inside `models/`; ZIP members that would extract outside the target directory are rejected. |
+| Remaining gaps | `mlruns/`, `models/`, the data lake and the FLAML/H2O scratch files all live in one working directory shared by every session - sanitised names keep them from colliding, but there is no per-user sandbox, quota, or authentication inside the app. Installers are unsigned. Containers still run as root (a non-root user would break the `./data_lake` and `./mlruns` bind mounts unless the host directories match the container uid). |
+
+---
+
 ## 9. Testing & CI
 
 ### Test inventory (`tests/`)
@@ -667,8 +682,8 @@ pytest -q tests
 
 | Job | When | Steps |
 |---|---|---|
-| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.15.0 flaml==2.6.0 streamlit==1.58.0`) → `ruff check .` → `python -m compileall app.py run.py src tests` → `pytest -q tests/test_regression_flows.py tests/test_streamlit_gui.py` |
-| `nightly-complete` | Schedule or manual dispatch | Same validation gates first, then optional full `requirements.txt` install and a best-effort `pytest -q tests` (both steps `continue-on-error`) |
+| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 streamlit==1.58.0`) → `ruff check .` → `python -m compileall app.py run.py src tests` → `pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py` |
+| `nightly-complete` | Schedule or manual dispatch | Same validation gates first, then the full `requirements.txt` install (best effort) followed by `pip-audit --strict` over it and `pytest -o addopts="" -q tests`, which **fails the nightly** whenever the stack installed. A `::warning::` records the case where the stack could not install and the suite was skipped. |
 
 **`.github/workflows/build-electron.yml`** — triggers: push to `main`/`master`, manual dispatch. 3-OS matrix (`windows-latest`, `macos-latest`, `ubuntu-latest`) with Node 20; runs `npm run build-win` / `build-mac` / `build-linux` and uploads `dist/*.exe`, `dist/*.dmg`, `dist/*.AppImage` artifacts (retention: 7 days). It publishes nothing.
 
@@ -689,7 +704,7 @@ python -m compileall app.py run.py src tests   # syntax gate
 ```
 Multi-AutoML-Interface/
 ├── app.py                        # Streamlit application (~2,300 lines): UI, pages, config forms
-├── run.py                        # Launcher that requires Python 3.11+ (re-execs with py -3.11 if the current interpreter is older)
+├── run.py                        # Launcher: prefers 3.11, warns on newer, binds loopback by default
 ├── src/                          # 25 modules (below)
 │   ├── __init__.py               # Package marker
 │   ├── autogluon_utils.py        # AutoGluon training (tabular/CV/multimodal), leaderboard, MLflow logging

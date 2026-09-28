@@ -101,7 +101,7 @@ Note: FastAPI is not the application backend — the app is a Streamlit applicat
 ## 🚀 **Quick Start**
 
 ### 📋 **Prerequisites:**
-- **Python 3.11** — minimum for the full framework stack (`run.py` requires Python 3.11+ and re-launches on 3.11 when needed: PyCaret and Lale require Python 3.11). The CI/Docker core path uses Python 3.12 for the lightweight stack.
+- **Python 3.11** — target interpreter for the full framework stack (PyCaret and Lale require 3.11; `run.py` re-launches on 3.11 when it finds it, warns and continues on a newer interpreter). The CI/Docker core path uses Python 3.12 for the lightweight stack.
 - **Node.js 18+** (for the Electron desktop app; CI builds with Node 20)
 - **Java 11+** (only for H2O AutoML)
 - **Git**
@@ -137,7 +137,9 @@ python run.py
 streamlit run app.py
 ```
 
-MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of the box. An MLflow tracking server is entirely optional (see Docker section). Alternative run modes: `npm install && npm run dev` (desktop app, Node.js 18+) or `docker-compose up` (Streamlit app + MLflow server).
+MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of the box — MLflow 3 only accepts a file store with `MLFLOW_ALLOW_FILE_STORE`, which `src/mlflow_utils.py` sets for that default and honours `MLFLOW_TRACKING_URI` instead when you point it at a server. An MLflow tracking server stays optional (see Docker section). Alternative run modes: `npm install && npm run dev` (desktop app, Node.js 18+) or `docker-compose up` (Streamlit app + MLflow server).
+
+`run.py` and the desktop app bind the UI to **`127.0.0.1`** so a shared network cannot reach your machine's Python processes. To expose the app on the network, pass the address yourself: `python run.py --server.address=0.0.0.0` (read the multi-session notes in `docs/DOCUMENTATION.md` first — Streamlit has no built-in authentication).
 
 ---
 
@@ -270,7 +272,9 @@ No hardcoded benchmark numbers are published: results depend strongly on dataset
 ## 🔧 **Troubleshooting**
 
 - **"Java not found" (H2O)**: set `JAVA_HOME` to a Java 11+ installation (e.g. `set JAVA_HOME="C:\Program Files\Java\jdk-11"` on Windows, `export JAVA_HOME=/usr/lib/jvm/java-11-openjdk` on Linux).
-- **"Python 3.11 not found" (run.py)**: PyCaret and Lale require Python 3.11. Install it and retry, or run `py -3.11 -m streamlit run app.py` directly.
+- **"Python 3.11 not found" (run.py)**: PyCaret and Lale require Python 3.11. Install it and retry, or run `py -3.11 -m streamlit run app.py` directly. On a newer interpreter `run.py` starts with a warning and those two frameworks may fail to import.
+- **DagsHub panel says tokens are disabled**: the app is reachable from outside the machine, so per-user tokens would be shared by every session. Use one service account in the environment, or bind loopback with `--server.address=127.0.0.1`.
+- **"Loading error: ... unpickles the artifact"**: every framework restores models with pickle/joblib, so loading by Run ID needs the "I trust the artifacts of this run" box ticked. Only tick it for runs you trained yourself.
 - **"Port already in use"**: start on another port — `streamlit run app.py --server.port 8502`.
 - **MLflow errors / missing `mlruns`**: the store is auto-healed at startup (malformed experiment folders are cleaned and recreated). If problems persist, remove the offending folder under `mlruns/` and restart.
 
