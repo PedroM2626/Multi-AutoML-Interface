@@ -8,6 +8,15 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## Unreleased
+
+### Fixed
+
+- **The desktop "Abrir MLflow" menu opened a port nothing was listening on.** The desktop
+  app records runs in the local `./mlruns` file store, so `http://localhost:5000` only
+  works when the MLflow container is running. The menu now opens `MLFLOW_TRACKING_URI`
+  when it points at an http(s) server, and otherwise explains how to start one.
+
 ## 5.0.2 - 2026-09-28
 
 ### Fixed

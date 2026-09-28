@@ -79,7 +79,20 @@ function createWindow() {
                 {
                     label: 'Abrir MLflow',
                     click: () => {
-                        shell.openExternal('http://localhost:5000');
+                        // The desktop app records runs in the local ./mlruns file store.
+                        // A tracking UI only exists if a server is running, so open the
+                        // configured one and explain the rest instead of a dead localhost:5000.
+                        const server = process.env.MLFLOW_TRACKING_URI;
+                        if (server && /^https?:\/\//i.test(server)) {
+                            shell.openExternal(server);
+                        } else {
+                            dialog.showMessageBox(mainWindow, {
+                                type: 'info',
+                                title: 'MLflow',
+                                message: 'Runs are stored in the local ./mlruns folder',
+                                detail: 'Start the tracking server with "docker compose up" and set MLFLOW_TRACKING_URI to open its UI here.'
+                            });
+                        }
                     }
                 },
                 {
