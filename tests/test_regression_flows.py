@@ -71,7 +71,14 @@ def test_load_by_run_id_rejects_path_like_run_id():
 
 
 def test_flaml_callback_and_learner_guards():
-    from src.flaml_utils import _supports_callbacks, _require_learner_packages
+    # src.flaml_utils starts with `from flaml import AutoML`, which fails when FLAML's own
+    # optional dependencies are absent (the minimal CI image). Skip with the reason rather
+    # than pretend the guard is broken; the nightly installs the full stack and runs it.
+    try:
+        from src.flaml_utils import _require_learner_packages, _supports_callbacks
+    except ImportError as exc:
+        pytest.skip(f"FLAML unavailable in this environment: {exc}")
+
 
     # 'auto' and mixed sklearn/boosting lists reject FLAML's callbacks kwarg outright.
     assert _supports_callbacks(["lgbm"]) is True
