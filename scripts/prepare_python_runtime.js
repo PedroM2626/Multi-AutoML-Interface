@@ -121,7 +121,11 @@ function main() {
     uv(['python', 'install', PYTHON_VERSION, '--install-dir', stage, '--no-bin']);
 
     const installed = locateInstalledPython(stage);
-    fs.cpSync(installed, OUT_DIR, { recursive: true, force: true });
+    // dereference: on Linux/macOS the interpreter is a symlink into uv's staging
+    // directory, and copying the link left runtime/bin/python3 pointing back at the
+    // managed tree - uv then reported "externally managed" for a path outside runtime/.
+    fs.cpSync(installed, OUT_DIR, { recursive: true, force: true, dereference: true });
+    fs.rmSync(stage, { recursive: true, force: true });
     const interpreter = path.relative(OUT_DIR, interpreterPath(OUT_DIR));
     console.log(`Interpreter: ${interpreter}`);
 
@@ -159,8 +163,6 @@ function main() {
             2
         )
     );
-
-    fs.rmSync(stage, { recursive: true, force: true });
 
     let bytes = 0;
     const walk = (dir) => {
