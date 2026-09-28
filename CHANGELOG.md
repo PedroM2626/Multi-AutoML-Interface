@@ -8,6 +8,16 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## Unreleased
+
+### Fixed
+
+- **A flaky ONNX test, caught by the new nightly gate.** The export fixture drew its
+  target from an unseeded `np.random.randint(0, 2, 10)`, which can be a single class;
+  `LogisticRegression` then refuses to fit. It passed on Windows by luck and failed on the
+  first Linux nightly where the full suite is a real gate. The feature matrix is seeded and
+  the target is balanced by construction.
+
 ## 5.0.2 - 2026-09-28
 
 ### Fixed
