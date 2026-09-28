@@ -65,6 +65,16 @@ several runtime defects and leaves the end-of-life Electron 28 shell.
 - **Generated notebooks could not be written** in the installed app: the exporter wrote
   into the working directory, which is inside Program Files there. They now land under
   the system temp directory.
+- **Progress bars disappeared in a terminal.** The stdout/stderr router used to capture
+  per-run logs inherited `io.TextIOBase`, whose `isatty()` always answers False and whose
+  `fileno()` raises - so H2O, FLAML and tqdm disabled their bars even in a real terminal,
+  and anything probing the descriptor failed. Both now delegate to the underlying stream
+  and degrade cleanly when there is none.
+- **A cancelled run dropped its result.** `refresh_all` only polled entries that were
+  running or queued, so the payload a cancelled worker still delivered was never read:
+  `entry.result` stayed empty and the UI reported "Unknown" instead of the real outcome.
+  Cancelled runs are polled too, and a late result no longer relabels the row as
+  completed or failed.
 - **Desktop shell:** external links (`file://`, custom schemes) were passed straight to
   `shell.openExternal` with no navigation guard; Electron moves from the unsupported
   28.3.3 to 44.4.5 with `electron-builder` 26.15.3; the preload assigned
