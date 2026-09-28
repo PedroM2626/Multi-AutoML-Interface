@@ -1,6 +1,6 @@
 # Multi-AutoML Interface
 
-![Version](https://img.shields.io/badge/version-5.0.2-blue)
+![Version](https://img.shields.io/badge/version-5.1.0-blue)
 [![Release](https://img.shields.io/github/v/release/PedroM2626/Multi-AutoML-Interface)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 [![Downloads](https://img.shields.io/github/downloads/PedroM2626/Multi-AutoML-Interface/total)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
@@ -248,7 +248,11 @@ npm version 5.0.1          # bumps package.json
 git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
 ```
 
-The installers bundle the Electron shell and the UI, **not** a Python runtime: `pip install -r requirements.txt` is still required on the target machine. They are also unsigned/unnotarized, so SmartScreen and Gatekeeper warn on first launch. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
+
+The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras, HuggingFace) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM…), so install any extra engine you need into it. H2O additionally requires Java 11+.
+
+Signing is wired up in `.github/workflows/release.yml` and activates as soon as the signing secrets exist (see *Code signing* in `docs/DOCUMENTATION.md`); while they are absent, the release notes state that the builds are unsigned.
 
 ---
 
@@ -347,6 +351,7 @@ Multi-AutoML-Interface/
 ├── 📄 requirements-dev.txt         # Dev tooling (ruff, pytest)
 ├── 📄 requirements-compiled.txt    # pip-compile lock (generated locally, not committed)
 ├── 📄 CHANGELOG.md                 # Release notes
+├── 📁 scripts/                     # prepare_python_runtime.js (bundled installer runtime)
 ├── 📄 render.yaml                  # Render deployment config
 ├── 🐳 Dockerfile                   # Docker configuration
 ├── 🐳 Dockerfile.autogluon_cv      # AutoGluon computer-vision image (Python 3.10, torch + mmcv)

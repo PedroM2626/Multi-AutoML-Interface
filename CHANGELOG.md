@@ -8,7 +8,7 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
-## Unreleased
+## 5.1.0 - 2026-09-28
 
 ### Fixed
 
@@ -17,6 +17,36 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   `LogisticRegression` then refuses to fit. It passed on Windows by luck and failed on the
   first Linux nightly where the full suite is a real gate. The feature matrix is seeded and
   the target is balanced by construction.
+- **The desktop app no longer needs Python installed by the user.** `scripts/prepare_python_runtime.js`
+  downloads a standalone CPython 3.12 with `uv` and installs `requirements.txt` into it;
+  electron-builder ships that tree as `resources/runtime`, and `electron/main.js` starts the
+  bundled interpreter through `runtime/runtime-manifest.json`, falling back to the system
+  Python only in a source checkout. Verified by packaging the app and launching it: the
+  window renders, `/_stcore/health` answers, and the relocated interpreter imports
+  streamlit/mlflow/flaml/pandas/sklearn.
+- **Runs, models and the data lake were written next to the program files.** The app now
+  works in a per-user workspace (Electron `userData`, e.g.
+  `%APPDATA%\multi-automl-desktop\workspace`), which a normal user can write to; Program
+  Files is not. `safe_set_experiment` resolves `mlruns/` against the working directory
+  instead of the source tree so the change takes effect, and `PYTHONPATH` keeps `src/`
+  importable from the new cwd.
+- **Smoke builds were self-signing every bundled executable.** Without credentials
+  electron-builder generated its own certificate and signed hundreds of files inside the
+  runtime, which is slow and produces signatures nobody trusts. The packaging workflow now
+  builds unpacked directories with signing explicitly off and asserts the packaged layout
+  (`resources/runtime/...`, `resources/app/app.py`) instead of uploading 1.2 GB per OS.
+
+### Added
+
+- **Signing is wired up, and verified.** `release.yml` signs Windows installers through
+  Azure Artifact Signing or a classic Authenticode certificate, and macOS through a
+  Developer ID certificate plus notarization, depending on which repository secrets exist.
+  A build that had credentials but produced an unsigned artifact now fails, the signature
+  reports are uploaded as artifacts, and the release notes state which case applied. With no
+  credentials the build stays unsigned and says so. See *Code signing and notarization* in
+  `docs/DOCUMENTATION.md`.
+- `npm run runtime` builds just the bundled interpreter, and the packaging scripts run it
+  before electron-builder, so `npm run build-win` produces a working installer in one step.
 
 ## 5.0.2 - 2026-09-28
 

@@ -533,7 +533,6 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 | `JAVA_HOME` | `Dockerfile` | Points to the installed JDK for H2O |
 | `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`, `PIP_NO_CACHE_DIR` | `Dockerfile` | Container hygiene defaults |
 | `OMP_NUM_THREADS` | `Dockerfile.autogluon_cv` (set to `2`) | Prevents thread-locking in small containers |
-| `GH_TOKEN` | `.github/workflows/build-electron.yml` (macOS job) | electron-builder publishing token (from `secrets.GITHUB_TOKEN`) |
 | `MLFLOW_ALLOW_FILE_STORE` | `src/mlflow_utils.py`, `docker-compose.yml`, `tests/conftest.py` | MLflow 3 refuses a file-based tracking store unless this is set; the app opts in for its own `mlruns/` default. Already set when the caller provided it. |
 
 > Note: H2O cluster memory is not controlled by an environment variable in this codebase — it is fixed in `src/h2o_utils.py` via `h2o.init(max_mem_size="4G", nthreads=-1)` (2G when loading models for prediction).
@@ -582,7 +581,7 @@ docker build -f Dockerfile.autokeras_cv -t multi-automl-akcv .
 
 ### Electron desktop app
 
-Requires **Node.js 18+** (CI uses Node 20). `electron/main.js` spawns `python -m streamlit run app.py` headless on `127.0.0.1:8501` and loads it in a BrowserWindow (with retry and an `error_loading.html` fallback).
+Requires **Node.js 18+** to build (CI uses Node 20). The installers are self-contained: `scripts/prepare_python_runtime.js` bundles a standalone CPython 3.12 with `requirements.txt` installed, and `electron/main.js` starts `resources/runtime/<interpreter>` (falling back to the system `python`/`python3` in a source checkout), running `python -m streamlit run app.py` headless on `127.0.0.1:8501` with `PYTHONPATH` pointed at the app sources. Runs, models and the data lake are written to the per-user workspace (`app.getPath('userData')/workspace`), because Program Files is not writable for normal users.
 
 | Script | Effect |
 |---|---|
@@ -590,11 +589,12 @@ Requires **Node.js 18+** (CI uses Node 20). `electron/main.js` spawns `python -m
 | `npm start` | Run Electron (expects Streamlit already running) |
 | `npm run dev` | Runs Streamlit and Electron together (`concurrently` + `wait-on http://localhost:8501`) |
 | `npm run streamlit` | Streamlit only (`--server.port 8501`) |
-| `npm run build-win` | Windows installer — **NSIS** (guided install, desktop/start-menu shortcuts) |
-| `npm run build-mac` | macOS **DMG** |
-| `npm run build-linux` | Linux **AppImage** |
+| `npm run runtime` | Build `runtime/` only (standalone CPython + `requirements.txt`) |
+| `npm run build-win` | `runtime` then Windows installer — **NSIS** (guided install, desktop/start-menu shortcuts) |
+| `npm run build-mac` | `runtime` then macOS **DMG** (x64 and arm64) |
+| `npm run build-linux` | `runtime` then Linux **AppImage** |
 
-Installers are written to `dist/` (product name "Multi-AutoML Desktop", app ID `com.multi-automl.desktop`, `asar: false`).
+Installers are written to `dist/` (product name "Multi-AutoML Desktop", app ID `com.multi-automl.desktop`, `asar: false`). An unpacked build weighs about 1.2 GB, of which the bundled runtime is 811 MB; GitHub allows release assets up to 2 GiB each.
 
 ### Render
 
@@ -633,6 +633,21 @@ curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
 > The generated service downloads its model from MLflow at startup, so the same MLflow store (or `MLFLOW_TRACKING_URI`) used during training must be reachable.
 
 ---
+
+### Code signing and notarization
+
+`release.yml` signs installers only when the credentials exist, and **verifies** the result: a build that had credentials available but produced an unsigned artifact fails the job. Without credentials it builds unsigned and the release notes say so.
+
+| Platform | Route | Repository secrets | Repository variables / notes |
+|---|---|---|---|
+| Windows | Azure Artifact Signing (formerly Trusted Signing) | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | `AZURE_CODE_SIGNING_ACCOUNT`, `AZURE_CERTIFICATE_PROFILE`, optional `AZURE_ENDPOINT`. The workflow passes `-c.win.sign.type=azure ...`. Requires a **paid** Azure subscription (free/trial/sponsored subscriptions are rejected by the service), an completed identity validation, and a supported country/region; the service does not issue EV certificates, so SmartScreen reputation still builds up with download history. |
+| Windows | Classic Authenticode (.p12 from a CA) | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | No config needed: electron-builder picks these up from the environment. |
+| macOS | Developer ID + notarization | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Distributing outside the Mac App Store requires a Developer ID certificate and Apple notarization, which in turn requires an Apple Developer Program membership ($99/yr, verified from apple.com). |
+| Linux | none (AppImage has no signing convention) | — | The workflow publishes a `SHA-256` file per AppImage instead. |
+
+Verification steps run after each build: `Get-AuthenticodeSignature` on Windows, `codesign --display` plus `xcrun stapler validate` on macOS. Their output is uploaded as a `signature-report-<os>` artifact.
+
+The bundled runtime is built by `scripts/prepare_python_runtime.js`, which downloads a standalone CPython with `uv`, copies it out of uv's managed directory, removes the distribution's PEP 668 `EXTERNALLY-MANAGED` marker (this tree is private to the app) and installs `requirements.txt` into it with `uv pip install --system`. It is pinned to **Python 3.12** because `numpy==2.5.0` requires `>=3.12`. `RUNTIME_PYTHON_VERSION` overrides it for experiments, and `runtime/runtime-manifest.json` records the interpreter path that `electron/main.js` reads.
 
 ### Multi-session deployment notes
 
@@ -685,9 +700,9 @@ pytest -q tests
 | `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 streamlit==1.58.0`) → `ruff check .` → `python -m compileall app.py run.py src tests` → `pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py` |
 | `nightly-complete` | Schedule or manual dispatch | Same validation gates first, then the full `requirements.txt` install (best effort) followed by `pip-audit --strict` over it and `pytest -o addopts="" -q tests`, which **fails the nightly** whenever the stack installed. A `::warning::` records the case where the stack could not install and the suite was skipped. |
 
-**`.github/workflows/build-electron.yml`** — triggers: push to `main`/`master`, manual dispatch. 3-OS matrix (`windows-latest`, `macos-latest`, `ubuntu-latest`) with Node 20; runs `npm run build-win` / `build-mac` / `build-linux` and uploads `dist/*.exe`, `dist/*.dmg`, `dist/*.AppImage` artifacts (retention: 7 days). It publishes nothing.
+**`.github/workflows/build-electron.yml`** - packaging smoke test. Triggers: pull requests touching `electron/`, `package.json`, `package-lock.json`, `requirements.txt`, the runtime script or the workflow itself, plus manual dispatch. 3-OS matrix with Node 20: builds `runtime/`, packages **unpacked** apps with signing explicitly disabled, and asserts that `resources/runtime/<interpreter>`, `runtime-manifest.json`, `resources/app/app.py` and `resources/app/src` exist. It uploads no artifacts - a 1.2 GB payload per OS would only consume storage.
 
-**`.github/workflows/release.yml`** - triggers: push of a `v*` tag (plus manual dispatch with a tag input). Verifies the tag equals `version` in `package.json`, builds the three installers with `electron-builder -p never` (macOS built unsigned for `--x64` and `--arm64`), then a `release` job downloads the artifacts and creates the GitHub Release through `softprops/action-gh-release@v2` (`permissions: contents: write`, `prerelease` when the tag carries a `-`). The body comes from the matching `## <version>` section of `CHANGELOG.md`, falling back to generated notes when that section is missing.
+**`.github/workflows/release.yml`** - triggers: push of a `v*` tag (plus manual dispatch with a tag input). Verifies the tag equals `version` in `package.json`, builds `runtime/`, then the three installers with `electron-builder -p never` (macOS for `--x64` and `--arm64`), signing them according to whichever credentials are configured (see *Code signing and notarization*) and **failing** if a signed build did not actually come out signed. A `release` job downloads the artifacts plus the signature reports and creates the GitHub Release through `softprops/action-gh-release@v2` (`permissions: contents: write`, `prerelease` when the tag carries a `-`). The body is the matching `## <version>` section of `CHANGELOG.md` plus a "what is inside" section, falling back to generated notes when that section is missing.
 
 ### Developer quality gates
 
@@ -739,6 +754,7 @@ Multi-AutoML-Interface/
 ├── models/                       # Local model saves + ONNX exports (generated)
 ├── tpot_models/                  # TPOT pipeline/info exports (generated)
 ├── docs/                         # This documentation
+├── scripts/prepare_python_runtime.js # builds runtime/ (standalone CPython + requirements.txt)
 ├── .github/workflows/            # ci.yml (quick-pr + nightly-complete), build-electron.yml
 ├── Dockerfile                    # Core image (python:3.12-slim + Java)
 ├── Dockerfile.autogluon_cv       # AutoGluon CV image (python:3.10-slim, torch 2.1, mmcv)
