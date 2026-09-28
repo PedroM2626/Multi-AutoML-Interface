@@ -30,6 +30,8 @@ models/
 *pytest*
 *dvc*
 *.txt*
+!requirements.txt
+!requirements-dev.txt
 
 *out*
 *.tsv
@@ -55,3 +57,7 @@ dist/
 *.AppImage
 convert_utf8.py
 modify_pkg.py
+
+# Written to the working directory by the white-box notebook exporter
+automl_candidate_pipeline_*.ipynb
+.audit-scratch/
