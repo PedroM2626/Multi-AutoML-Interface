@@ -51,7 +51,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 
 ### 📊 **Integrated MLOps & Dashboard:**
 - **Explainable AI (XAI)**: SHAP for tabular data and Saliency Maps (Occlusion) for Computer Vision.
-- **Auto-EDA & Data Health**: profiling via `ydata-profiling`.
+- **Auto-EDA & Data Health**: missing-value and dtype checks in-app; full `ydata-profiling` reports need a separate environment because they require `numpy<2.4`.
 - **Live Experiments Dashboard**: monitor concurrent training runs with real-time logs and metrics (Streamlit Fragments).
 - **Multi-Concurrent Training**: launch all 8 engines simultaneously via background training workers, with graceful cancellation.
 - **Complete MLflow tracking**: metrics, parameters, and artifacts in a local `mlruns/` store.
@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `transformers`/`datasets`/`huggingface_hub`, `shap` (XAI), `ydata-profiling` (Auto-EDA), `dvc` (data versioning), `onnxruntime` (ONNX export) — e.g. `pip install autogluon pycaret`.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `transformers`/`datasets`/`huggingface_hub`, `shap` (XAI), `dvc` (data versioning), `onnxruntime` (ONNX export) — e.g. `pip install autogluon pycaret`.
 
 #### **Run the Application:**
 ```bash
@@ -149,7 +149,7 @@ MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of t
 
 #### **1. Data Upload & Exploration:**
 - CSV/Excel uploads (train mandatory; validation/test optional), automatic type detection
-- **Auto-EDA**: profiling reports via `ydata-profiling`
+- **Auto-EDA**: data-health checks in-app; `ydata-profiling` reports require `numpy<2.4`, so they need a separate environment
 - **Automatic Data Lake**: processed data is copied to `data_lake/` and versioned with DVC
 
 #### **2. Experiment Configuration:**

@@ -220,7 +220,7 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | Lale | `pip install lale` | Requires Python 3.11 |
 | AutoKeras | `pip install autokeras` | Requires TensorFlow |
 | SHAP (XAI) | `pip install shap` | Needed for tabular explanations |
-| Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` | Powers the Data Exploration report |
+| Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
 | DVC | `pip install dvc` | Data-lake versioning (falls back to MD5 hashing when absent) |
 | ONNX | `pip install onnx onnxruntime` | ONNX export/load |
 | Hugging Face Hub | `pip install huggingface_hub` | Push/download models to/from the Hub |
@@ -324,7 +324,7 @@ Below the uploaders, a **Preview & Profiling** section shows dataset overview ca
 
 #### Step 2 — Auto-EDA (🗄️ Data)
 
-Select a Data Lake dataset and click **Generate Auto-EDA Report**. This uses `ydata-profiling` + `streamlit-pandas-profiling` — both **optional dependencies**; the page shows an explicit error if they are not installed. A health alert warns when overall missing values exceed 5%. Large datasets (> 10,000 rows) automatically use the minimal profiling mode.
+Select a Data Lake dataset and click **Generate Auto-EDA Report**. This uses `ydata-profiling` + `streamlit-pandas-profiling` — both **optional** and, because they require `numpy<2.4`, installable only in a separate environment; the page explains that when they are missing and still shows the built-in health checks. A health alert warns when overall missing values exceed 5%. Large datasets (> 10,000 rows) automatically use the minimal profiling mode.
 
 #### Step 3 — Configure training (⚙️ AutoML)
 
@@ -767,7 +767,7 @@ Multi-AutoML-Interface/
 | **Stale run lists in History** | Results are cached for 5 minutes (`MLflowCache`). Use *Clear Python MLflow Cache* on the History page. |
 | **`ModuleNotFoundError` for an engine** (autogluon, h2o, tpot, pycaret, lale, autokeras…) | Engines are optional and imported lazily — install the missing extra (Section 3). The failing run shows the import error in its log panel; the rest of the app keeps working (graceful degradation). |
 | **SHAP explanation unavailable** | `pip install shap` (optional). Explanations are limited to single-target tabular classification/regression. |
-| **Auto-EDA fails** | `pip install ydata-profiling streamlit-pandas-profiling` (optional). |
+| **Auto-EDA fails / cannot install** | `ydata-profiling` requires `numpy<2.4`, this project pins `numpy==2.5.0`: install the profiling stack in a separate environment rather than changing the app pins. |
 | **DVC messages ("DVC is not installed or not in PATH")** | Install `dvc` or ignore — the app falls back to MD5 hashing and remains functional. |
 | **ONNX export error** | `pip install onnx onnxruntime`; a Data Lake dataset is required for shape inference. |
 | **Memory errors during training** | Reduce `n_jobs` (Parallelism expander → Manual), shrink time limits/populations, or lower CV folds. H2O's cluster cap is fixed at `max_mem_size="4G"` in `src/h2o_utils.py` — edit that value to change it. DFS at depth ≥ 2 can consume massive RAM; keep depth at 1. |

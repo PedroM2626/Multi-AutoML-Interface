@@ -998,7 +998,13 @@ elif menu == "Data Exploration":
                     st_profile_report(pr)
                     
             except ImportError:
-                st.error("Missing dependency. Please ensure `ydata-profiling` and `streamlit-pandas-profiling` are installed in your environment.")
+                st.error(
+                    "Auto-EDA needs `ydata-profiling` and `streamlit-pandas-profiling`, and "
+                    "ydata-profiling requires `numpy<2.4` while this project pins "
+                    "`numpy==2.5.0`. Install them in a separate environment "
+                    "(`pip install ydata-profiling streamlit-pandas-profiling`) or run the "
+                    "health checks shown above; adding them here would break the pinned stack."
+                )
             except Exception as e:
                 st.error(f"Error generating report: {e}")
 
