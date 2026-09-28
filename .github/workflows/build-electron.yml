@@ -78,9 +78,10 @@ jobs:
           # Linux into dist/<os>-unpacked/resources, so the runtime directory is located
           # by name and the interpreter path is read from its own manifest.
           found=0
-          while IFS= read -r -d '' rt; do
-            manifest="$rt/runtime-manifest.json"
-            if [ ! -f "$manifest" ]; then echo "::error::no runtime-manifest.json in $rt"; exit 1; fi
+          # Located by its manifest, not by directory name: the bundled site-packages
+          # contains unrelated directories called "runtime" (alembic/runtime).
+          while IFS= read -r -d '' manifest; do
+            rt="$(dirname "$manifest")"
             interp="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).interpreter)" "$manifest")"
             if [ ! -e "$rt/$interp" ]; then echo "::error::bundled interpreter $rt/$interp missing"; exit 1; fi
             res="$(dirname "$rt")"
@@ -88,6 +89,6 @@ jobs:
             test -d "$res/app/src" || { echo "::error::src/ not packaged next to $res"; exit 1; }
             echo "OK: $rt ($interp)"
             found=1
-          done < <(find dist -type d -name runtime -print0)
-          if [ "$found" != "1" ]; then echo "::error::no bundled runtime found under dist/"; exit 1; fi
+          done < <(find dist -type f -name runtime-manifest.json -print0)
+          if [ "$found" != "1" ]; then echo "::error::no bundled runtime manifest found under dist/"; exit 1; fi
 
