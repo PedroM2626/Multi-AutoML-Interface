@@ -28,6 +28,19 @@ def test_cancel_flow_keeps_cancelled_status():
     assert entry.finished_at is not None
 
 
+def test_cancelled_run_records_late_result_without_relabelling():
+    manager = ExperimentManager()
+    entry = ExperimentEntry(key="exp_2", metadata={"framework": "FLAML"}, status="running")
+    manager.add(entry)
+    manager.cancel("exp_2")
+
+    entry.result_queue.put({"success": True, "run_id": "abc123"})
+    manager.refresh_all()
+
+    assert entry.status == "cancelled"
+    assert entry.result == {"success": True, "run_id": "abc123"}
+
+
 def test_load_by_run_id_autogluon_branch(monkeypatch):
     expected = {"predictor": "mock"}
 

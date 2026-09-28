@@ -74,10 +74,14 @@ class ExperimentEntry:
             try:
                 res = self.result_queue.get_nowait()
                 self.result = res
-                if res.get("success"):
-                    self.status = "completed"
-                else:
-                    self.status = "failed"
+                # A cancel request already ended the experiment for the user; a late
+                # result is still recorded, but it must not relabel the row as
+                # completed/failed.
+                if self.status != "cancelled":
+                    if res.get("success"):
+                        self.status = "completed"
+                    else:
+                        self.status = "failed"
                 self.finished_at = time.time()
                 self.last_update = time.time()
             except queue.Empty:
@@ -130,13 +134,26 @@ class ExperimentManager:
         return sorted(entries, key=lambda e: e.started_at, reverse=True)
 
     def has_running(self) -> bool:
-        return any(e.status == "running" for e in self.get_all())
+        """
+        True while any experiment still produces work. A cancelled run counts until its
+        worker thread actually exits, otherwise the UI stops refreshing and never picks
+        up the result the thread is still writing.
+        """
+        for entry in self.get_all():
+            if entry.status in ("running", "queued"):
+                return True
+            if entry.status == "cancelled" and entry.result is None:
+                thread = getattr(entry, "thread", None)
+                if thread is not None and thread.is_alive():
+                    return True
+        return False
 
     def refresh_all(self):
         """Sync status/logs/results for all experiments."""
         for entry in self.get_all():
             entry.drain_logs()
-            if entry.status in ("running", "queued"):
+            # Cancelled runs are polled too: their worker may still deliver a result.
+            if entry.status in ("running", "queued", "cancelled"):
                 entry.check_result()
                 # Also check if thread died unexpectedly
                 if getattr(entry, 'thread', None) is not None:
