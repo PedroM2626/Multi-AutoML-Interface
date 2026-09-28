@@ -34,11 +34,27 @@ def test_load_by_run_id_autogluon_branch(monkeypatch):
     fake_module = types.SimpleNamespace(load_model_from_mlflow=lambda run_id: {"run_id": run_id, **expected})
     monkeypatch.setitem(sys.modules, "src.autogluon_utils", fake_module)
 
-    predictor, model_type = load_model_by_framework("AutoGluon", "run_123")
+    predictor, model_type = load_model_by_framework("AutoGluon", "run_123", trust_artifacts=True)
 
     assert model_type == "autogluon"
     assert predictor["run_id"] == "run_123"
     assert predictor["predictor"] == "mock"
+
+
+def test_load_by_run_id_requires_trusted_artifacts(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "src.autogluon_utils",
+        types.SimpleNamespace(load_model_from_mlflow=lambda run_id: {}),
+    )
+
+    with pytest.raises(PermissionError):
+        load_model_by_framework("AutoGluon", "run_123")
+
+
+def test_load_by_run_id_rejects_path_like_run_id():
+    for bad in ["../run", "runs/abc", "", "a" * 65, "run 123"]:
+        with pytest.raises(ValueError):
+            load_model_by_framework("FLAML", bad, trust_artifacts=True)
 
 
 def test_load_by_run_id_invalid_framework():

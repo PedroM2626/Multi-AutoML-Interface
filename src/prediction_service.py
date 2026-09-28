@@ -1,5 +1,6 @@
 import os
 import importlib
+import re
 import pandas as pd
 import logging
 
@@ -7,6 +8,13 @@ logger = logging.getLogger(__name__)
 
 
 _PYCARET_CLASSIFICATION_MODULE = ".".join(["pycaret", "classification"])
+
+# A run id reaches filesystem paths and remote tracking URIs, so keep it to characters
+# that cannot express a path separator, a parent reference or a URL fragment.
+_RUN_ID_RE = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
+
+# Flavors restored from raw Python objects: unpickling executes code inside the artifact.
+_PICKLE_BACKED_FLAVORS = {"AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"}
 
 
 def _get_pycaret_module_name(task_type: str | None) -> str:
@@ -21,11 +29,25 @@ def _get_pycaret_module_name(task_type: str | None) -> str:
     return _PYCARET_CLASSIFICATION_MODULE
 
 
-def load_model_by_framework(framework_name: str, run_id: str):
+def load_model_by_framework(framework_name: str, run_id: str, *, trust_artifacts: bool = False):
     """
     Load a predictor from MLflow artifacts according to selected framework label.
     Returns (predictor, normalized_model_type).
+
+    trust_artifacts has to come from an explicit confirmation: every supported flavor is
+    deserialized with pickle/joblib (CWE-502), and the sidebar can point the tracking URI
+    at a store other than the local mlruns directory.
     """
+    if not _RUN_ID_RE.match(run_id or ""):
+        raise ValueError("Run ID must be 1-64 characters of letters, digits, '-' or '_'.")
+
+    if framework_name in _PICKLE_BACKED_FLAVORS and not trust_artifacts:
+        raise PermissionError(
+            f"Loading a {framework_name} model unpickles the artifact of run '{run_id}', "
+            "which executes code contained in it. Load models only from runs you trained "
+            "yourself, then retry with trust_artifacts=True."
+        )
+
     if framework_name == "AutoGluon":
         from src.autogluon_utils import load_model_from_mlflow
 

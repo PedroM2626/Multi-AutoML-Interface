@@ -744,28 +744,48 @@ menu = sync_navigation_selection(st.session_state, selected_nav_label, NAV_ITEMS
 
 st.sidebar.markdown('<div class="sidebar-sep">Integrations</div>', unsafe_allow_html=True)
 st.sidebar.header("🔗 DagsHub Integration (Optional)")
-use_dagshub = st.sidebar.checkbox("Enable DagsHub")
 
-if use_dagshub:
-    dagshub_user = st.sidebar.text_input("DagsHub Username")
-    dagshub_repo = st.sidebar.text_input("Repository Name")
-    dagshub_token = st.sidebar.text_input("Access Token (DagsHub)", type="password")
-    
-    if st.sidebar.button("Connect to DagsHub"):
-        if dagshub_user and dagshub_repo and dagshub_token:
-            try:
-                import dagshub
-                import os
-                os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
-                os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
-                dagshub.init(repo_owner=dagshub_user, repo_name=dagshub_repo, mlflow=True)
-                st.sidebar.success("Successfully connected to DagsHub!")
-            except ImportError:
-                st.sidebar.error("dagshub library not found. Add 'dagshub' to requirements.txt and install it.")
-            except Exception as e:
-                st.sidebar.error(f"Connection error: {e}")
-        else:
-            st.sidebar.warning("Please fill all DagsHub fields.")
+
+def _is_multi_session_deployment() -> bool:
+    """
+    True when Streamlit binds to something other than loopback, i.e. one process serves
+    several users. os.environ and MLflow's tracking client are process-global, so a
+    per-user credential written here would be reused by every other session.
+    """
+    address = (st.get_option("server.address") or "").strip().lower()
+    return address not in ("", "127.0.0.1", "localhost", "::1")
+
+
+if _is_multi_session_deployment():
+    st.sidebar.info(
+        "Per-user DagsHub tokens are disabled: this is a multi-session deployment, and "
+        "credentials would be shared with every other session in the process. Provide one "
+        "service account through the container environment instead "
+        "(`MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`)."
+    )
+else:
+    use_dagshub = st.sidebar.checkbox("Enable DagsHub")
+
+    if use_dagshub:
+        dagshub_user = st.sidebar.text_input("DagsHub Username")
+        dagshub_repo = st.sidebar.text_input("Repository Name")
+        dagshub_token = st.sidebar.text_input("Access Token (DagsHub)", type="password")
+
+        if st.sidebar.button("Connect to DagsHub"):
+            if dagshub_user and dagshub_repo and dagshub_token:
+                try:
+                    import dagshub
+                    import os
+                    os.environ["MLFLOW_TRACKING_USERNAME"] = dagshub_user
+                    os.environ["MLFLOW_TRACKING_PASSWORD"] = dagshub_token
+                    dagshub.init(repo_owner=dagshub_user, repo_name=dagshub_repo, mlflow=True)
+                    st.sidebar.success("Successfully connected to DagsHub!")
+                except ImportError:
+                    st.sidebar.error("dagshub library not found. Add 'dagshub' to requirements.txt and install it.")
+                except Exception as e:
+                    st.sidebar.error(f"Connection error: {e}")
+            else:
+                st.sidebar.warning("Please fill all DagsHub fields.")
 st.sidebar.markdown("---")
 
 if menu == "Data Upload":
@@ -803,13 +823,19 @@ if menu == "Data Upload":
         if upload_btn and uploaded_file is not None:
             try:
                 with st.spinner("Processing and versioning tabular data…"):
-                    from src.data_utils import init_dvc, save_to_data_lake
+                    from src.data_utils import init_dvc, save_to_data_lake, has_dvc_remote
                     init_dvc()
                     df = cached_load_data(uploaded_file, no_header=no_header_upload)
                     t_path, t_tag, t_hash = save_to_data_lake(df, filename_prefix)
                     st.cache_data.clear()
 
                 st.success(f"✅ Saved to Data Lake! Hash: `{t_hash}`")
+                if not has_dvc_remote():
+                    st.warning(
+                        "No DVC remote is configured, so this dataset is versioned on this "
+                        "machine only: the `.dvc` pointer will not resolve on another host. "
+                        "Add storage with `dvc remote add -d <name> <path-or-url>`."
+                    )
                 st.session_state['_just_uploaded'] = df
             except Exception as e:
                 st.error(f"Error processing tabular data: {e}")
@@ -2130,10 +2156,19 @@ elif menu == "Experiments":
         col1, col2 = st.columns(2)
         m_type = col1.selectbox("Model Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"])
         run_id_input = col2.text_input("Run ID")
-        
+        trust_artifacts = st.checkbox(
+            "I trust the artifacts of this run",
+            value=False,
+            key="trust_mlflow_artifacts",
+            help="Every framework here is restored with pickle/joblib, so a model artifact "
+                 "executes code while it loads. Check this only for runs you trained yourself.",
+        )
+
         if st.button("Load Model"):
             try:
-                predictor_obj, normalized_type = load_model_by_framework(m_type, run_id_input)
+                predictor_obj, normalized_type = load_model_by_framework(
+                    m_type, run_id_input, trust_artifacts=trust_artifacts
+                )
                 st.session_state['predictor'] = predictor_obj
                 st.session_state['model_type'] = normalized_type
                 st.session_state['run_id'] = run_id_input
