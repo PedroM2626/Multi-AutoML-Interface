@@ -41,5 +41,7 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
   CMD curl -fsS http://localhost:8501/_stcore/health || exit 1
 
-# Command to run the application
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--server.enableCORS=false"]
+# Command to run the application. Streamlit's CORS/XSRF defaults stay enabled: this
+# deployment is multi-session, and `--server.enableCORS=false` lets any page that can
+# reach the port POST to the app.
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]

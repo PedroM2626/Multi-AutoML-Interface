@@ -21,9 +21,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
 });
 
-// Expose some useful information to the renderer
-window.electron = {
+// Expose desktop detection to the page itself. A plain `window.electron = ...` here
+// would only live in the preload's isolated world and never reach the page, so it has
+// to go through contextBridge like electronAPI does.
+contextBridge.exposeInMainWorld('electron', {
     isElectron: true,
     platform: process.platform,
     version: process.versions.electron
-};
+});

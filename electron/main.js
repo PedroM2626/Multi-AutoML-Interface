@@ -195,12 +195,13 @@ function startStreamlit() {
         app.quit();
     });
 
-    // Iniciar Streamlit
+    // Start Streamlit. CORS is left at its secure default even though the server binds
+    // to loopback: with CORS disabled, any page open in the user's browser could read
+    // and post to http://127.0.0.1:<port>.
     streamlitProcess = spawn(pythonPath, [
         '-m', 'streamlit', 'run', 'app.py',
         '--server.port', String(APP_PORT),
         '--server.headless', 'true',
-        '--server.enableCORS', 'false',
         '--browser.gatherUsageStats', 'false',
         '--server.address', '127.0.0.1'
     ], {

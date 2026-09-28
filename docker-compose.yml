@@ -1,15 +1,22 @@
 services:
   autogluon-ui:
     build: .
+    # Multi-session: put an authenticating reverse proxy in front of this port for
+    # external access instead of publishing it on every interface.
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     volumes:
-      - .:/app
+      # Only the data the app reads and writes, instead of the whole repository
+      # (a `.:./app` mount also exposes .git and lets the container overwrite source).
+      - ./data_lake:/app/data_lake
+      - ./mlruns:/app/mlruns
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow-ui:5000
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true --server.enableCORS=false
+    # Streamlit's own CORS/XSRF defaults stay enabled: disabling CORS here turns the
+    # app into a CSRF target for every browser that can reach the port.
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
     depends_on:
       mlflow-ui:
         condition: service_healthy
@@ -21,11 +28,15 @@ services:
       start_period: 30s
 
   mlflow-ui:
-    image: ghcr.io/mlflow/mlflow:v2.11.1
+    # Same minor as the client in requirements.txt: an MLflow 2.x server cannot serve
+    # the 3.x tracking API this app is pinned to.
+    image: ghcr.io/mlflow/mlflow:v3.16.1
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./mlruns:/mlruns
+    environment:
+      - MLFLOW_ALLOW_FILE_STORE=true
     command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri /mlruns --default-artifact-root /mlruns
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5000/"]
