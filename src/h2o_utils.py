@@ -39,7 +39,7 @@ def check_java_availability():
         
         return False
         
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except Exception:
         return False
 
 def initialize_h2o():
@@ -135,7 +135,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
         try:
             if mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
 
         with mlflow.start_run(run_name=run_name, nested=True) as run:
@@ -224,12 +224,14 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             
             # Streaming updates thread
             def _push_h2o_telemetry():
-                while aml.leaderboard is None or aml.leaderboard.nrow == 0:
+                # _training_done also releases this thread when training raises, so a
+                # failed run cannot leave a spinner running inside the shared process.
+                while (aml.leaderboard is None or aml.leaderboard.nrow == 0) and not _training_done.is_set():
                     if stop_event and stop_event.is_set(): break
                     time.sleep(2)
                 
                 last_row_count = 0
-                while not (stop_event and stop_event.is_set()):
+                while not (stop_event and stop_event.is_set()) and not _training_done.is_set():
                     try:
                         lb = aml.leaderboard
                         if lb is not None and lb.nrow > last_row_count:
@@ -260,14 +262,16 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             # or wrapping the call. H2O uses ASCII bars if it detects non-tty, but our router
             # might be confusing it.
             try:
-                aml.train(**train_kwargs)
-            except UnicodeEncodeError:
-                # Fallback: try with minimal verbosity if encoding fails
-                logger.warning("Encoding error detected, retrying with lower verbosity...")
-                aml.project_name = aml.project_name + "_retry"
-                aml.train(**train_kwargs)
-
-            if stop_event is not None:
+                try:
+                    aml.train(**train_kwargs)
+                except UnicodeEncodeError:
+                    # Fallback: try with minimal verbosity if encoding fails
+                    logger.warning("Encoding error detected, retrying with lower verbosity...")
+                    aml.project_name = aml.project_name + "_retry"
+                    aml.train(**train_kwargs)
+            finally:
+                # Always released: it is what stops the cancellation watcher and the
+                # telemetry thread, including when training raises.
                 _training_done.set()
 
             training_duration = time.time() - start_time
@@ -482,7 +486,7 @@ def load_h2o_model(run_id: str):
     # Initialize H2O if not active
     try:
         h2o.init(max_mem_size="2G", nthreads=-1)
-    except:
+    except Exception:
         pass  # H2O might already be active
     
     try:
@@ -541,5 +545,5 @@ def predict_with_h2o(model, data: pd.DataFrame):
         try:
             if 'h2o_frame' in locals():
                 h2o_frame = None
-        except:
+        except Exception:
             pass

@@ -3,7 +3,7 @@ import logging
 import threading
 from typing import Dict, Any, Optional, Tuple
 
-from src.experiment_manager import ExperimentEntry, get_or_create_manager
+from src.experiment_manager import ExperimentEntry
 from src.training_worker import run_training_worker
 
 logger = logging.getLogger(__name__)
@@ -53,20 +53,19 @@ class UniversalAutoMLOrchestrator:
         logger.info(f"Running {self.framework} training synchronously...")
         return train_fn(**kwargs)
 
-    def queue_experiment(self, run_name: str, exp_manager=None) -> ExperimentEntry:
+    def queue_experiment(self, run_name: str, exp_manager) -> ExperimentEntry:
         """
         Queue the experiment to run in a background thread.
-        
+
         Args:
             run_name: Name of the run.
-            exp_manager: Optional ExperimentManager instance.
-            
+            exp_manager: ExperimentManager instance. It has to come from the caller's
+                session state: in a multi-session deployment one process serves several
+                users, so the orchestrator must not fall back to a shared manager.
+
         Returns:
             ExperimentEntry: The queued experiment entry.
         """
-        if exp_manager is None:
-            exp_manager = get_or_create_manager()
-            
         train_fn, kwargs = self._get_train_function_and_kwargs()
         
         target_col = kwargs.get('target') or kwargs.get('target_col') or kwargs.get('target_column')

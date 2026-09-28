@@ -1,13 +1,17 @@
 import os
 import shutil
+import time
 import logging
 import mlflow
 
 logger = logging.getLogger(__name__)
 
-def heal_mlruns(mlruns_path="mlruns"):
+def heal_mlruns(mlruns_path="mlruns", min_age_seconds=3600):
     """
-    Removes experiment directories that are missing meta.yaml to prevent MLflow crashes.
+    Moves experiment directories that are missing meta.yaml into mlruns/.trash so the
+    local store can be read again. Directories touched in the last hour are left alone:
+    in a multi-session deployment another worker may be creating that experiment right
+    now, and deleting it would destroy a run in flight.
     """
     if not os.path.exists(mlruns_path):
         os.makedirs(mlruns_path, exist_ok=True)
@@ -19,11 +23,23 @@ def heal_mlruns(mlruns_path="mlruns"):
         if os.path.isdir(item_path) and item.isdigit():
             meta_path = os.path.join(item_path, "meta.yaml")
             if not os.path.exists(meta_path):
-                logger.warning(f"Removing malformed experiment: {item_path}")
                 try:
-                    shutil.rmtree(item_path)
+                    age = time.time() - os.path.getmtime(item_path)
+                except OSError as e:
+                    logger.warning(f"Cannot inspect {item_path}: {e}")
+                    continue
+                if age < min_age_seconds:
+                    logger.info(f"Leaving {item_path} alone: written {int(age)}s ago, may belong to a running experiment")
+                    continue
+
+                trash_path = os.path.join(mlruns_path, ".trash")
+                os.makedirs(trash_path, exist_ok=True)
+                destination = os.path.join(trash_path, f"{item}_{int(time.time())}")
+                logger.warning(f"Quarantining malformed experiment {item_path} to {destination}")
+                try:
+                    shutil.move(item_path, destination)
                 except Exception as e:
-                    logger.error(f"Error removing {item_path}: {e}")
+                    logger.error(f"Error moving {item_path}: {e}")
 
 def safe_set_experiment(experiment_name):
     """Safely set MLflow experiment"""

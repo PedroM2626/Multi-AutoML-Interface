@@ -201,7 +201,7 @@ def generate_cv_saliency_map(model, image_path: str, target_size=(224, 224), ste
         # Cleanup
         for p in occluded_paths:
             try: os.remove(p)
-            except: pass
+            except Exception: pass
 
         fig = plt.figure(figsize=(8, 8))
         plt.imshow(final_rgb)

@@ -48,7 +48,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
     try:
         if mlflow.active_run():
             mlflow.end_run()
-    except:
+    except Exception:
         pass
 
     target_columns = target if isinstance(target, list) else [target]
@@ -122,7 +122,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                                 "best_estimator": str(estimator),
                                 "best_config_preview": str(best_config)[:200]
                             })
-                        except: pass
+                        except Exception: pass
                     local_settings["callbacks"] = [_telemetry_callback]
                 
                 automl_single = AutoML()
@@ -134,7 +134,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                         while not done.is_set():
                             if stop_event.wait(timeout=5):
                                 try: a._state.time_budget = 0
-                                except: pass
+                                except Exception: pass
                                 break
                     threading.Thread(target=_watch_single, daemon=True).start()
                 
@@ -148,10 +148,11 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                     if not hasattr(automl_single, 'best_estimator') or automl_single.best_estimator is None:
                         raise RuntimeError(f"FLAML stopped without finding a model for target {target_name}.")
                 finally:
+                    # Releases the cancellation watcher even when fit() raises.
+                    _training_done_single.set()
                     if active_run:
                         mlflow.start_run(run_id=active_run.info.run_id)
-                
-                _training_done_single.set()
+
                 predictors_by_target[target_name] = automl_single
                 
             automl = MultiFLAMLPredictor(predictors_by_target)
@@ -163,7 +164,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 "metric": metric,
                 "task": task,
                 "estimator_list": estimator_list,
-                "log_file_name": "flaml.log",
+                "log_file_name": f"flaml_{run_name}.log",
                 "seed": seed,
                 "n_jobs": n_jobs,
                 "verbose": 0,
@@ -188,7 +189,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                             "best_estimator": str(estimator),
                             "best_config_preview": str(best_config)[:200]
                         })
-                    except: pass
+                    except Exception: pass
                 settings["callbacks"] = [_telemetry_callback]
                 
             automl = AutoML()
@@ -198,7 +199,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                     while not done.is_set():
                         if stop_event.wait(timeout=5):
                             try: automl._state.time_budget = 0
-                            except: pass
+                            except Exception: pass
                             break
                 threading.Thread(target=_watch, daemon=True).start()
                 
@@ -212,10 +213,11 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 if not hasattr(automl, 'best_estimator') or automl.best_estimator is None:
                     raise RuntimeError("FLAML stopped without finding a valid model.")
             finally:
+                # Releases the cancellation watcher even when fit() raises.
+                _training_done.set()
                 if active_run:
                     mlflow.start_run(run_id=active_run.info.run_id)
-            
-            _training_done.set()
+
         
         if stop_event and stop_event.is_set():
             raise StopIteration("Training cancelled by user")

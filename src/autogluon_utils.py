@@ -97,7 +97,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
     try:
         if mlflow.active_run():
             mlflow.end_run()
-    except:
+    except Exception:
         pass
 
     with mlflow.start_run(run_name=run_name, nested=True) as run:
@@ -240,9 +240,9 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                                             "best_value": best_score,
                                             "leaderboard_preview": lb.head(5).to_dict(orient='records')
                                         })
-                            except:
+                            except Exception:
                                 pass
-                    except:
+                    except Exception:
                         pass
                     time.sleep(10)
             

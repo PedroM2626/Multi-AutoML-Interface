@@ -236,7 +236,7 @@ def train_tpot_model(df, target_column, run_name,
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
             
         with mlflow.start_run(run_name=run_name, nested=True) as run:

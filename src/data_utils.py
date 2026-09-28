@@ -81,12 +81,26 @@ def init_dvc():
     """
     if not os.path.exists(".dvc"):
         try:
-            subprocess.run(["dvc", "init"], check=True, capture_output=True)
+            subprocess.run(["dvc", "init"], check=True, capture_output=True, timeout=120)
             print("DVC repository initialized successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Failed to initialize DVC: {e}")
-        except FileNotFoundError:
-            print("DVC is not installed or not in PATH.")
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            print(f"DVC unavailable: {e}")
+
+def has_dvc_remote():
+    """
+    True when the local DVC repository has a storage remote configured. Without one the
+    .dvc pointers only resolve on the machine that created them.
+    """
+    try:
+        result = subprocess.run(
+            ["dvc", "remote", "list"], capture_output=True, text=True, timeout=60
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        return False
+
 
 def save_to_data_lake(df, filename_prefix="dataset"):
     """
@@ -107,7 +121,7 @@ def save_to_data_lake(df, filename_prefix="dataset"):
     dvc_hash = "unknown_hash"
     try:
         init_dvc() # Ensure DVC is initialized
-        subprocess.run(["dvc", "add", file_path], check=True, capture_output=True)
+        subprocess.run(["dvc", "add", file_path], check=True, capture_output=True, timeout=900)
         # Assuming dvc add creates a .dvc file, we can potentially read it or just use the filename hash as a proxy
         dvc_file_path = file_path + ".dvc"
         if os.path.exists(dvc_file_path):
@@ -184,7 +198,7 @@ def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=Fa
     dvc_hash = "unknown_dir_hash"
     try:
         init_dvc()
-        subprocess.run(["dvc", "add", target_dir], check=True, capture_output=True)
+        subprocess.run(["dvc", "add", target_dir], check=True, capture_output=True, timeout=900)
         dvc_file_path = target_dir + ".dvc"
         if os.path.exists(dvc_file_path):
             with open(dvc_file_path, "r") as f:
@@ -220,7 +234,7 @@ def get_dvc_hash(file_path):
         if os.path.exists(file_path):
             with open(file_path, "rb") as f:
                 dvc_hash = hashlib.md5(f.read()).hexdigest()
-    except:
+    except Exception:
         pass
         
     return dvc_hash, dvc_hash[:8]
