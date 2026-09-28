@@ -6,6 +6,7 @@ Usage:
     py -3.11 run.py
 """
 import sys
+import os
 import shutil
 import subprocess
 
@@ -44,9 +45,23 @@ def _find_python_311_cmd():
             continue
     return None
 
+def _streamlit_args():
+    """
+    Local launcher default: bind loopback. Streamlit listens on every interface when
+    server.address is unset, which on a shared network would hand the app - and the
+    machine's Python processes - to anyone on that network. Deployments that mean to be
+    reachable set --server.address or STREAMLIT_SERVER_ADDRESS explicitly.
+    """
+    args = sys.argv[1:]
+    configured = any(arg.startswith("--server.address") for arg in args)
+    if not configured and not os.environ.get("STREAMLIT_SERVER_ADDRESS"):
+        return ["--server.address", "127.0.0.1"] + args
+    return args
+
+
 def _start_streamlit():
     import streamlit.web.cli as stcli
-    sys.argv = ["streamlit", "run", "app.py"] + sys.argv[1:]
+    sys.argv = ["streamlit", "run", "app.py"] + _streamlit_args()
     sys.exit(stcli.main())
 
 
@@ -61,7 +76,7 @@ def main():
     if py311 is not None:
         # Try to re-launch using a discovered Python 3.11 interpreter
         print(f"Re-launching with Python {REQUIRED_MAJOR}.{REQUIRED_MINOR}...")
-        cmd = py311 + ["-m", "streamlit", "run", "app.py"] + sys.argv[1:]
+        cmd = py311 + ["-m", "streamlit", "run", "app.py"] + _streamlit_args()
         raise SystemExit(subprocess.call(cmd))
 
     if major != REQUIRED_MAJOR or minor < REQUIRED_MINOR:

@@ -748,20 +748,22 @@ st.sidebar.header("🔗 DagsHub Integration (Optional)")
 
 def _is_multi_session_deployment() -> bool:
     """
-    True when Streamlit binds to something other than loopback, i.e. one process serves
-    several users. os.environ and MLflow's tracking client are process-global, so a
-    per-user credential written here would be reused by every other session.
+    True unless Streamlit is bound to loopback, i.e. anyone who can reach the port is a
+    separate user of one process. os.environ and MLflow's tracking client are
+    process-global, so a per-user credential written here would be reused by every other
+    session. Streamlit binds 0.0.0.0 when server.address is left unset.
     """
-    address = (st.get_option("server.address") or "").strip().lower()
-    return address not in ("", "127.0.0.1", "localhost", "::1")
+    address = (st.get_option("server.address") or "0.0.0.0").strip().lower()
+    return address not in ("127.0.0.1", "localhost", "::1")
 
 
 if _is_multi_session_deployment():
     st.sidebar.info(
-        "Per-user DagsHub tokens are disabled: this is a multi-session deployment, and "
-        "credentials would be shared with every other session in the process. Provide one "
-        "service account through the container environment instead "
-        "(`MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`)."
+        "Per-user DagsHub tokens are disabled: this deployment is reachable from outside "
+        "the machine, and credentials would be shared with every other session in the "
+        "process. Provide one service account through the container environment instead "
+        "(`MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`), "
+        "or bind loopback with `--server.address=127.0.0.1` to use a personal token."
     )
 else:
     use_dagshub = st.sidebar.checkbox("Enable DagsHub")
