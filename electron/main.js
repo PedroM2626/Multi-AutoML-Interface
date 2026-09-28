@@ -8,6 +8,10 @@ let mainWindow;
 let streamlitProcess;
 let pythonPath;
 
+// The Streamlit server this window is allowed to display.
+const APP_PORT = 8501;
+const APP_URLS = [`http://127.0.0.1:${APP_PORT}`, `http://localhost:${APP_PORT}`];
+
 function createWindow() {
     // Criar janela principal
     mainWindow = new BrowserWindow({
@@ -103,7 +107,7 @@ function createWindow() {
                         dialog.showMessageBox(mainWindow, {
                             type: 'info',
                             title: 'Sobre Multi-AutoML Desktop',
-                            message: 'Multi-AutoML Desktop v1.0.0',
+                            message: `Multi-AutoML Desktop v${app.getVersion()}`,
                             detail: 'Interface desktop para AutoML com AutoGluon, FLAML e H2O\\n\\nDesenvolvido com ❤️ usando Electron e Streamlit'
                         });
                     }
@@ -111,7 +115,7 @@ function createWindow() {
                 {
                     label: 'Documentação',
                     click: () => {
-                        shell.openExternal('https://github.com/seu-usuario/multi-automl-interface');
+                        shell.openExternal('https://github.com/PedroM2626/Multi-AutoML-Interface');
                     }
                 }
             ]
@@ -123,7 +127,7 @@ function createWindow() {
 
     // Carregar a aplicação Streamlit
     const loadUrlWithRetry = (retries = 0) => {
-        mainWindow.loadURL('http://127.0.0.1:8501').catch((err) => {
+        mainWindow.loadURL(APP_URLS[0]).catch((err) => {
             console.log(`Server not ready, retrying... (${retries})`);
             if (retries < 20) {
                 setTimeout(() => loadUrlWithRetry(retries + 1), 1000);
@@ -142,10 +146,24 @@ function createWindow() {
         mainWindow.center();
     });
 
-    // Abrir links externos no navegador
+    // Open external links in the system browser, but only for http(s) targets:
+    // file:// and custom schemes handed to openExternal can launch local programs.
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        if (/^https?:\/\//i.test(url)) {
+            shell.openExternal(url);
+        }
         return { action: 'deny' };
+    });
+
+    // Keep the top frame on the local Streamlit app; a redirect away from it would
+    // still hand the page the APIs exposed by preload.js.
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (!APP_URLS.some((allowed) => url.startsWith(allowed))) {
+            event.preventDefault();
+            if (/^https?:\/\//i.test(url)) {
+                shell.openExternal(url);
+            }
+        }
     });
 
     // Fechar janela
@@ -180,7 +198,7 @@ function startStreamlit() {
     // Iniciar Streamlit
     streamlitProcess = spawn(pythonPath, [
         '-m', 'streamlit', 'run', 'app.py',
-        '--server.port', '8501',
+        '--server.port', String(APP_PORT),
         '--server.headless', 'true',
         '--server.enableCORS', 'false',
         '--browser.gatherUsageStats', 'false',
@@ -267,12 +285,4 @@ app.on('before-quit', () => {
     if (streamlitProcess) {
         streamlitProcess.kill();
     }
-});
-
-// Security: desabilitar algumas features por segurança
-app.on('web-contents-created', (event, contents) => {
-    contents.on('new-window', (event, navigationUrl) => {
-        event.preventDefault();
-        shell.openExternal(navigationUrl);
-    });
 });
