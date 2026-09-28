@@ -98,21 +98,34 @@ class WhiteboxNotebookGenerator:
             "This step handles missing values, categorical encoding, NLP embeddings, and Deep Feature Synthesis (DFS)."
         )
         self._add_code(
-            f"processor = AutoMLDataProcessor(target_column='{target_col}', task_type='{task_type}')\n\n"
+            f"processor = AutoMLDataProcessor(target_column=target_col, task_type='{task_type}')\n\n"
+            "train_df = pd.concat([X_train, y_train], axis=1)\n"
+            "test_df = pd.concat([X_test, y_test], axis=1)\n\n"
             "# Fit the processor on training data and transform it\n"
-            "X_train_proc, y_train_proc = processor.fit_transform(X_train, y_train)\n\n"
+            "X_train_proc, y_train_proc = processor.fit_transform(train_df)\n\n"
             "# Transform the test data using the fitted processor\n"
-            "X_test_proc, y_test_proc = processor.transform(X_test, y_test)"
+            "X_test_proc, y_test_proc = processor.transform(test_df)"
         )
         
         # 5. Model Definition
+        run_id = self.config.get('run_id')
+        framework = self.config.get('framework')
         self._add_markdown("### 3. Model Definition")
-        self._add_markdown(
-            f"Instantiating the winning **{model_name}** model with the optimal hyperparameters found during the AutoML search."
-        )
         
-        model_code = self._get_model_instantiation_code()
-        self._add_code(model_code)
+        if run_id and framework:
+            self._add_markdown(
+                f"Loading the **{model_name}** model selected by {framework}, as logged in MLflow run `{run_id}`."
+            )
+            self._add_code(
+                "from src.prediction_service import load_model_by_framework\n\n"
+                f"model, model_type = load_model_by_framework({framework!r}, {run_id!r})\n"
+                "print('Loaded model:', model_type)"
+            )
+        else:
+            self._add_markdown(
+                f"Instantiating the winning **{model_name}** model with the optimal hyperparameters found during the AutoML search."
+            )
+            self._add_code(self._get_model_instantiation_code())
         
         # 6. Training & Evaluation
         self._add_markdown("### 4. Training and Evaluation")
@@ -131,12 +144,21 @@ class WhiteboxNotebookGenerator:
         metric_fn, metric_kwargs = metric_map.get(opt_metric, ('accuracy_score' if task_type == 'classification' else 'mean_squared_error', ''))
         
         if dataset_path:
+            if run_id and framework:
+                train_step = (
+                    "    # The model loaded from MLflow is already fitted, so fitting is skipped\n"
+                    "    # on purpose: refitting would discard the hyperparameters AutoML selected.\n"
+                )
+            else:
+                train_step = (
+                    "    # Train the model\n"
+                    "    model.fit(X_train_proc, y_train_proc)\n\n"
+                )
             self._add_code(
                 "mlflow.set_experiment('Whitebox_Notebook_Runs')\n"
                 "with mlflow.start_run(run_name='Manual_Execution'):\n"
                 f"    mlflow.log_param('model', '{model_name}')\n"
-                "    # Train the model\n"
-                "    model.fit(X_train_proc, y_train_proc)\n\n"
+                + train_step + "\n"
                 "    # Predict and Evaluate\n"
                 "    preds = model.predict(X_test_proc)\n"
                 f"    score = {metric_fn}(y_test_proc, preds{metric_kwargs})\n"

@@ -103,9 +103,12 @@ def prepare_data_for_h2o(train_data: pd.DataFrame, target: str):
     # Convert to H2OFrame
     h2o_frame = h2o.H2OFrame(train_data_clean)
     
-    # Convert target to factor (categorical) if classification
-    if train_data_clean[target].dtype == 'object' or train_data_clean[target].nunique() < 20:
-        h2o_frame[target] = h2o_frame[target].asfactor()
+    # Convert target to factor (categorical) if classification.
+    # Prediction frames have no target column (predict_with_h2o passes a placeholder),
+    # so the factor conversion only applies when the target is actually present.
+    if target in train_data_clean.columns:
+        if train_data_clean[target].dtype == 'object' or train_data_clean[target].nunique() < 20:
+            h2o_frame[target] = h2o_frame[target].asfactor()
     
     return h2o_frame, train_data_clean
 
@@ -347,6 +350,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 mlflow.log_metric("total_models_trained", 0.0)
             
             # Try saving leaderboard with error handling
+            leaderboard_path = None
             try:
                 leaderboard_df = leaderboard.as_data_frame()
                 leaderboard_path = f"h2o_leaderboard_{run_name}.csv"
@@ -456,7 +460,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 logger.info("Skipping report generation (no models trained or not a classification problem)")
             
             # Clean temporary files
-            if os.path.exists(leaderboard_path):
+            if leaderboard_path and os.path.exists(leaderboard_path):
                 os.remove(leaderboard_path)
             
             report_path_temp = f"classification_report_{run_name}.txt"

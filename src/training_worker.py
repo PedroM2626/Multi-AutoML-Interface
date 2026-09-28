@@ -194,7 +194,9 @@ def run_training_worker(entry: ExperimentEntry, train_fn, kwargs: dict):
             nb_config = {
                 "task": entry.metadata.get("task", "classification"),
                 "target": entry.metadata.get("target", "target_column"),
-                "dataset_path": entry.metadata.get("dataset_path")
+                "dataset_path": entry.metadata.get("dataset_path"),
+                "run_id": run_id,
+                "framework": entry.metadata.get("framework")
             }
             nb_params = {
                 "model_name": entry.metadata.get("framework_key", "AutoML Model")
