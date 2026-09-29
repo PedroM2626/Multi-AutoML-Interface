@@ -44,18 +44,18 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 | FLAML | `src/flaml_utils.py` | Cost-effective hyperparameter search; classification, regression, forecast, ranking |
 | H2O AutoML | `src/h2o_utils.py` | Distributed-style Java cluster training with native leaderboards (requires Java) |
 | TPOT | `src/tpot_utils.py` | Genetic-algorithm pipeline search; exports the best pipeline as a `.py` file to `tpot_models/` |
-| PyCaret | `src/pycaret_utils.py` | Broadest task coverage: semi-supervised, anomaly detection, clustering, time series |
+| PyCaret | `src/pycaret_utils.py` | Broadest task coverage: anomaly detection, clustering, time series |
 | Lale | `src/lale_utils.py` | Hyperopt-based pipeline composition over scikit-learn operators |
 | AutoKeras | `src/autokeras_utils.py` | Neural architecture search for image classification / multi-label CV tasks |
-| HuggingFace | `src/huggingface_utils.py` | Hub integration (list/download/upload models) and experiment logging for text tasks |
+| Hugging Face Hub | `src/huggingface_utils.py` | Publish and pull models on the Hub; not a training backend |
 
 ### The 5 data categories
 
 Defined in `src/task_catalog.py` (`DATA_CATEGORIES`):
 
 1. **Tabular** — CSV/Excel with numeric, categorical, or text columns.
-2. **Sequential** — time-ordered tabular data (forecast, anomaly detection, etc.).
-3. **Text** — NLP-style classification/regression/clustering over text columns.
+2. **Sequential** — one time-ordered table; the engine's native time series path reads the date column directly. Its task is Forecast.
+3. **Text** — free-text columns as the predictive features, trained through AutoGluon's multimodal predictor.
 4. **Computer Vision** — image folders/ZIP uploads; labels inferred from directory structure.
 5. **Multimodal** — mixed tabular + text + image-path columns (natively supported via AutoGluon).
 
@@ -242,57 +242,53 @@ Legend: ✅ supported · — not supported · β beta
 
 ### Tabular
 
-| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|
-| Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| Multi-Label Classification | ✅ | — | — | — | — | — | — | — |
-| Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| Semi-Supervised Classification | — | — | — | — | ✅ | — | — | — |
-| Anomaly Detection | — | — | — | — | ✅ | — | — | — |
-| Clustering | — | — | — | — | ✅ | — | — | — |
-| Forecast | ✅ | ✅ | — | — | ✅ | — | — | — |
-| Ranking | — | ✅ | — | — | — | — | — | — |
+| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Multi-Label Classification | ✅ | — | — | — | — | — | — |
+| Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Anomaly Detection | — | — | — | — | ✅ | — | — |
+| Clustering | — | — | — | — | ✅ | — | — |
+| Forecast | ✅ | ✅ | — | — | ✅ | — | — |
+| Ranking | — | ✅ | — | — | — | — | — |
 
 ### Sequential
 
-| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|
-| Classification | ✅ | — | — | — | ✅ | — | — | — |
-| Regression | ✅ | — | — | — | ✅ | — | — | — |
-| Forecast | ✅ | ✅ | — | — | ✅ | — | — | — |
-| Anomaly Detection | — | — | — | — | ✅ | — | — | — |
-| Clustering | — | — | — | — | ✅ | — | — | — |
+| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Forecast | — | ✅ | — | — | ✅ | — | — |
 
 ### Text
 
-| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|
-| Classification | ✅ | ✅ | — | — | ✅ | — | — | ✅ |
-| Regression | ✅ | ✅ | — | — | ✅ | — | — | ✅ |
-| Clustering | — | — | — | — | ✅ | — | — | — |
+| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Classification | ✅ | — | — | — | — | — | — |
+| Regression | ✅ | — | — | — | — | — | — |
 
 ### Computer Vision
 
-| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|
-| Image Classification | ✅ | — | — | — | — | — | ✅ | — |
-| Multi-Label Classification | ✅ | — | — | — | — | — | ✅ | — |
-| Object Detection | ✅ β | — | — | — | — | — | — | — |
-| Image Segmentation | ✅ β | — | — | — | — | — | — | — |
+| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Image Classification | ✅ | — | — | — | — | — | ✅ |
+| Multi-Label Classification | ✅ | — | — | — | — | — | ✅ |
+| Object Detection | ✅ β | — | — | — | — | — | — |
+| Image Segmentation | ✅ β | — | — | — | — | — | — |
 
 ### Multimodal
 
-| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|
-| Classification | ✅ | — | — | — | — | — | — | — |
-| Regression | ✅ | — | — | — | — | — | — | — |
+| Task | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Classification | ✅ | — | — | — | — | — | — |
+| Regression | ✅ | — | — | — | — | — | — |
 
 Notes:
 
 - Object Detection and Image Segmentation (AutoGluon) are **beta**.
 - Multimodal training is natively supported only through AutoGluon in this interface (the UI warns if another framework is selected).
 - If a `(category, task)` pair is missing from the map, `get_framework_options()` falls back to `["FLAML"]`.
+- A ✅ is a code path, not an installed package: the selectors only list engines the interpreter can import (`src/task_catalog.py`, `partition_frameworks()`), so the desktop installers offer FLAML until another engine is installed into the bundled runtime.
+- Tabular Forecast runs on lag features built by `src/processor.py`; Sequential Forecast passes the raw ordering and the horizon to the engine's native time series task.
 
 ---
 
@@ -334,7 +330,7 @@ Select a Data Lake dataset and click **Generate Auto-EDA Report**. This uses `yd
    - CV tasks: target fixed to `label` (directory-structure labels).
    - Anomaly Detection / Clustering: no target (unsupervised).
    - Multi-Label / Multi-Task: multi-select of ≥ 2 target columns.
-4. **Data characteristics flags (Tabular):** 📅 *Contains Temporal / Time Series Data* (date column + forecast horizon), 📝 *Contains Text / NLP Data* (text column selection), and *Self-Training / Semi-Supervised* for classification. For Multimodal, text and image-path columns are suggested automatically (`infer_multimodal_columns`).
+4. **Data characteristics flags (Tabular):** 📅 *Contains Temporal / Time Series Data* (date column + forecast horizon), 📝 *Contains Text / NLP Data* (text column selection), and *Self-Training / Semi-Supervised* for classification. **Sequential** shows its own date-column and horizon panel (the raw ordering goes to the engine), **Text** asks which columns are the text features, and for Multimodal, text and image-path columns are suggested automatically (`infer_multimodal_columns`).
 5. **Global parallelism:** an ⚡ *Parallelism (n_jobs)* expander — Auto (all cores, `n_jobs=-1`) or Manual slider up to your CPU count. Applies to FLAML, TPOT, and PyCaret.
 6. **Framework configuration block** — see [Section 6](#6-framework-configuration-reference).
 7. **Launch options:** *Enable Strict CV (Data Leakage Prevention)* (default on) and an optional **Deep Feature Synthesis (DFS)** expander (depth 1–3, requires `featuretools`).
@@ -416,9 +412,12 @@ All parameters below are verified against the configuration blocks in `app.py` a
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
 | Time budget | *Enable Time Limit* + slider | 60 s, range 30–3600; disabled ⇒ `None` | Seconds |
-| Task | Auto-synced from task type | — | `classification` / `regression` / `ts_forecast` (Forecast) / `rank` (Ranking) |
+| Task | Auto-synced from task type and data category | — | `classification` / `regression` / `ts_forecast` (Forecast under **Sequential**) / `rank` (Ranking). Forecast under **Tabular** trains as `regression` on the lag features the processor adds |
+| Date column | *📅 Date Column* (Sequential) | — | Passed as `time_col`; rows are sorted by it. Required for `ts_forecast`, missing ⇒ `ValueError` |
+| Forecast horizon | *⏳ Forecast Horizon* (Sequential) | 1 | Passed as `period`; FLAML asserts it for forecast tasks |
+| Query / Group column | *🔎 Query / Group Column* (Ranking) | — | Passed as `group_col`; rows are sorted by it and the target is cast to integer relevance grades |
 | Metric | Selectbox (context-aware) | `auto` | Binary: `auto, accuracy, roc_auc, f1, log_loss`; Multiclass: `auto, accuracy, macro_f1, micro_f1, roc_auc_ovr, roc_auc_ovo, log_loss`; Regression: `auto, rmse, mae, r2, mape` |
-| Estimators | Multiselect | `['lgbm', 'rf']` | Options: `lgbm, rf, catboost, xgboost, extra_tree, lrl1, lrl2`; empty ⇒ `'auto'` |
+| Estimators | Multiselect | `['lgbm', 'rf']` | Options: `lgbm, rf, catboost, xgboost, extra_tree` (+ `lrl1`, `lrl2` for classification/regression); empty ⇒ `'auto'` except for `ts_forecast`/`rank`, which reject `'auto'` and fall back to `['lgbm', 'xgboost', 'rf', 'extra_tree']` |
 | n_jobs | Global parallelism | `-1` | Passed through |
 
 ### H2O AutoML (`src/h2o_utils.py` → `train_h2o_model`)
@@ -459,7 +458,7 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
 | Time limit (tuning iterator limit) | *Enable Tuning Iterator Limit* + slider | 300 s, range 60–1200; disabled ⇒ `None` | Pseudo-time limit impacting `n_iter` |
-| Forecast horizon (`fh`) | Number input (Time Series tasks) | 12 | Only for Time Series Forecasting |
+| Forecast horizon (`fh`) | Number input (Time Series tasks) | 12 | Shown for the `Forecast` task type |
 | Seasonal period | Number input (Time Series tasks) | 12 | e.g. 12 for monthly, 7 for daily |
 | task_type | Auto | From page selection | Routes classification/regression/time-series/anomaly/clustering setup |
 | n_jobs | Global parallelism | `-1` | |
@@ -483,13 +482,16 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 
 Requires TensorFlow. The module raises a clear `ImportError` when TensorFlow/AutoKeras is missing.
 
-### HuggingFace (`src/huggingface_utils.py` → `run_huggingface_experiment`)
+### Hugging Face Hub (`src/huggingface_utils.py` → `HuggingFaceService`)
 
 | Parameter | Source | Default | Notes |
 |---|---|---|---|
-| time_limit | Launch config | 60 s | |
-| task_type | Page selection | `Classification` | Text classification/regression |
-| Authentication | Token input or `HUGGINGFACE_TOKEN` env var | — | `HuggingFaceService` degrades gracefully if `huggingface_hub` is not installed |
+| Repository ID | Experiments page (Push to Hub) | — | e.g. `username/model-name` |
+| Access token | Text input, or `HUGGINGFACE_TOKEN` | — | `HuggingFaceService` degrades gracefully if `huggingface_hub` is not installed |
+| Filename in repo | History page (pull) | `model.onnx` | `.onnx` files load into the ONNX runtime |
+
+There is no training path in this module: text tasks run through AutoGluon's multimodal
+predictor. The Hub service only publishes and retrieves artifacts of runs trained elsewhere.
 
 ---
 
@@ -498,7 +500,7 @@ Requires TensorFlow. The module raises a clear `ImportError` when TensorFlow/Aut
 ### MLflow tracking
 
 - **Default backend: local file store.** On startup the app runs `heal_mlruns()` and `safe_set_experiment("Multi_AutoML_Project")` (`src/mlflow_utils.py`), which configures the tracking URI to `file:///<project_root>/mlruns`. No external server is required.
-- **Per-framework experiments:** engine modules log into dedicated experiments (e.g. `H2O_Experiments`, `HuggingFace_Experiments`) while the UI uses `Multi_AutoML_Project`.
+- **Per-framework experiments:** engine modules log into dedicated experiments (e.g. `H2O_Experiments`, `FLAML_Experiments`) while the UI uses `Multi_AutoML_Project`.
 - **Auto-heal:** `heal_mlruns()` removes numeric experiment directories that are missing `meta.yaml` (a common cause of MLflow `MissingConfigException` crashes) and recreates `mlruns/.trash`. `safe_set_experiment()` retries once after healing if that error occurs.
 - **Optional remote server:** set `MLFLOW_TRACKING_URI` (e.g. `http://localhost:5000` or a managed endpoint). Docker Compose does this automatically, pointing the app at the bundled MLflow server container.
 - **Model Registry:** register any completed run via `mlflow.register_model("runs:/{run_id}/model", name)` — available from the Experiments page (📋 Register) and the History page (registration form).

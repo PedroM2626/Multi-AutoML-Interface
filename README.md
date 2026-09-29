@@ -9,7 +9,7 @@
 
 📘 Full documentation: [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
 
-**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras, HuggingFace) with integrated MLOps via MLflow.**
+**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras) with integrated MLOps via MLflow and Hugging Face Hub for model sharing.**
 
 ---
 
@@ -18,10 +18,10 @@
 ## 🆕 What's New (Recent)
 
 - **White-box notebook generation**: every training run can be exported as a reproducible Jupyter notebook (`src/notebook_generator.py`).
-- **HuggingFace experiment integration**: fine-tune transformer models for text tasks directly from the UI (`src/huggingface_utils.py`).
+- **Hugging Face Hub integration**: push a trained model to the Hub or pull one back (`src/huggingface_utils.py`). Text tasks train through AutoGluon's multimodal predictor.
 - **Temporal & text preprocessing**: tabular datasets support "Contains Temporal Data" (chronological splits, lag/rolling features) and "Contains Text / NLP Data" (automatic TF-IDF vectorization).
 - **Forecast task type**: dedicated Forecast task replacing the old Time Series task, wired across the supported frameworks.
-- **Multi-Task Classification**: predict multiple targets concurrently; **Semi-Supervised Classification** via `SelfTrainingClassifier` over unlabeled samples (`-1`/`NaN`).
+- **Multi-Task Classification**: predict multiple targets concurrently; semi-supervised learning is a **Classification** checkbox that wraps the model in `SelfTrainingClassifier` over unlabeled samples (`-1`/`NaN`).
 - User-selectable parallelism (`n_jobs`), headerless CSV/Excel uploads, and Streamlit caching performance improvements.
 
 ## 🎯 **Overview**
@@ -47,7 +47,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **PyCaret** - End-to-end low-code ML platform
 - **Lale** (IBM) - Scikit-Learn compatible topology search with Hyperopt
 - **AutoKeras** - AutoML for deep learning based on Keras
-- **HuggingFace** - Transformer fine-tuning for text tasks
+- **Hugging Face Hub** - Push trained models to the Hub and pull them back (not a training backend)
 
 ### 📊 **Integrated MLOps & Dashboard:**
 - **Explainable AI (XAI)**: SHAP for tabular data and Saliency Maps (Occlusion) for Computer Vision.
@@ -82,7 +82,7 @@ Note: The Hugging Face Spaces entry above links to a demo deployment provided fo
                      ┌─────────────────────────────────────────┐
                      │               ML Engines                │
                      │ AutoGluon • FLAML • H2O AutoML • TPOT   │
-                     │ PyCaret • Lale • AutoKeras • HuggingFace│
+                     │ PyCaret • Lale • AutoKeras • HF Hub     │
                      └──────────────────┬──────────────────────┘
               ┌─────────────────────────┼─────────────────────────┐
               ▼                         ▼                         ▼
@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `transformers`/`datasets`/`huggingface_hub`, `shap` (XAI), `dvc` (data versioning), `onnxruntime` (ONNX export) — e.g. `pip install autogluon pycaret`.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `shap` (XAI), `dvc` (data versioning), `onnxruntime` (ONNX export) — e.g. `pip install autogluon pycaret`.
 
 #### **Run the Application:**
 ```bash
@@ -154,7 +154,7 @@ MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of t
 
 #### **2. Experiment Configuration:**
 - **Data Category + Task Type**: choose one of the 5 categories — Tabular, Sequential, Text, Computer Vision, Multimodal — then a compatible task type.
-- **Framework Agnostic**: AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras, HuggingFace.
+- **Framework Agnostic**: AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras. The selector only lists the engines this interpreter can import.
 - **ONNX Integration**: universal model export/import; **HF Hub**: publish models with one click.
 - **Advanced parameters**: seed, time limits, folds, TF-IDF feature caps, CV, forecasting horizon, etc.
 
@@ -164,35 +164,32 @@ Generated from `TASK_FRAMEWORK_MAP` in `src/task_catalog.py`.
 
 Legend: ✅ = implemented, ⚠️ = partial/beta path, ❌ = not implemented.
 
-| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras | HuggingFace |
-|---|---|---|---|---|---|---|---|---|---|
-| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Tabular | Semi-Supervised Classification | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Tabular | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Tabular | Forecast | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Sequential | Classification | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Sequential | Regression | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Sequential | Forecast | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Sequential | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Sequential | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Text | Classification | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| Text | Regression | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| Text | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Computer Vision | Image Segmentation | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|---|
+| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Forecast | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Sequential | Forecast | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Segmentation | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 Notes:
 - CV Object Detection and Image Segmentation are exposed through AutoGluon but should be treated as beta until broader test coverage is added.
 - Tabular Anomaly Detection and Clustering run through PyCaret's unsupervised modules (no target column required).
+- A row is a code path, not a guarantee that the engine is on your machine: the selectors list only the engines the interpreter can import, so a desktop install offers FLAML until you `pip install` the others into the bundled runtime.
+- Tabular Forecast trains on lag features the app builds; Sequential Forecast hands the raw ordering to the engine's own time series path, which is why AutoGluon is not offered there.
+- Text runs through AutoGluon's multimodal predictor with the columns you mark as text. Hugging Face is Hub upload/download only, not a training backend.
 - For framework-native capabilities beyond this matrix, see [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 
 #### **3. Training, Results & Prediction:**
@@ -250,7 +247,7 @@ git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
 
 Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
 
-The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras, HuggingFace) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM…), so install any extra engine you need into it. H2O additionally requires Java 11+.
+The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM…), so the desktop installers offer FLAML until you install any extra engine into it. H2O additionally requires Java 11+.
 
 Signing is wired up in `.github/workflows/release.yml` and activates as soon as the signing secrets exist (see *Code signing* in `docs/DOCUMENTATION.md`); while they are absent, the release notes state that the builds are unsigned.
 
@@ -264,10 +261,9 @@ Signing is wired up in `.github/workflows/release.yml` and activates as soon as 
 | **FLAML** | Very fast, economical search; lightweight | Smaller model zoo |
 | **H2O AutoML** | Mature enterprise tabular AutoML | Requires Java; JVM memory overhead |
 | **TPOT** | Interpretable exported pipelines (genetic search) | Slow search for large budgets |
-| **PyCaret** | Widest task surface in this project (anomaly, clustering, semi-supervised) | Requires Python 3.11 |
+| **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Requires Python 3.11 |
 | **Lale** | sklearn-compatible topology search | Classification/regression focus |
 | **AutoKeras** | Deep-learning CV AutoML | GPU/TF stack required |
-| **HuggingFace** | Transformer fine-tuning for text | GPU recommended; slower training |
 
 No hardcoded benchmark numbers are published: results depend strongly on dataset, budget, and hardware. Use the in-app leaderboard to compare engines on your own data.
 
@@ -320,7 +316,7 @@ Multi-AutoML-Interface/
 │   ├── 📄 experiment_manager.py    # Experiment lifecycle management
 │   ├── 📄 flaml_utils.py           # FLAML integration
 │   ├── 📄 h2o_utils.py             # H2O AutoML integration
-│   ├── 📄 huggingface_utils.py     # HuggingFace experiment integration
+│   ├── 📄 huggingface_utils.py     # Hugging Face Hub push/pull
 │   ├── 📄 lale_utils.py            # Lale integration
 │   ├── 📄 log_utils.py             # Logging utilities
 │   ├── 📄 mlflow_cache.py          # MLflow query caching
@@ -389,7 +385,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - **PyCaret** - PyCaret contributors
 - **Lale** - IBM
 - **AutoKeras** - AutoKeras contributors
-- **HuggingFace** - Hugging Face
+- **Hugging Face Hub** - Hugging Face
 
 ### 🛠️ **Technologies:**
 - **Streamlit** - Web interface
