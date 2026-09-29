@@ -8,6 +8,60 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.2.0 - 2026-09-29
+
+### Fixed
+
+- **Most catalog rows pointed at engines the interpreter did not have.** The bundled runtime
+  installs `requirements.txt`, whose only AutoML engine is FLAML (plus LightGBM and XGBoost),
+  yet the framework selector offered AutoGluon, PyCaret, Lale, TPOT, H2O and AutoKeras for most
+  of the 23 `(category, task)` rows; the background thread then died on `No module named
+  'autogluon'`, far from the widget that caused it. Both the training selector and the
+  model-source selector now list only engines that can be imported and print the `pip install`
+  line for the rest, and the orchestrator raises the same message before starting a thread.
+- **FLAML Forecast and Ranking could not train.** `ts_forecast` asserts a forecast `period`
+  before the search starts, so every Forecast run with FLAML failed on the first iteration;
+  Forecast now passes the date column as `time_col` and the horizon as `period` (Sequential uses
+  that native path, Tabular keeps the processor's lag features and trains as regression).
+  Ranking handed LightGBM float relevance grades and rows in arbitrary order; it now sorts by a
+  new *Query / Group Column* input and casts integer grades. Missing inputs raise a readable
+  `ValueError` instead of failing inside the learner. Both were run end to end against the
+  bundled interpreter.
+- **Rows that no engine implemented.** `Semi-Supervised Classification` was a task row while the
+  real feature is the Classification checkbox that wraps the model in `SelfTrainingClassifier`;
+  Text/Clustering had no text featurizer; four Sequential rows dispatched exactly like their
+  Tabular twins. Hugging Face logged parameters and returned a successful run id without
+  training anything, and its "models" could not be loaded back by the prediction service, so
+  `run_huggingface_experiment` is gone - the Hub push/pull service stays.
+- **Forecast models were restored through the wrong PyCaret module.** The catalog calls the task
+  `Forecast`, but `prediction_service` and the generated code still compared the older
+  `"Time Series Forecasting"`, so a time-series artifact was loaded with
+  `pycaret.classification.load_model`.
+- **The data lake offered Git LFS pointer files as datasets.** Several `data_lake/raw/*.csv` are
+  committed through LFS and were never pulled, so pandas read the 130-byte pointer as a
+  one-column table and the Training page proposed `version
+  https://git-lfs.github.com/spec/v1` as a data column. Loading one now says to run
+  `git lfs pull`.
+
+### Changed
+
+- Text tasks train through AutoGluon's multimodal predictor with the columns you mark as text,
+  the same path Multimodal already used, instead of a tabular predictor that treated the text as
+  one categorical feature.
+- `Sequential` is now one row (Forecast): the category exists to hand the raw time ordering to an
+  engine's native time series task, which is also why AutoGluon is not offered there - its
+  tabular predictor cannot forecast a future step from same-row features.
+
+### Added
+
+- **The documented support matrices are checked against the catalog.** `README.md` and
+  `docs/DOCUMENTATION.md` restate `TASK_FRAMEWORK_MAP`, and had drifted (rows for engines with no
+  code path, the Forecast rename). `tests/test_doc_matrix_sync.py` parses both files and compares
+  them pair by pair; it is dependency-free, so it runs in the PR gate.
+- **The dispatch contract is read from `app.py`, not transcribed.** The engine-kwargs test kept a
+  hand-written key list that had already drifted for PyCaret and Lale; the tests now parse the
+  dispatch chain with `ast`.
+
 ## 5.1.0 - 2026-09-28
 
 ### Fixed
