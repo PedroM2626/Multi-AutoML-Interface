@@ -38,14 +38,35 @@ def export_to_onnx(model: Any, model_type: str, target_col: str, output_path: st
     try:
         if model_type in ["flaml", "pycaret", "tpot"]:
             from skl2onnx import to_onnx
-            
+            from skl2onnx.common.exceptions import MissingShapeCalculator
+
+            if model_type == "flaml":
+                # The UI hands over the AutoML object; skl2onnx needs the scikit-learn
+                # estimator FLAML selected.
+                inner = getattr(getattr(model, "model", None), "estimator", None)
+                if inner is not None:
+                    model = inner
+
             if input_sample is None:
                 raise ValueError("input_sample is required for scikit-learn based ONNX export")
             
             if isinstance(input_sample, pd.DataFrame) and target_col in input_sample.columns:
                 input_sample = input_sample.drop(columns=[target_col])
-            
-            onx = to_onnx(model, input_sample[:1], initial_types=None)
+
+            # skl2onnx reads a bare DataFrame as one input *per column* and rejects the model;
+            # naming a single tensor of the right width is what it expects.
+            from skl2onnx.common.data_types import FloatTensorType
+
+            sample_shape = np.asarray(input_sample).shape
+            n_features = int(sample_shape[1]) if len(sample_shape) > 1 else 1
+            try:
+                onx = to_onnx(model, initial_types=[("input", FloatTensorType([None, n_features]))])
+            except MissingShapeCalculator as exc:
+                raise NotImplementedError(
+                    f"{type(model).__name__} has no ONNX converter in skl2onnx. Boosted-tree "
+                    "learners (lgbm, xgboost, catboost) are not exportable here; scikit-learn "
+                    "learners such as rf, extra_tree and logistic regression are."
+                ) from exc
             with open(output_path, "wb") as f:
                 f.write(onx.SerializeToString())
 

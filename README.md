@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `shap` (XAI), `dvc` (data versioning), `onnxruntime` (ONNX export) — e.g. `pip install autogluon pycaret`.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `shap` (XAI), `dvc` (data versioning), `onnx onnxruntime skl2onnx` (ONNX export) — e.g. `pip install autogluon pycaret`.
 
 #### **Run the Application:**
 ```bash
@@ -155,7 +155,7 @@ MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of t
 #### **2. Experiment Configuration:**
 - **Data Category + Task Type**: choose one of the 5 categories — Tabular, Sequential, Text, Computer Vision, Multimodal — then a compatible task type.
 - **Framework Agnostic**: AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras. The selector only lists the engines this interpreter can import.
-- **ONNX Integration**: universal model export/import; **HF Hub**: publish models with one click.
+- **ONNX Integration**: export and reload models that skl2onnx can convert — scikit-learn learners such as random forest, extra trees and logistic regression. Boosted-tree learners (`lgbm`, `xgboost`, `catboost`) have no converter in skl2onnx and the app says so instead of failing quietly; **HF Hub**: publish models with one click.
 - **Advanced parameters**: seed, time limits, folds, TF-IDF feature caps, CV, forecasting horizon, etc.
 
 #### **Task Type Support Matrix (Current Implementation)**

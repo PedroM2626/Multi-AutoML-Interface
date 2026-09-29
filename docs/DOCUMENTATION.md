@@ -222,7 +222,7 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | SHAP (XAI) | `pip install shap` | Needed for tabular explanations |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
 | DVC | `pip install dvc` | Data-lake versioning (falls back to MD5 hashing when absent) |
-| ONNX | `pip install onnx onnxruntime` | ONNX export/load |
+| ONNX | `pip install onnx onnxruntime skl2onnx onnxconverter-common` | ONNX export/load, for estimators skl2onnx can convert |
 | Hugging Face Hub | `pip install huggingface_hub` | Push/download models to/from the Hub |
 | Deep Feature Synthesis | `pip install featuretools` | Optional DFS step in `src/processor.py` |
 | DagsHub | `pip install dagshub` | Sidebar DagsHub integration |
@@ -366,7 +366,7 @@ Input modes:
 
 #### Step 8 — Export
 
-- **ONNX export** (Experiments page) — exports to `models/<run_name>.onnx` and logs it to MLflow; needs `onnx`/`onnxruntime`.
+- **ONNX export** (Experiments page) — exports to `models/<run_name>.onnx` and logs it to MLflow; needs `onnx`/`onnxruntime`/`skl2onnx`. It converts estimators skl2onnx supports (random forest, extra trees, logistic regression and other scikit-learn learners). Boosted-tree learners (`lgbm`, `xgboost`, `catboost`), AutoGluon predictors and AutoKeras/TensorFlow models are **not** exportable here and raise a message naming the estimator instead of failing silently.
 - **Hugging Face Hub push** — repository ID + token; uploads the local model or the MLflow artifact via `HuggingFaceService.upload_model`.
 - **Consumption code** — a ready-to-run Python snippet per framework (`src/code_gen_utils.generate_consumption_code`: autogluon, flaml, h2o, tpot, pycaret, lale), downloadable as `consume_model.py`.
 - **White-box notebook** — every successful run automatically generates a reproducible Jupyter notebook (`src/notebook_generator.py`), logged as an MLflow artifact.
