@@ -5,9 +5,16 @@ ts_forecast asserts a forecast 'period' and reads timestamps from 'time_col'; ra
 contiguous query blocks. These run the real engine, so they skip when FLAML or LightGBM is
 absent instead of reporting a green suite.
 """
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
+
+if importlib.util.find_spec("lightgbm") is None:
+    # train_flaml_model refuses lgbm without the package (by design, see _require_learner_packages),
+    # so the whole module needs it - skip rather than fail on a lean interpreter.
+    pytest.skip("lightgbm is not installed", allow_module_level=True)
 
 try:
     from src.flaml_utils import train_flaml_model

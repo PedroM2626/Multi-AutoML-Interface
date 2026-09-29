@@ -455,6 +455,10 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 
 > Requires Python 3.11.
 
+> **One experiment at a time.** PyCaret's functional API keeps a process-global experiment, so in
+> this multi-session process `run_pycaret_experiment` queues behind a lock instead of running two
+> experiments together (concurrent calls never finished). A queued run can still be cancelled.
+
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
 | Time limit (tuning iterator limit) | *Enable Tuning Iterator Limit* + slider | 300 s, range 60–1200; disabled ⇒ `None` | Pseudo-time limit impacting `n_iter` |
@@ -462,6 +466,8 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 | Seasonal period | Number input (Time Series tasks) | 12 | e.g. 12 for monthly, 7 for daily |
 | task_type | Auto | From page selection | Routes classification/regression/time-series/anomaly/clustering setup |
 | n_jobs | Global parallelism | `-1` | |
+| `include_models` | Auto | per task | For `Forecast`: `naive, snaive, arima, ets` when the frame is univariate, `arima, auto_arima` when it carries exogenous columns - PyCaret's time series module drops every other forecaster as soon as features exist |
+| `fold` | Not exposed | 3 | Passed only to the supervised setups; `anomaly`/`clustering` reject it |
 
 ### Lale (`src/lale_utils.py` → `run_lale_experiment`)
 

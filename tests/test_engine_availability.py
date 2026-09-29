@@ -60,6 +60,17 @@ def test_install_hint_names_the_packages():
     assert install_hint(["H2O AutoML", "AutoGluon"]) == "autogluon h2o"
 
 
+def test_the_orchestrator_refuses_an_engine_that_is_not_installed(monkeypatch):
+    """The failure used to surface as "No module named 'autogluon'" from a worker thread."""
+    from src.orchestrator import UniversalAutoMLOrchestrator
+
+    monkeypatch.setattr("src.task_catalog.framework_available", lambda framework: False)
+    orchestrator = UniversalAutoMLOrchestrator("AutoGluon", {"train_data": None})
+
+    with pytest.raises(ModuleNotFoundError, match=r"pip install autogluon"):
+        orchestrator.run_synchronously()
+
+
 def test_the_ui_filters_both_framework_selectors():
     """A catalog label is not a promise that the engine is installed: the training selector and
     the model-source selector must both bind a filtered list, never the catalog itself."""

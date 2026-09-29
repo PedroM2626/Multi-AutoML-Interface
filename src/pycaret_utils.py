@@ -2,6 +2,7 @@ import os
 import logging
 import traceback
 import queue
+import threading
 import time
 import pandas as pd
 from typing import Dict, Any, Optional
@@ -11,8 +12,66 @@ import mlflow
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
 
+# PyCaret's functional API keeps a single process-global experiment, and this module also ends
+# whichever MLflow run is active before calling setup(). Two PyCaret trainings started from
+# different sessions in one process therefore never finish (observed: both threads stuck for
+# minutes, while each run alone takes seconds). Experiments are serialized instead.
+_EXPERIMENT_LOCK = threading.Lock()
+
+# How often a queued experiment re-checks for cancellation while waiting for the lock.
+_LOCK_POLL_SECONDS = 5
+
+
+def _as_timestamp_index(frame: pd.DataFrame, time_col: str) -> pd.DataFrame:
+    """Move the date column into the index for the time series setup.
+
+    PyCaret reads the timestamps from the index; left as a column it becomes an exogenous
+    feature of dtype datetime and the setup rejects the frame.
+    """
+    if time_col not in frame.columns:
+        return frame
+    prepared = frame.set_index(pd.DatetimeIndex(frame[time_col]))
+    return prepared.drop(columns=[time_col])
+
+
+def _ts_include_models(train_df: pd.DataFrame, target_col: Optional[str]) -> list:
+    """Pick time series estimators PyCaret can actually build for this frame.
+
+    Its time series module is univariate: as soon as exogenous columns are present, only the
+    pmdarima family stays available, and asking for the others raises
+    "Estimator naive Not Available" before a single model is trained.
+    """
+    has_exogenous = any(column != target_col for column in train_df.columns)
+    return ["arima", "auto_arima"] if has_exogenous else ["naive", "snaive", "arima", "ets"]
+
 
 def run_pycaret_experiment(
+    train_df: pd.DataFrame,
+    target_col: Optional[str],
+    run_name: str,
+    time_limit: Optional[int],
+    log_queue: queue.Queue,
+    stop_event=None,
+    val_df: Optional[pd.DataFrame] = None,
+    task_type: str = "Classification",
+    n_jobs: int = 1,
+    **kwargs
+) -> Dict[str, Any]:
+    """Wait for the engine slot, then run the experiment; see _EXPERIMENT_LOCK."""
+    while not _EXPERIMENT_LOCK.acquire(timeout=_LOCK_POLL_SECONDS):
+        if stop_event is not None and stop_event.is_set():
+            raise StopIteration("Experiment cancelled while waiting for the PyCaret slot.")
+    try:
+        return _run_pycaret_experiment(
+            train_df=train_df, target_col=target_col, run_name=run_name, time_limit=time_limit,
+            log_queue=log_queue, stop_event=stop_event, val_df=val_df, task_type=task_type,
+            n_jobs=n_jobs, **kwargs
+        )
+    finally:
+        _EXPERIMENT_LOCK.release()
+
+
+def _run_pycaret_experiment(
     train_df: pd.DataFrame,
     target_col: Optional[str],
     run_name: str,
@@ -35,6 +94,16 @@ def run_pycaret_experiment(
     is_clustering_task = task_type == "Clustering"
     is_unsupervised_task = is_anomaly_task or is_clustering_task
 
+    if task_type in ["Time Series Forecasting", "Forecast"]:
+        # PyCaret reads the timestamps from the index, but the UI hands it a table with a date
+        # column: kept as a column it is taken for an exogenous feature, and the time series
+        # setup rejects the frame before any model is chosen.
+        time_col = kwargs.get("time_col")
+        if time_col:
+            train_df = _as_timestamp_index(train_df, time_col)
+            if val_df is not None:
+                val_df = _as_timestamp_index(val_df, time_col)
+
     # Dynamic imports based on task_type
     if task_type == "Regression":
         from pycaret.regression import setup, compare_models, pull, tune_model, blend_models, save_model
@@ -43,7 +112,7 @@ def run_pycaret_experiment(
     elif task_type in ["Time Series Forecasting", "Forecast"]:
         from pycaret.time_series import setup, compare_models, pull, tune_model, blend_models, save_model
         sort_metric = "MASE"
-        include_models = ["naive", "snaive", "arima", "ets"]
+        include_models = _ts_include_models(train_df, target_col)
     elif is_anomaly_task:
         from pycaret.anomaly import setup, create_model, assign_model, save_model
         sort_metric = None
@@ -77,11 +146,15 @@ def run_pycaret_experiment(
             "data": train_df,
             "session_id": 42,
             "verbose": False,
-            "fold": 3,
             "log_experiment": False,
             "system_log": False,
             "n_jobs": n_jobs
         }
+
+        if not is_unsupervised_task:
+            # The unsupervised setups (anomaly, clustering) have no cross-validation folds:
+            # passing "fold" raises TypeError before PyCaret reads the data.
+            setup_kwargs["fold"] = 3
 
         if not is_unsupervised_task:
             if not target_col:

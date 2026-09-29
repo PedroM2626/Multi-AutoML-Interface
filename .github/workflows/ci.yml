@@ -48,7 +48,8 @@ jobs:
             tests/test_regression_flows.py tests/test_streamlit_gui.py \
             tests/test_task_dispatch.py tests/test_task_catalog.py \
             tests/test_engine_availability.py tests/test_doc_matrix_sync.py \
-            tests/test_data_utils_guard.py tests/test_flaml_task_paths.py
+            tests/test_data_utils_guard.py tests/test_flaml_task_paths.py \
+            tests/test_pycaret_task_paths.py
 
   nightly-complete:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -80,7 +81,8 @@ jobs:
           python -m compileall app.py run.py src tests
           pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py \
             tests/test_task_dispatch.py tests/test_task_catalog.py tests/test_engine_availability.py \
-            tests/test_doc_matrix_sync.py tests/test_data_utils_guard.py tests/test_flaml_task_paths.py
+            tests/test_doc_matrix_sync.py tests/test_data_utils_guard.py tests/test_flaml_task_paths.py \
+            tests/test_pycaret_task_paths.py
 
       - name: Optional integration stack install
         id: stack

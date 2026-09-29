@@ -1851,6 +1851,7 @@ elif menu == "Training":
                     _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
                                    val_df=valid_df, time_limit=time_limit,
                                    task_type=task_type, fh=_fh, seasonal_period=_sp,
+                                   time_col=date_col if task_type in ("Forecast", "Time Series Forecasting") else None,
                                    n_jobs=global_n_jobs,
                                    log_queue=None)
                 elif framework == "Lale":

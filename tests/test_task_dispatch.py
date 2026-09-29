@@ -90,7 +90,14 @@ def test_computer_vision_task_types_match_the_engine_branches():
             assert prefixed in ak_branches, f"AutoKeras has no branch for {prefixed!r}"
 
 
-def test_ui_metadata_is_not_forwarded_to_engine_functions(monkeypatch, tmp_path):
+@pytest.fixture
+def engine_present(monkeypatch):
+    """The orchestrator refuses to import a module for an engine that is not installed; tests
+    that replace the engine module wholesale have to say it is present."""
+    monkeypatch.setattr("src.task_catalog.framework_available", lambda framework: True)
+
+
+def test_ui_metadata_is_not_forwarded_to_engine_functions(engine_present, monkeypatch, tmp_path):
     calls = {}
 
     def train(**kwargs):
@@ -113,7 +120,7 @@ def test_ui_metadata_is_not_forwarded_to_engine_functions(monkeypatch, tmp_path)
     assert calls["run_name"] == "run_1"
 
 
-def test_dataset_path_survives_into_entry_metadata(monkeypatch, tmp_path):
+def test_dataset_path_survives_into_entry_metadata(engine_present, monkeypatch, tmp_path):
     stub = types.SimpleNamespace(train_flaml_model=lambda **kwargs: "trained")
     monkeypatch.setitem(sys.modules, "src.flaml_utils", stub)
 
