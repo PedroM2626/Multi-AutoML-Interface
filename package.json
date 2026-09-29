@@ -1,6 +1,6 @@
 {
   "name": "multi-automl-desktop",
-  "version": "5.2.0",
+  "version": "5.2.1",
   "description": "Multi-AutoML Interface - Desktop Application",
   "main": "electron/main.js",
   "homepage": "./",

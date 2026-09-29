@@ -8,6 +8,32 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.2.1 - 2026-09-29
+
+### Fixed
+
+- **Three of PyCaret's five catalog rows could not start.** Verified by installing
+  `pycaret==3.3.2` in an isolated Python 3.11 interpreter and running
+  `run_pycaret_experiment` for each task type:
+  - Anomaly Detection and Clustering raised `TypeError: setup() got an unexpected keyword
+    argument 'fold'` - the unsupervised setups have no cross-validation folds. `fold` is now
+    passed only to the supervised ones, and those rows produce `IForest` and `KMeans`.
+  - Forecast raised `ValueError: Estimator naive Not Available` as soon as the frame carried
+    any column besides the target, because PyCaret's time series module is univariate and
+    keeps only the pmdarima family available. The estimator list now follows the frame
+    (`_ts_include_models`), and the date column the UI selects is moved into the index
+    instead of being read as an exogenous feature. Both shapes - raw ordering under
+    Sequential, lag features under Tabular - train to an `EnsembleForecaster`.
+- **Two PyCaret trainings in one process never finished.** The functional API keeps a single
+  process-global experiment, and this module also ended whichever MLflow run was active; with
+  two sessions training at once both threads were stuck for minutes, while each run alone
+  takes seconds. Concurrent MLflow runs were tested and are fine, so the engine is serialized:
+  `run_pycaret_experiment` now queues behind a lock and a queued run can still be cancelled.
+- **The availability guard broke tests that stub the engine module.** Two dispatch tests built a
+  `FLAML` orchestrator with a fake module and hit the new "install it with: pip install flaml"
+  check on interpreters without FLAML; they now declare the engine present, and a test covers
+  the guard itself.
+
 ## 5.2.0 - 2026-09-29
 
 ### Fixed
