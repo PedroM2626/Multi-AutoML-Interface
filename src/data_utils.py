@@ -46,7 +46,16 @@ def load_data(file, no_header=False):
         # AutoGluon / AutoKeras will use the path string instead of this DataFrame.
         num_files = sum(len(files) for _, _, files in os.walk(filename))
         return pd.DataFrame({"Image_Directory": [filename], "Total_Images": [num_files], "Type": ["Computer Vision Dataset"]})
-        
+
+    if is_path:
+        with open(filename, "rb") as handle:
+            head = handle.read(64)
+        if head.startswith(b"version https://git-lfs.github.com/spec/"):
+            raise ValueError(
+                f"'{os.path.basename(filename)}' is a Git LFS pointer, not a dataset. "
+                "Fetch the real content with `git lfs pull` and reload the page."
+            )
+
     if filename.endswith('.csv'):
         if no_header:
             df = pd.read_csv(file, header=None)
