@@ -24,9 +24,10 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   Forecast now passes the date column as `time_col` and the horizon as `period` (Sequential uses
   that native path, Tabular keeps the processor's lag features and trains as regression).
   Ranking handed LightGBM float relevance grades and rows in arbitrary order; it now sorts by a
-  new *Query / Group Column* input and casts integer grades. Missing inputs raise a readable
-  `ValueError` instead of failing inside the learner. Both were run end to end against the
-  bundled interpreter.
+  new *Query / Group Column* input and casts integer grades, and Ranking lists only the boosting
+  learners because the sklearn forests reject the `group` argument the ranker forwards. Missing
+  inputs raise a readable `ValueError` instead of failing inside the learner. Both were run end
+  to end against the bundled interpreter, and `tests/test_flaml_task_paths.py` keeps them covered.
 - **Rows that no engine implemented.** `Semi-Supervised Classification` was a task row while the
   real feature is the Classification checkbox that wraps the model in `SelfTrainingClassifier`;
   Text/Clustering had no text featurizer; four Sequential rows dispatched exactly like their

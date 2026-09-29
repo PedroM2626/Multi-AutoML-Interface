@@ -1600,18 +1600,29 @@ elif menu == "Training":
                 metric_options = ['auto']
                 
             metric = st.selectbox("Metric", metric_options)
-            estimator_choices = ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree']
-            if task in ('classification', 'regression'):
-                estimator_choices += ['lrl1', 'lrl2']
-            estimators = st.multiselect("Estimators", estimator_choices, default=['lgbm', 'rf'])
+            # FLAML's rank task forwards a 'group' argument to the learner, which the sklearn
+            # forests reject, so only the boosting learners are offered for it.
+            if task == 'rank':
+                estimator_choices = ['lgbm', 'xgboost']
+                default_estimators = ['lgbm']
+                fallback_estimators = ['lgbm', 'xgboost']
+            elif task == 'ts_forecast':
+                estimator_choices = ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree']
+                default_estimators = ['lgbm', 'rf']
+                fallback_estimators = ['lgbm', 'xgboost', 'rf', 'extra_tree']
+            else:
+                estimator_choices = ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree', 'lrl1', 'lrl2']
+                default_estimators = ['lgbm', 'rf']
+                fallback_estimators = None
+            estimators = st.multiselect("Estimators", estimator_choices, default=default_estimators)
             if estimators:
                 estimator_list = estimators
-            elif task in ('classification', 'regression'):
-                estimator_list = 'auto'
+            elif fallback_estimators is not None:
+                # 'auto' is not a valid estimator_list for ts_forecast or rank: those tasks
+                # resolve it to a learner name that is not built in and raise before training.
+                estimator_list = fallback_estimators
             else:
-                # FLAML rejects 'auto' for ts_forecast and rank: those tasks resolve it to a
-                # learner name that is not built in and raise before training starts.
-                estimator_list = ['lgbm', 'xgboost', 'rf', 'extra_tree']
+                estimator_list = 'auto'
         elif framework == "H2O AutoML":
             st.warning("⚠️ H2O AutoML requires Java. If Java is not installed, use AutoGluon or FLAML.")
             st.info("💡 To run H2O without Java installed locally, run via Docker.")

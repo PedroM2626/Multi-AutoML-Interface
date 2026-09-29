@@ -417,7 +417,7 @@ All parameters below are verified against the configuration blocks in `app.py` a
 | Forecast horizon | *⏳ Forecast Horizon* (Sequential) | 1 | Passed as `period`; FLAML asserts it for forecast tasks |
 | Query / Group column | *🔎 Query / Group Column* (Ranking) | — | Passed as `group_col`; rows are sorted by it and the target is cast to integer relevance grades |
 | Metric | Selectbox (context-aware) | `auto` | Binary: `auto, accuracy, roc_auc, f1, log_loss`; Multiclass: `auto, accuracy, macro_f1, micro_f1, roc_auc_ovr, roc_auc_ovo, log_loss`; Regression: `auto, rmse, mae, r2, mape` |
-| Estimators | Multiselect | `['lgbm', 'rf']` | Options: `lgbm, rf, catboost, xgboost, extra_tree` (+ `lrl1`, `lrl2` for classification/regression); empty ⇒ `'auto'` except for `ts_forecast`/`rank`, which reject `'auto'` and fall back to `['lgbm', 'xgboost', 'rf', 'extra_tree']` |
+| Estimators | Multiselect | `['lgbm', 'rf']` | Options depend on the task: `lgbm, rf, catboost, xgboost, extra_tree` (+ `lrl1`, `lrl2` for classification/regression), and `lgbm, xgboost` only for Ranking - the sklearn forests reject the `group` argument the ranker forwards. Empty ⇒ `'auto'`, except `ts_forecast`/`rank`, which reject `'auto'` and fall back to the boosting/forest learners built in for them |
 | n_jobs | Global parallelism | `-1` | Passed through |
 
 ### H2O AutoML (`src/h2o_utils.py` → `train_h2o_model`)
