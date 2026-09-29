@@ -260,20 +260,21 @@ jobs:
             echo
             echo "### What is inside"
             echo
-            echo "Each installer bundles a standalone CPython with everything in"
-            echo "\`requirements.txt\` already installed, so **no Python setup is needed** on the"
-            echo "target machine. Runs, models and the data lake are written to a per-user"
-            echo "workspace (the app's Electron \`userData\` directory):"
+            echo 'Each installer bundles a standalone CPython 3.12 with everything in'
+            echo 'requirements.txt already installed, so **no Python setup is needed** on'
+            echo "the target machine. Runs, models and the data lake are written to the app's"
+            echo 'per-user workspace (the Electron userData directory):'
             echo
-            echo "| Operating system | Location |"
-            echo "|---|---|"
-            echo "| Windows | \`%APPDATA%\\multi-automl-desktop\\workspace\\` |"
-            echo "| macOS | \`~/Library/Application Support/multi-automl-desktop/workspace/\\` |"
-            echo "| Linux | \`~/.config/multi-automl-desktop/workspace/\\` |"
+            echo '| Operating system | Location |'
+            echo '|---|---|'
+            echo '| Windows | `%APPDATA%\multi-automl-desktop\workspace\` |'
+            echo '| macOS | `~/Library/Application Support/multi-automl-desktop/workspace/` |'
+            echo '| Linux | `~/.config/multi-automl-desktop/workspace/` |'
             echo
-            echo "The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras,"
-            echo "HuggingFace) stay optional and are lazy-imported; the app runs with whichever"
-            echo "of them you install into the bundled runtime. H2O additionally needs Java 11+."
+            echo 'The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras,'
+            echo 'HuggingFace) stay optional and are lazy-imported; the bundled runtime'
+            echo 'contains the core stack, so install whichever engines you need into it.'
+            echo 'H2O additionally requires Java 11+.'
             echo
             if [ -s signature-report/app.codesign.txt ] || grep -lq "Valid" signature-report/* 2>/dev/null; then
               echo "### Signing"
