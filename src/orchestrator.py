@@ -40,6 +40,10 @@ class UniversalAutoMLOrchestrator:
         
         # Build kwargs from self.config
         kwargs = self.config.copy()
+        # dataset_path is UI metadata for notebook generation, not an engine parameter:
+        # six of the eight train functions declare no such argument and no **kwargs, so
+        # forwarding it raised TypeError before any training could start.
+        kwargs.pop("dataset_path", None)
         return train_fn, kwargs
 
     def run_synchronously(self) -> Any:
@@ -79,7 +83,7 @@ class UniversalAutoMLOrchestrator:
                 "framework_key": self.fw_key,
                 "run_name": run_name,
                 "target": target_col,
-                "dataset_path": kwargs.get("dataset_path"),
+                "dataset_path": self.config.get("dataset_path"),
                 "config_snapshot": {k: v for k, v in kwargs.items()
                                    if k not in ("train_data", "df", "valid_data", "val_df", "test_data", "test_df", "dataset_path")}
             }
