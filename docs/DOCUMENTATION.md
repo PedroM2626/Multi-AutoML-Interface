@@ -219,10 +219,10 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | PyCaret | `pip install pycaret` | Requires Python 3.11 |
 | Lale | `pip install lale` | Requires Python 3.11 |
 | AutoKeras | `pip install autokeras` | Requires TensorFlow |
-| SHAP (XAI) | `pip install shap` | Needed for tabular explanations |
+| SHAP (XAI) | in `requirements.txt` (every platform except Intel macOS) | Tabular explanations; `shap` needs `numba`, whose Intel-macOS cap conflicts with the numpy pin, so XAI is skipped there |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
 | DVC | `pip install dvc` | Data-lake versioning (falls back to MD5 hashing when absent) |
-| ONNX | `pip install onnx onnxruntime skl2onnx onnxconverter-common` | ONNX export/load, for estimators skl2onnx can convert |
+| ONNX | in `requirements.txt` (`onnx`, `onnxruntime`, `skl2onnx`, `onnxconverter-common`) | ONNX export/load, for estimators skl2onnx can convert |
 | Hugging Face Hub | `pip install huggingface_hub` | Push/download models to/from the Hub |
 | Deep Feature Synthesis | `pip install featuretools` | Optional DFS step in `src/processor.py` |
 | DagsHub | `pip install dagshub` | Sidebar DagsHub integration |

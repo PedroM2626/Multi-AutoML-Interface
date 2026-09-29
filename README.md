@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Install what you need: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `shap` (XAI), `dvc` (data versioning), `onnx onnxruntime skl2onnx` (ONNX export) — e.g. `pip install autogluon pycaret`.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. `requirements.txt` already covers the core stack, ONNX export and SHAP; the engines are the extra installs: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `dvc` (data versioning) — e.g. `pip install autogluon pycaret`.
 
 #### **Run the Application:**
 ```bash
@@ -247,7 +247,7 @@ git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
 
 Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
 
-The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM…), so the desktop installers offer FLAML until you install any extra engine into it. H2O additionally requires Java 11+.
+The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM, plus ONNX export and SHAP) so the desktop installers run those features out of the box, and offer FLAML until you install any extra engine into it. H2O additionally requires Java 11+.
 
 Signing is wired up in `.github/workflows/release.yml` and activates as soon as the signing secrets exist (see *Code signing* in `docs/DOCUMENTATION.md`); while they are absent, the release notes state that the builds are unsigned.
 

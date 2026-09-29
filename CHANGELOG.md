@@ -8,6 +8,33 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.3.0 - 2026-09-29
+
+### Added
+
+- **ONNX export and SHAP explanations now ship in the installers.** They were never in
+  `requirements.txt`, so the desktop app - which installs exactly that file - could not run the
+  *🧠 Explain Prediction* or *📦 Export to ONNX* buttons at all. The lock now carries
+  `onnx`, `onnxruntime`, `skl2onnx`, `onnxconverter-common` and `shap` (plus `numba`, `llvmlite`,
+  `slicer`, `tqdm`, `flatbuffers`, `ml-dtypes`), with `shap` excluded on Intel macOS, where the
+  `numba` version it allows cannot take the `numpy==2.5.0` pin. Windows and Linux resolve; the
+  packaging workflow verifies the macOS build.
+
+### Fixed
+
+- **`export_to_onnx` never wrote a model.** It called `to_onnx(model, input_sample[:1], ...)`,
+  which makes skl2onnx treat every column as a separate input, so even a plain
+  `RandomForestClassifier` raised `InvalidInputLengthException`; the export now names one
+  `FloatTensor` of the sample's width and the artifact loads and predicts through onnxruntime.
+  The Experiments button also handed over FLAML's `AutoML` wrapper where the engine had passed the
+  inner estimator - the wrapper is unwrapped now. Boosted-tree learners (`lgbm`, `xgboost`,
+  `catboost`) genuinely have no converter in skl2onnx, so that case raises a message naming the
+  estimator instead of a warning logged inside a training thread nobody reads; FLAML's default
+  learner is `lgbm`, which is why the feature looked like it worked and did nothing.
+- **The tabular SHAP path could not be imported without OpenCV.** `src/xai_utils.py` had
+  `import cv2` at module scope while only the saliency-map function uses it (and imports it
+  there), so *Explain Prediction* failed on any interpreter without opencv-python.
+
 ## 5.2.1 - 2026-09-29
 
 ### Fixed
