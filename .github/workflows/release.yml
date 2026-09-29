@@ -188,6 +188,12 @@ jobs:
               cat dist-signature/AppImage.sha256
               ;;
           esac
+          # The release notes need a verdict, not the presence of a report: on an unsigned app
+          # `codesign --display` still writes a non-empty "code object is not signed at all",
+          # which is what made two releases claim Authenticode and notarization they did not have.
+          printf '%s %s\n' "${{ matrix.os }}" "$METHOD" \
+            > "dist-signature/signing-method-${{ matrix.os }}.txt"
+          cat "dist-signature/signing-method-${{ matrix.os }}.txt"
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -277,14 +283,27 @@ jobs:
             echo 'LightGBM), so the desktop installers offer FLAML until you install whichever'
             echo 'engines you need into it. H2O additionally requires Java 11+.'
             echo
-            if [ -s signature-report/app.codesign.txt ] || grep -lq "Valid" signature-report/* 2>/dev/null; then
-              echo "### Signing"
-              echo
+            WINDOWS_SIGNED="no"; MACOS_SIGNED="no"
+            if grep -qs '^windows-latest authenticode-certificate$' \
+                 signature-report/signing-method-windows-latest.txt 2>/dev/null; then
+              WINDOWS_SIGNED="yes"
+            fi
+            if grep -qs '^macos-latest developer-id-plus-notarization$' \
+                 signature-report/signing-method-macos-latest.txt 2>/dev/null; then
+              MACOS_SIGNED="yes"
+            fi
+            echo "### Signing"
+            echo
+            if [ "$WINDOWS_SIGNED" = "yes" ] && [ "$MACOS_SIGNED" = "yes" ]; then
               echo "Windows installers are Authenticode-signed and the macOS build is signed with a"
               echo "Developer ID certificate and notarized."
+            elif [ "$WINDOWS_SIGNED" = "yes" ]; then
+              echo "The Windows installer is Authenticode-signed. The macOS build is **not** signed or"
+              echo "notarized, so Gatekeeper will warn on first launch."
+            elif [ "$MACOS_SIGNED" = "yes" ]; then
+              echo "The macOS build is signed with a Developer ID certificate and notarized. The"
+              echo "Windows installer is **not** code-signed, so SmartScreen will warn on first launch."
             else
-              echo "### Signing"
-              echo
               echo "These builds are **not code-signed or notarized**, so SmartScreen and Gatekeeper"
               echo "will warn on first launch."
             fi
