@@ -41,7 +41,7 @@ jobs:
         run: python -m compileall app.py run.py src tests
 
       - name: Regression flow tests
-        run: pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py
+        run: pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py tests/test_task_dispatch.py
 
   nightly-complete:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -71,7 +71,7 @@ jobs:
         run: |
           ruff check .
           python -m compileall app.py run.py src tests
-          pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py
+          pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py tests/test_task_dispatch.py
 
       - name: Optional integration stack install
         id: stack
