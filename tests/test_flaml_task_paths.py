@@ -9,10 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("flaml")
-pytest.importorskip("lightgbm")
-
-from src.flaml_utils import train_flaml_model  # noqa: E402
+try:
+    from src.flaml_utils import train_flaml_model
+except ImportError as exc:  # pragma: no cover - environment dependent
+    # flaml is importable as a namespace on the CI runner without exposing AutoML, so
+    # pytest.importorskip("flaml") would not skip this module and collection would error.
+    pytest.skip(f"FLAML training path unavailable: {exc}", allow_module_level=True)
 
 
 def _series_frame(rows=200):
