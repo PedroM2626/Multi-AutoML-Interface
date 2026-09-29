@@ -1687,7 +1687,13 @@ elif menu == "Training":
             is_multi = len(target_cols) > 1
             
             targets_to_run = target_cols if is_multi else [target]
-            
+
+            # The vision engines branch on the prefixed form ("Computer Vision - Object
+            # Detection", autogluon_utils.py:39-42 / autokeras_utils.py:112-117) while the
+            # catalog stores bare task names, so CV runs fell through to the tabular
+            # predictor or NotImplementedError.
+            engine_task_type = f"{data_category} - {task_type}" if data_category == "Computer Vision" else task_type
+
             for t_col in targets_to_run:
                 local_target = t_col
                 local_run_name = f"{run_name}_{t_col}" if is_multi else run_name
@@ -1697,12 +1703,12 @@ elif menu == "Training":
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
                                    time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
-                                   task_type=task_type, data_category=data_category,
+                                   task_type=engine_task_type, data_category=data_category,
                                    multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
                                    multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
                 elif framework == "AutoKeras":
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
-                                   valid_data=valid_df, task_type=task_type, time_limit=time_limit)
+                                   valid_data=valid_df, task_type=engine_task_type, time_limit=time_limit)
                 elif framework == "FLAML":
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
