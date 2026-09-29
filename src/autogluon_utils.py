@@ -37,7 +37,9 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
     Supports both Tabular data and Computer Vision tasks (via MultiModalPredictor).
     """
     is_cv_task = task_type and task_type.startswith("Computer Vision")
-    is_multimodal_task = data_category == "Multimodal"
+    # Text is the same engine path as Multimodal: MultiModalPredictor with the columns the user
+    # marked as text. TabularPredictor would treat a free-text column as one categorical feature.
+    is_multimodal_task = data_category in ("Multimodal", "Text")
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
     is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
     is_tabular_multilabel = data_category == "Tabular" and task_type in ["Multi-Label Classification", "Multi-Task Classification"]

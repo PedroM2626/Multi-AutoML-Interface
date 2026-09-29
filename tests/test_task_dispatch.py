@@ -19,7 +19,17 @@ from src.task_catalog import (
     get_framework_options,
 )
 
-ENGINES = {"AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale", "AutoKeras", "HuggingFace"}
+ENGINES = set(UniversalAutoMLOrchestrator.FRAMEWORK_MAPPINGS)
+
+
+def test_catalog_labels_have_an_availability_mapping():
+    """The UI hides engines that cannot be imported, so every label it can offer has to name
+    an import; a label missing from FRAMEWORK_IMPORTS would be hidden forever."""
+    from src.task_catalog import FRAMEWORK_IMPORTS, TASK_FRAMEWORK_MAP
+
+    offered = {name for names in TASK_FRAMEWORK_MAP.values() for name in names}
+    assert offered <= set(FRAMEWORK_IMPORTS), f"no import name for {sorted(offered - set(FRAMEWORK_IMPORTS))}"
+    assert offered <= ENGINES, f"the catalog offers engines the orchestrator cannot run: {sorted(offered - ENGINES)}"
 
 # The keys the UI injects for every run (app.py builds these dicts) plus the metadata
 # entry it injects unconditionally at app.py:_kwargs["dataset_path"].
@@ -118,26 +128,67 @@ def test_dataset_path_survives_into_entry_metadata(monkeypatch, tmp_path):
     assert UI_INJECTED_METADATA not in entry.metadata["config_snapshot"]
 
 
-UI_KWARGS = {
-    "AutoGluon": ["train_data", "target", "run_name", "valid_data", "test_data", "time_limit",
-                  "presets", "seed", "cv_folds", "task_type", "data_category",
-                  "multimodal_text_columns", "multimodal_image_columns"],
-    "AutoKeras": ["train_data", "target", "run_name", "valid_data", "task_type", "time_limit"],
-    "FLAML": ["train_data", "target", "run_name", "valid_data", "test_data", "time_budget",
-              "task", "metric", "estimator_list", "seed", "cv_folds", "n_jobs"],
-    "H2O AutoML": ["train_data", "target", "run_name", "valid_data", "test_data",
-                   "max_runtime_secs", "max_models", "nfolds", "balance_classes", "seed",
-                   "sort_metric", "exclude_algos"],
-    "TPOT": ["df", "target_column", "run_name", "valid_data", "test_data", "generations",
-             "population_size", "cv", "scoring", "max_time_mins", "max_eval_time_mins",
-             "random_state", "verbosity", "n_jobs", "config_dict", "tfidf_max_features",
-             "tfidf_ngram_range"],
-    "PyCaret": ["df", "target_column", "run_name", "task_type", "data_category", "time_budget",
-                "seed", "log_queue"],
-    "Lale": ["train_df", "target_col", "run_name", "valid_df", "test_df", "task_type",
-             "time_budget", "seed", "n_jobs"],
-    "HuggingFace": ["train_data", "target", "run_name", "task_type", "time_limit"],
-}
+def _ui_kwargs_by_framework(app_file="app.py"):
+    """Read the keyword arguments each engine actually receives from app.py's dispatch chain.
+
+    Written as a list of hand-maintained key names, this contract drifted from what the UI
+    sends (PyCaret's entry named keys app.py never builds), so the chain is parsed instead.
+    """
+    tree = ast.parse(open(app_file, encoding="utf-8").read())
+
+    def framework_of(test):
+        if (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name)
+                and test.left.id == "framework" and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.Eq)
+                and isinstance(test.comparators[0], ast.Constant)):
+            return test.comparators[0].value
+        return None
+
+    def dict_keys(body):
+        for stmt in body:
+            if (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
+                    and isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "dict"
+                    and any(isinstance(t, ast.Name) and t.id == "_kwargs" for t in stmt.targets)):
+                return sorted({kw.arg for kw in stmt.value.keywords if kw.arg})
+        return None
+
+    # The config panel has "framework == 'AutoGluon'" branches too; the dispatch is the one
+    # whose body builds the engine kwargs.
+    root = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.If) and framework_of(node.test) == "AutoGluon" and dict_keys(node.body)
+    )
+
+    found = {}
+    current = root
+    while current is not None:
+        name = framework_of(current.test)
+        keys = dict_keys(current.body)
+        if name and keys:
+            found[name] = keys
+        orelse = current.orelse
+        if len(orelse) == 1 and isinstance(orelse[0], ast.If):
+            current = orelse[0]
+        else:
+            tpot_keys = dict_keys(orelse)
+            if tpot_keys:
+                found["TPOT"] = tpot_keys
+            current = None
+    return found
+
+
+UI_KWARGS = _ui_kwargs_by_framework()
+
+
+def test_dispatch_parsing_found_every_catalog_engine():
+    assert set(UI_KWARGS) == set(UniversalAutoMLOrchestrator.FRAMEWORK_MAPPINGS), (
+        f"parsed: {sorted(UI_KWARGS)}"
+    )
+
+
+def test_ui_sends_the_time_series_and_ranking_inputs_flaml_needs():
+    """The wiring behind the two FLAML runs that used to fail before the search started."""
+    assert {"time_col", "period", "group_col"} <= set(UI_KWARGS["FLAML"])
 
 
 @pytest.mark.parametrize("framework", sorted(UI_KWARGS))

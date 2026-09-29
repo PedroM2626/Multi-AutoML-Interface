@@ -22,8 +22,7 @@ class UniversalAutoMLOrchestrator:
         "H2O AutoML": ("h2o", "src.h2o_utils", "train_h2o_model"),
         "PyCaret": ("pycaret", "src.pycaret_utils", "run_pycaret_experiment"),
         "Lale": ("lale", "src.lale_utils", "run_lale_experiment"),
-        "TPOT": ("tpot", "src.tpot_utils", "train_tpot_model"),
-        "HuggingFace": ("huggingface", "src.huggingface_utils", "run_huggingface_experiment")
+        "TPOT": ("tpot", "src.tpot_utils", "train_tpot_model")
     }
 
     def __init__(self, framework: str, config: Dict[str, Any]):
@@ -35,6 +34,15 @@ class UniversalAutoMLOrchestrator:
 
     def _get_train_function_and_kwargs(self) -> Tuple[Any, Dict[str, Any]]:
         import importlib
+        from src.task_catalog import FRAMEWORK_IMPORTS, framework_available, install_hint
+
+        # A missing engine used to surface as "No module named 'autogluon'" from inside a
+        # background thread, far from the selector that offered it.
+        if self.framework in FRAMEWORK_IMPORTS and not framework_available(self.framework):
+            raise ModuleNotFoundError(
+                f"{self.framework} is not installed in this interpreter. "
+                f"Install it with: pip install {install_hint([self.framework])}"
+            )
         module = importlib.import_module(self.module_path)
         train_fn = getattr(module, self.func_name)
         

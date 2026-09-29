@@ -136,7 +136,7 @@ model = mlflow.sklearn.load_model("runs:/{run_id}/model")
     elif model_type == "pycaret":
         if task_type == "Regression":
             pc_module = "pycaret.regression"
-        elif task_type == "Time Series Forecasting":
+        elif task_type in ("Time Series Forecasting", "Forecast"):
             pc_module = "pycaret.time_series"
         elif task_type == "Anomaly Detection":
             pc_module = "pycaret.anomaly"
@@ -306,7 +306,7 @@ except Exception:
 
 if task_type == "Regression":
     from pycaret.regression import load_model, predict_model
-elif task_type == "Time Series Forecasting":
+elif task_type in ("Time Series Forecasting", "Forecast"):
     from pycaret.time_series import load_model, predict_model
 elif task_type == "Anomaly Detection":
     from pycaret.anomaly import load_model, predict_model

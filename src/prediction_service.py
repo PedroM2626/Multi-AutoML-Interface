@@ -13,14 +13,17 @@ _PYCARET_CLASSIFICATION_MODULE = ".".join(["pycaret", "classification"])
 # that cannot express a path separator, a parent reference or a URL fragment.
 _RUN_ID_RE = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
 
+# Order matters: the sidebar renders this list as the model-source selector.
+SUPPORTED_FRAMEWORKS = ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"]
+
 # Flavors restored from raw Python objects: unpickling executes code inside the artifact.
-_PICKLE_BACKED_FLAVORS = {"AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"}
+_PICKLE_BACKED_FLAVORS = set(SUPPORTED_FRAMEWORKS)
 
 
 def _get_pycaret_module_name(task_type: str | None) -> str:
     if task_type == "Regression":
         return ".".join(["pycaret", "regression"])
-    if task_type == "Time Series Forecasting":
+    if task_type in ("Time Series Forecasting", "Forecast"):
         return ".".join(["pycaret", "time_series"])
     if task_type == "Anomaly Detection":
         return ".".join(["pycaret", "anomaly"])

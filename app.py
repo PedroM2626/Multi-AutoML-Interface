@@ -8,7 +8,14 @@ import logging
 import importlib
 import queue
 
-from src.task_catalog import DATA_CATEGORIES, get_framework_options, get_task_options, infer_multimodal_columns
+from src.task_catalog import (
+    DATA_CATEGORIES,
+    get_framework_options,
+    get_task_options,
+    infer_multimodal_columns,
+    install_hint,
+    partition_frameworks,
+)
 from src.orchestrator import UniversalAutoMLOrchestrator
 from src.data_utils import safe_path_component
 
@@ -223,7 +230,7 @@ from src.experiment_manager import get_or_create_manager, ExperimentEntry
 from src.training_worker import run_training_worker
 from src.ui_state import init_session_state
 from src.navigation import NAV_ITEMS, init_navigation_state, sync_navigation_selection
-from src.prediction_service import load_model_by_framework, run_predictions
+from src.prediction_service import SUPPORTED_FRAMEWORKS, load_model_by_framework, run_predictions
 import mlflow
 import time
 import threading
@@ -1218,6 +1225,8 @@ elif menu == "Training":
 
         data_category_help = {
             "Tabular": "CSV/Excel with numeric, categorical, or text columns.",
+            "Sequential": "One time-ordered series (or several items) in a CSV/Excel table.",
+            "Text": "A table whose predictive features are free-text columns.",
             "Computer Vision": "Image folders or ZIP archives with labels inferred from the directory structure.",
             "Multimodal": "Mixed tabular + text + image-path columns in a single table.",
         }
@@ -1233,13 +1242,28 @@ elif menu == "Training":
         st.session_state['task_type'] = task_type
 
         available_frameworks = get_framework_options(data_category, task_type)
-        previous_framework = st.session_state.get('framework', available_frameworks[0])
-        framework = st.selectbox(
-            "Select AutoML Framework",
-            available_frameworks,
-            index=available_frameworks.index(previous_framework) if previous_framework in available_frameworks else 0,
-        )
-        st.session_state['framework'] = framework
+        installed_frameworks, missing_frameworks = partition_frameworks(available_frameworks)
+        framework = None
+        if not installed_frameworks:
+            st.error(
+                f"None of the engines that implement **{task_type}** for {data_category} data is "
+                f"installed in this interpreter: {', '.join(available_frameworks)}. "
+                "Install one of them, then reload this page:\n\n"
+                f"`pip install {install_hint(available_frameworks)}`"
+            )
+        else:
+            if missing_frameworks:
+                st.caption(
+                    f"Not installed, so not offered: {', '.join(missing_frameworks)} — "
+                    f"`pip install {install_hint(missing_frameworks)}`."
+                )
+            previous_framework = st.session_state.get('framework', installed_frameworks[0])
+            framework = st.selectbox(
+                "Select AutoML Framework",
+                installed_frameworks,
+                index=installed_frameworks.index(previous_framework) if previous_framework in installed_frameworks else 0,
+            )
+            st.session_state['framework'] = framework
         
         multimodal_text_columns = []
         multimodal_image_columns = []
@@ -1316,6 +1340,48 @@ elif menu == "Training":
                 )
                 st.session_state['semi_supervised'] = semi_supervised
 
+        if data_category == "Sequential":
+            # The Tabular panel above exists to feed the feature processor, which this category
+            # deliberately skips: the engine's native time series path gets the raw ordering.
+            st.markdown("#### 📅 Time Series Configuration")
+            if 'app_date_col' in st.session_state and st.session_state['app_date_col'] not in columns:
+                del st.session_state['app_date_col']
+            date_col = st.selectbox(
+                "📅 Date Column",
+                columns,
+                index=0,
+                key="app_date_col",
+                help="Timestamp column. Rows are sorted by it before training.",
+            )
+            forecast_horizon = st.number_input(
+                "⏳ Forecast Horizon",
+                min_value=1,
+                value=1,
+                key="app_horizon",
+                help="Number of time steps ahead the model forecasts (the 'period' the engine optimizes over).",
+            )
+
+        if data_category == "Text":
+            text_candidates = [
+                col for col in columns
+                if col != target and not pd.api.types.is_numeric_dtype(df[col])
+            ]
+            if not text_candidates:
+                st.warning("No non-numeric column found. A Text task needs at least one free-text feature column.")
+            else:
+                st.info(
+                    "Pick the columns the model should read as text. Everything else stays a tabular "
+                    "feature and is fed to AutoGluon's multimodal pipeline."
+                )
+                selected_text_cols = st.multiselect(
+                    "📝 Text Column(s)",
+                    text_candidates,
+                    default=st.session_state.get('text_columns', []),
+                    key="text_columns",
+                )
+                if not selected_text_cols:
+                    st.warning("Select at least one text column to train a multimodal text model.")
+
         if data_category == "Multimodal":
             feature_columns = [col for col in columns if col != target]
             suggested_text_columns, suggested_image_columns = infer_multimodal_columns(df, target)
@@ -1337,9 +1403,11 @@ elif menu == "Training":
                 st.warning("Multimodal training is currently native only in AutoGluon in this interface.")
 
         st.session_state['target'] = target
+        # framework is None when no engine for the chosen task is installed.
+        run_prefix = (framework or "automl").lower()
         run_name = safe_path_component(
-            st.text_input("Run Name", value=f"{framework.lower()}_run_{int(time.time())}"),
-            fallback=f"{framework.lower()}_run",
+            st.text_input("Run Name", value=f"{run_prefix}_run_{int(time.time())}"),
+            fallback=f"{run_prefix}_run",
         )
 
         target_display = ", ".join(target) if isinstance(target, list) else (target if target else "N/A")
@@ -1480,18 +1548,35 @@ elif menu == "Training":
             else:
                 time_budget = None
                 
-            # Map global task_type to FLAML task
+            # Map global task_type to FLAML task. Tabular Forecast trains on the lag/rolling
+            # features the processor adds, so it is a supervised regression; Sequential hands the
+            # raw ordering to FLAML's own time series task, which requires a period.
             if task_type == 'Classification':
                 task = 'classification'
             elif task_type == 'Regression':
                 task = 'regression'
-            elif task_type in ['Time Series Forecasting', 'Forecast']:
-                task = 'ts_forecast'
             elif task_type == 'Ranking':
                 task = 'rank'
+            elif task_type == 'Forecast':
+                task = 'ts_forecast' if data_category == 'Sequential' else 'regression'
             else:
                 task = 'classification'
-            
+
+            flaml_group_col = None
+            if task == 'rank':
+                flaml_group_col = st.selectbox(
+                    "🔎 Query / Group Column",
+                    [c for c in columns if c != target],
+                    key="app_rank_group_col",
+                    help="Rows sharing a value form one ranking query (e.g. a search-query id). "
+                         "The target must hold integer relevance grades.",
+                )
+            if task == 'ts_forecast':
+                st.caption(
+                    f"Native time series path: timestamps from **{date_col}**, "
+                    f"horizon **{forecast_horizon}** step(s)."
+                )
+
             st.info(f"FLAML internal task synced to: **{task}**")
             
             # Smart metric selection for FLAML
@@ -1515,8 +1600,18 @@ elif menu == "Training":
                 metric_options = ['auto']
                 
             metric = st.selectbox("Metric", metric_options)
-            estimators = st.multiselect("Estimators", ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree', 'lrl1', 'lrl2'], default=['lgbm', 'rf'])
-            estimator_list = estimators if estimators else 'auto'
+            estimator_choices = ['lgbm', 'rf', 'catboost', 'xgboost', 'extra_tree']
+            if task in ('classification', 'regression'):
+                estimator_choices += ['lrl1', 'lrl2']
+            estimators = st.multiselect("Estimators", estimator_choices, default=['lgbm', 'rf'])
+            if estimators:
+                estimator_list = estimators
+            elif task in ('classification', 'regression'):
+                estimator_list = 'auto'
+            else:
+                # FLAML rejects 'auto' for ts_forecast and rank: those tasks resolve it to a
+                # learner name that is not built in and raise before training starts.
+                estimator_list = ['lgbm', 'xgboost', 'rf', 'extra_tree']
         elif framework == "H2O AutoML":
             st.warning("⚠️ H2O AutoML requires Java. If Java is not installed, use AutoGluon or FLAML.")
             st.info("💡 To run H2O without Java installed locally, run via Docker.")
@@ -1595,7 +1690,7 @@ elif menu == "Training":
                  
             fh = 1
             seasonal_period = 1
-            if task_type == "Time Series Forecasting":
+            if task_type in ("Time Series Forecasting", "Forecast"):
                  st.markdown("#### 📈 Time Series Configuration")
                  fh = st.number_input("Forecasting Horizon (fh)", min_value=1, value=12, help="Number of steps into the future to predict")
                  seasonal_period = st.number_input("Seasonal Period", min_value=1, value=12, help="Seasonal frequency (e.g., 12 for monthly data, 7 for daily)")
@@ -1621,7 +1716,14 @@ elif menu == "Training":
             else:
                 dfs_depth = 1
 
-        launch_disabled = data_category == "Tabular" and task_type == "Multi-Label Classification" and isinstance(target, list) and len(target) < 2
+        launch_disabled = (
+            framework is None
+            or (
+                data_category == "Tabular" and task_type == "Multi-Label Classification"
+                and isinstance(target, list) and len(target) < 2
+            )
+            or (data_category == "Text" and not st.session_state.get('text_columns'))
+        )
         if st.button("🚀 Start Training", type="primary", disabled=launch_disabled):
             import time as _t
             import threading
@@ -1694,6 +1796,14 @@ elif menu == "Training":
             # predictor or NotImplementedError.
             engine_task_type = f"{data_category} - {task_type}" if data_category == "Computer Vision" else task_type
 
+            # The Text category reuses the multimodal engine path, but keeps its own widget so a
+            # selection made for one category does not leak into the other.
+            text_feature_columns = (
+                st.session_state.get('multimodal_text_columns', [])
+                if data_category == "Multimodal"
+                else st.session_state.get('text_columns', [])
+            )
+
             for t_col in targets_to_run:
                 local_target = t_col
                 local_run_name = f"{run_name}_{t_col}" if is_multi else run_name
@@ -1704,7 +1814,7 @@ elif menu == "Training":
                                    valid_data=valid_df, test_data=test_df,
                                    time_limit=time_limit, presets=presets, seed=seed, cv_folds=cv_folds,
                                    task_type=engine_task_type, data_category=data_category,
-                                   multimodal_text_columns=st.session_state.get('multimodal_text_columns', []),
+                                   multimodal_text_columns=text_feature_columns,
                                    multimodal_image_columns=st.session_state.get('multimodal_image_columns', []))
                 elif framework == "AutoKeras":
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
@@ -1714,7 +1824,10 @@ elif menu == "Training":
                                    valid_data=valid_df, test_data=test_df,
                                    time_budget=time_budget, task=task, metric=metric,
                                    estimator_list=estimator_list, seed=seed, cv_folds=cv_folds,
-                                   n_jobs=global_n_jobs)
+                                   n_jobs=global_n_jobs,
+                                   time_col=date_col if task == 'ts_forecast' else None,
+                                   period=int(forecast_horizon) if task == 'ts_forecast' else None,
+                                   group_col=flaml_group_col)
                 elif framework == "H2O AutoML":
                     _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
@@ -1733,10 +1846,6 @@ elif menu == "Training":
                     _kwargs = dict(train_df=df, target_col=local_target, run_name=local_run_name,
                                    val_df=valid_df, time_limit=time_limit, task_type=task_type,
                                    log_queue=None)
-                elif framework == "HuggingFace":
-                    _kwargs = dict(train_data=df, target=local_target, run_name=local_run_name,
-                                   valid_data=valid_df, test_data=test_df,
-                                   time_limit=time_limit, task_type=task_type)
                 else:  # TPOT
                     _kwargs = dict(df=df, target_column=local_target, run_name=local_run_name,
                                    valid_data=valid_df, test_data=test_df,
@@ -2167,8 +2276,18 @@ elif menu == "Experiments":
     load_option = st.radio("Choose the model source", ["Current session model", "Load from MLflow runs", "Load from ONNX / Hugging Face"])
     
     if load_option == "Load from MLflow runs":
+        loadable_frameworks, missing_loadable = partition_frameworks(SUPPORTED_FRAMEWORKS)
         col1, col2 = st.columns(2)
-        m_type = col1.selectbox("Model Framework", ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"])
+        if not loadable_frameworks:
+            col1.error(
+                "No engine that can restore these artifacts is installed here: "
+                f"{', '.join(missing_loadable)}."
+            )
+            m_type = None
+        else:
+            if missing_loadable:
+                col2.caption(f"Engine not installed, so it cannot be loaded: {', '.join(missing_loadable)}.")
+            m_type = col1.selectbox("Model Framework", loadable_frameworks)
         run_id_input = col2.text_input("Run ID")
         trust_artifacts = st.checkbox(
             "I trust the artifacts of this run",
@@ -2178,7 +2297,7 @@ elif menu == "Experiments":
                  "executes code while it loads. Check this only for runs you trained yourself.",
         )
 
-        if st.button("Load Model"):
+        if st.button("Load Model", disabled=m_type is None):
             try:
                 predictor_obj, normalized_type = load_model_by_framework(
                     m_type, run_id_input, trust_artifacts=trust_artifacts

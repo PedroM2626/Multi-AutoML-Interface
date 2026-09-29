@@ -62,11 +62,81 @@ class MultiFLAMLPredictor:
             predictions[target_name] = predictor.predict(X)
         return pd.DataFrame(predictions, index=X.index)
 
+def _forecast_layout(train_data: pd.DataFrame, valid_data, target_columns, time_col, period):
+    """Order the frame for FLAML's native time series task and return its extra fit settings.
+
+    FLAML asserts that a forecast task has an integer 'period' and reads the timestamps from
+    'time_col'; without both it raises before the search starts.
+    """
+    if not time_col:
+        raise ValueError("FLAML time series forecasting needs the date column (time_col).")
+    if time_col not in train_data.columns:
+        raise ValueError(f"Date column '{time_col}' is not in the training data.")
+    horizon = int(period) if period else 0
+    if horizon < 1:
+        raise ValueError("FLAML time series forecasting needs a forecast horizon of at least 1.")
+
+    train_sorted = train_data.sort_values(time_col, kind="mergesort").reset_index(drop=True)
+    valid_sorted = None
+    if valid_data is not None:
+        valid_sorted = valid_data.dropna(subset=target_columns)
+        valid_sorted = valid_sorted.sort_values(time_col, kind="mergesort").reset_index(drop=True)
+    return train_sorted, valid_sorted, {"time_col": time_col, "period": horizon}
+
+
+def _ranking_layout(train_data: pd.DataFrame, valid_data, target_column, group_col):
+    """Prepare the frame for FLAML's learning-to-rank task.
+
+    The ranker behind it reads queries as consecutive row blocks and wants integer relevance
+    grades, so rows are sorted by the query column and the target is cast here; an unsorted
+    frame or a float target fails inside LightGBM instead of producing a model.
+    """
+    if not group_col:
+        raise ValueError("FLAML ranking needs the query/group column (group_col).")
+    if group_col not in train_data.columns:
+        raise ValueError(f"Query/group column '{group_col}' is not in the training data.")
+
+    def _cast(target_frame: pd.DataFrame) -> pd.DataFrame:
+        grades = pd.to_numeric(target_frame[target_column], errors="coerce")
+        if grades.isna().any():
+            raise ValueError(
+                "FLAML ranking needs integer relevance grades in the target column; "
+                f"some rows of '{target_column}' are not numeric."
+            )
+        rounded = grades.round().astype("int64")
+        if not (grades == rounded).all():
+            raise ValueError("FLAML ranking needs integer relevance grades in the target column.")
+        prepared = target_frame.copy()
+        prepared[target_column] = rounded
+        return prepared
+
+    def _group_sizes(frame: pd.DataFrame) -> list:
+        labels = frame[group_col]
+        if labels.isna().any():
+            raise ValueError("The query/group column must have a value in every training row.")
+        return frame.groupby(labels, sort=False).size().tolist()
+
+    train_sorted = _cast(train_data.sort_values(group_col, kind="mergesort").reset_index(drop=True))
+    extra = {"groups": _group_sizes(train_sorted)}
+
+    if valid_data is not None:
+        valid_sorted = _cast(
+            valid_data.dropna(subset=[target_column, group_col])
+            .sort_values(group_col, kind="mergesort")
+            .reset_index(drop=True)
+        )
+        extra["groups_val"] = _group_sizes(valid_sorted)
+        return train_sorted, valid_sorted, extra
+
+    return train_sorted, None, extra
+
+
 def train_flaml_model(train_data: pd.DataFrame, target, run_name: str, 
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                        time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
                        estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
                        n_jobs: int = 1,
+                       time_col: str = None, period: int = None, group_col: str = None,
                        stop_event=None, telemetry_queue=None):
     """
     Trains a FLAML model and logs results to MLflow.
@@ -96,7 +166,20 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
         # Data cleaning: drop rows where targets are NaN
         train_data = train_data.dropna(subset=target_columns)
         logging.info(f"Data ready: {len(train_data)} rows.")
-        
+
+        task_settings = {}
+        if task in ('ts_forecast', 'rank'):
+            if is_multitarget:
+                raise ValueError(f"FLAML task '{task}' trains one target column at a time.")
+            if task == 'ts_forecast':
+                train_data, valid_data, task_settings = _forecast_layout(
+                    train_data, valid_data, target_columns, time_col, period
+                )
+            else:
+                train_data, valid_data, task_settings = _ranking_layout(
+                    train_data, valid_data, target_columns[0], group_col
+                )
+
         # Log parameters
         mlflow.log_param("target", json.dumps(target_columns) if is_multitarget else target_columns[0])
         mlflow.log_param("time_budget", time_budget)
@@ -104,6 +187,8 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
         mlflow.log_param("metric", metric)
         mlflow.log_param("estimator_list", str(estimator_list))
         mlflow.log_param("seed", seed)
+        for key, value in task_settings.items():
+            mlflow.log_param(key if key != "groups" else "train_groups", str(value))
         
         X_train = train_data.drop(columns=target_columns)
         
@@ -211,6 +296,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
             }
             if time_budget is not None:
                 settings["time_budget"] = time_budget
+            settings.update(task_settings)
             if cv_folds > 0:
                 settings["eval_method"] = "cv"
                 settings["n_splits"] = cv_folds
