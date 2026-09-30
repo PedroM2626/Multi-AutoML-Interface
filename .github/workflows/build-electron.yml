@@ -68,7 +68,7 @@ jobs:
         run: |
           case "${{ matrix.os }}" in
             windows-latest) npx electron-builder --win --x64 --dir ;;
-            macos-latest)   npx electron-builder --mac --x64 --arm64 --dir ;;
+            macos-latest)   npx electron-builder --mac --arm64 --dir ;;
             ubuntu-latest)  npx electron-builder --linux --dir ;;
           esac
 
@@ -87,6 +87,19 @@ jobs:
             res="$(dirname "$rt")"
             test -f "$res/app/app.py" || { echo "::error::app.py not packaged next to $res"; exit 1; }
             test -d "$res/app/src" || { echo "::error::src/ not packaged next to $res"; exit 1; }
+            case "$manifest" in
+              dist/mac-arm64/*) wanted=arm64 ;;
+              dist/mac-x64/*)   wanted=x86_64 ;;
+              *)                wanted="" ;;
+            esac
+            if [ -n "$wanted" ]; then
+              # prepare_python_runtime.js installs the runner's own CPython, so an image built
+              # for the other Mac architecture would ship a binary that machine cannot exec.
+              if ! lipo -archs "$rt/$interp" | tr ' ' '\n' | grep -qx "$wanted"; then
+                echo "::error::$manifest is for $wanted but bundles $(lipo -archs "$rt/$interp")"
+                exit 1
+              fi
+            fi
             echo "OK: $rt ($interp)"
             found=1
           done < <(find dist -type f -name runtime-manifest.json -print0)

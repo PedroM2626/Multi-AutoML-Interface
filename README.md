@@ -245,7 +245,7 @@ npm version 5.0.1          # bumps package.json
 git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
 ```
 
-Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
+Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Platforms: Windows x64 (NSIS), macOS **Apple Silicon only** (the bundled interpreter is built for the runner's architecture, so there is no Intel Mac image — Intel Macs run the source/Docker path), and Linux x64 (AppImage). Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
 
 The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM, plus ONNX export and SHAP) so the desktop installers run those features out of the box, and offer FLAML until you install any extra engine into it. H2O additionally requires Java 11+.
 

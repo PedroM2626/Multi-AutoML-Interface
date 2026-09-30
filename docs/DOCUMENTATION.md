@@ -599,7 +599,7 @@ Requires **Node.js 18+** to build (CI uses Node 20). The installers are self-con
 | `npm run streamlit` | Streamlit only (`--server.port 8501`) |
 | `npm run runtime` | Build `runtime/` only (standalone CPython + `requirements.txt`) |
 | `npm run build-win` | `runtime` then Windows installer — **NSIS** (guided install, desktop/start-menu shortcuts) |
-| `npm run build-mac` | `runtime` then macOS **DMG** (x64 and arm64) |
+| `npm run build-mac` | `runtime` then macOS **DMG** (Apple Silicon only - the bundled CPython is built for the runner's own architecture) |
 | `npm run build-linux` | `runtime` then Linux **AppImage** |
 
 Installers are written to `dist/` (product name "Multi-AutoML Desktop", app ID `com.multi-automl.desktop`, `asar: false`). An unpacked build weighs about 1.2 GB, of which the bundled runtime is 811 MB; GitHub allows release assets up to 2 GiB each.
@@ -711,7 +711,7 @@ pytest -q tests
 
 **`.github/workflows/build-electron.yml`** - packaging smoke test. Triggers: pull requests touching `electron/`, `package.json`, `package-lock.json`, `requirements.txt`, the runtime script or the workflow itself, plus manual dispatch. 3-OS matrix with Node 20: builds `runtime/`, packages **unpacked** apps with signing explicitly disabled, and asserts that `resources/runtime/<interpreter>`, `runtime-manifest.json`, `resources/app/app.py` and `resources/app/src` exist. It uploads no artifacts - a 1.2 GB payload per OS would only consume storage.
 
-**`.github/workflows/release.yml`** - triggers: push of a `v*` tag (plus manual dispatch with a tag input). Verifies the tag equals `version` in `package.json`, builds `runtime/`, then the three installers with `electron-builder -p never` (macOS for `--x64` and `--arm64`), signing them according to whichever credentials are configured (see *Code signing and notarization*) and **failing** if a signed build did not actually come out signed. A `release` job downloads the artifacts plus the signature reports and creates the GitHub Release through `softprops/action-gh-release@v2` (`permissions: contents: write`, `prerelease` when the tag carries a `-`). The body is the matching `## <version>` section of `CHANGELOG.md` plus a "what is inside" section, falling back to generated notes when that section is missing.
+**`.github/workflows/release.yml`** - triggers: push of a `v*` tag (plus manual dispatch with a tag input). Verifies the tag equals `version` in `package.json`, builds `runtime/`, then the three installers with `electron-builder -p never` (macOS `--arm64` only: the bundled interpreter is the runner's architecture, so an `--x64` image would ship a binary Intel Macs cannot execute), signing them according to whichever credentials are configured (see *Code signing and notarization*) and **failing** if a signed build did not actually come out signed. A `release` job downloads the artifacts plus the signature reports and creates the GitHub Release through `softprops/action-gh-release@v2` (`permissions: contents: write`, `prerelease` when the tag carries a `-`). The body is the matching `## <version>` section of `CHANGELOG.md` plus a "what is inside" section, falling back to generated notes when that section is missing.
 
 ### Developer quality gates
 
