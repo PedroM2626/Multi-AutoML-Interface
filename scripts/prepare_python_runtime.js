@@ -93,35 +93,46 @@ function interpreterPath(base) {
 
 function ensureBundledInterpreter(base, sourceDir) {
     /**
-     * Return the interpreter path inside the copied tree, repairing the unix launcher name.
+     * Return a bundled interpreter that can actually be spawned, repairing the unix launcher name.
 
-     * python-build-standalone puts bin/python3 behind a symlink to bin/python3.12, and this build
-     * has broken on that copy twice: uv was handed a runtime/bin/python3 that no longer resolved
-     * ("No system Python installation found for path runtime/bin/python3"), then the same path
-     * answered ENOENT from spawn, while Windows - where the interpreter is a plain python.exe -
-     * kept passing. So verify the file and, when only the versioned binary survived (or nothing
-     * did), take it from the source tree while that is still on disk.
+     * On Linux and macOS bin/python3 arrives as a symlink to bin/python3.12, and the copy keeps
+     * it a link: fs.existsSync says yes, existsSync-then-rmSync leaves it pointing into the
+     * staging directory that this function's caller is about to delete, and the next spawn
+     * answers ENOENT. Windows is unaffected because python.exe is a plain file, which is why the
+     * release build failed on two platforms and passed on the third. So ask the binary whether it
+     * runs, and if it does not, put a real copy of the versioned executable at that path - from
+     * the copied tree first, then from the source tree while it still exists.
      */
     const target = interpreterPath(base);
-    if (fs.existsSync(target)) return target;
+    const usable = () => {
+        try {
+            run(target, ['--version']);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+    if (usable()) return target;
 
-    const places = [path.join(base, 'bin'), path.join(sourceDir, 'bin')].filter((dir) => fs.existsSync(dir));
-    for (const dir of places) {
-        for (const name of fs.readdirSync(dir).sort().reverse()) {
-            if (name === 'python3' || !/^python3\.\d+$/.test(name)) continue;
+    const binDirs = [path.join(base, 'bin'), path.join(sourceDir, 'bin')].filter((dir) => fs.existsSync(dir));
+    for (const dir of binDirs) {
+        const names = fs.readdirSync(dir).filter((name) => /^python3\.\d+$/.test(name)).sort().reverse();
+        for (const name of names) {
             const candidate = path.join(dir, name);
-            if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
-                const copied = path.join(base, 'bin', 'python3');
-                fs.mkdirSync(path.dirname(copied), { recursive: true });
-                fs.copyFileSync(candidate, copied);
-                console.log(`Recreated bin/python3 from ${candidate}.`);
-                return copied;
+            if (!fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) continue;
+            fs.mkdirSync(path.join(base, 'bin'), { recursive: true });
+            fs.rmSync(target, { force: true });
+            fs.copyFileSync(candidate, target);
+            fs.chmodSync(target, 0o755);
+            if (usable()) {
+                console.log(`Replaced the unusable bin/python3 with a copy of ${candidate}.`);
+                return target;
             }
         }
     }
     throw new Error(
-        `no interpreter survived the copy into ${path.join(base, 'bin')}; ` +
-        `found there: ${(fs.existsSync(path.join(base, 'bin')) ? fs.readdirSync(path.join(base, 'bin')) : []).join(', ') || 'nothing'}`,
+        `no usable interpreter after copying into ${path.join(base, 'bin')}; found: ` +
+        `${(fs.existsSync(path.join(base, 'bin')) && fs.readdirSync(path.join(base, 'bin')).join(', ')) || 'nothing'}`,
     );
 }
 
