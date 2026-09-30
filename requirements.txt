@@ -99,7 +99,7 @@ toml==0.10.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.2
-urllib3==2.7.0
+urllib3==2.8.0
 uv==0.11.25
 uvicorn==0.49.0
 waitress==3.0.2
@@ -111,9 +111,11 @@ yarl==1.24.2
 zipp==4.1.0
 xgboost==3.4.0
 nbformat==5.11.0
-# tpot 1.1.0 -> stopit -> pkg_resources, which setuptools>=81 no longer ships. Without this
-# line `import tpot` dies with ModuleNotFoundError on any modern interpreter.
-setuptools==80.9.0
+# setuptools is pinned to the version the audit gate clears. An older line here held it below 81
+# because tpot's stopit imports pkg_resources, which 81 dropped - but TPOT is not in this stack
+# (it needs scikit-learn <1.5, see requirements-all.in), and the older pin carried
+# CVE-2026-59890 into every installer.
+setuptools==84.0.0
 # ONNX export and SHAP explanations: bundled so the Experiments page works in the desktop app.
 onnx==1.23.1
 onnxruntime==1.30.0
