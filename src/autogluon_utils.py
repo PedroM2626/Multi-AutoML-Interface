@@ -262,12 +262,23 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
         
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
 
-        if is_cv_task:
+        if is_cv_task or is_multimodal_task:
+            # MultiModalPredictor trains a single model and exposes evaluate(), not
+            # leaderboard(); asking for the leaderboard raised AttributeError after the training
+            # had already finished, which threw away the run's whole result.
             scores = predictor.evaluate(eval_data)
-            best_model_score = scores.get('accuracy', scores.get('roc_auc', 0.0))
-            mlflow.log_metrics(scores)
+            if not isinstance(scores, dict):
+                scores = {"score": scores}
+            numeric_scores = {}
+            for key, value in scores.items():
+                try:
+                    numeric_scores[str(key)] = float(value)
+                except (TypeError, ValueError):
+                    logger.info("Skipping non-numeric evaluation entry %s=%r", key, value)
+            if numeric_scores:
+                mlflow.log_metrics(numeric_scores)
             leaderboard_path = "leaderboard.csv"
-            pd.DataFrame([scores]).to_csv(leaderboard_path, index=False)
+            pd.DataFrame([numeric_scores or {"score": None}]).to_csv(leaderboard_path, index=False)
         elif not is_tabular_multilabel:
             leaderboard = predictor.leaderboard(eval_data, silent=True)
             # Log the best model's score
@@ -290,7 +301,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             mlflow.log_param("model_type", "autogluon")
             
             # ONNX Export (Best effort for Tabular)
-            if not is_cv_task and not is_tabular_multilabel:
+            if not is_cv_task and not is_multimodal_task and not is_tabular_multilabel:
                 try:
                     onnx_path = os.path.join("models", f"ag_{run_name}.onnx")
                     # AutoGluon Tabular supports ONNX export for some models

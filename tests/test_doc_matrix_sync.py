@@ -69,5 +69,8 @@ def test_readme_matrix_matches_the_catalog():
 
 
 def test_matrices_cover_every_engine_the_catalog_can_offer():
+    """Columns are the engines some row actually offers, so an engine that no row can run
+    (TPOT, currently pinned out) does not get a column of empty promises."""
     readme_header, _ = _readme_table()
-    assert set(readme_header[readme_header.index("AutoGluon"):]) == set(FRAMEWORK_IMPORTS)
+    offered = {engine for engines in TASK_FRAMEWORK_MAP.values() for engine in engines}
+    assert set(readme_header[readme_header.index("AutoGluon"):]) == offered

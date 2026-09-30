@@ -33,20 +33,23 @@ TASK_OPTIONS_BY_CATEGORY = {
         "Classification",
         "Regression",
     ],
+    # Only the two folder-labelled tasks are offered. Object Detection and Image Segmentation
+    # were removed: the CV upload infers labels from the directory structure, so there is no
+    # COCO box or mask annotation for the engine to read, and AutoGluon's detection pipeline
+    # additionally needs mmcv with PyTorch <=2.1. The problem types stay in autogluon_utils for
+    # callers that do bring an annotated dataframe.
     "Computer Vision": [
         "Image Classification",
         "Multi-Label Classification",
-        "Object Detection",
-        "Image Segmentation",
     ],
     "Multimodal": ["Classification", "Regression"],
 }
 
 TASK_FRAMEWORK_MAP = {
-    ("Tabular", "Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
-    ("Tabular", "Regression"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+    ("Tabular", "Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "PyCaret", "Lale"],
+    ("Tabular", "Regression"): ["AutoGluon", "FLAML", "H2O AutoML", "PyCaret", "Lale"],
     ("Tabular", "Multi-Label Classification"): ["AutoGluon"],
-    ("Tabular", "Multi-Task Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"],
+    ("Tabular", "Multi-Task Classification"): ["AutoGluon", "FLAML", "H2O AutoML", "PyCaret", "Lale"],
     ("Tabular", "Anomaly Detection"): ["PyCaret"],
     ("Tabular", "Clustering"): ["PyCaret"],
     # Forecast runs two different pipelines on purpose. Under "Tabular" the data processor
@@ -66,11 +69,14 @@ TASK_FRAMEWORK_MAP = {
     ("Text", "Regression"): ["AutoGluon"],
     ("Computer Vision", "Image Classification"): ["AutoGluon", "AutoKeras"],
     ("Computer Vision", "Multi-Label Classification"): ["AutoGluon", "AutoKeras"],
-    ("Computer Vision", "Object Detection"): ["AutoGluon"],
-    ("Computer Vision", "Image Segmentation"): ["AutoGluon"],
     ("Multimodal", "Classification"): ["AutoGluon"],
     ("Multimodal", "Regression"): ["AutoGluon"],
 }
+
+# TPOT is not offered: tpot 1.1.0 raises TypeError from its own template ("TPOTEstimator
+# .__init__() got an unexpected keyword argument 'scoring'") and tpot 0.12.2 only runs against
+# scikit-learn < 1.5, while this project pins 1.9. src/tpot_utils.py and the orchestrator entry
+# stay for a caller that installs TPOT in its own environment.
 
 DEFAULT_DATA_CATEGORY = "Tabular"
 

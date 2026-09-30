@@ -19,7 +19,7 @@ def test_tabular_catalog_includes_expected_tasks_and_frameworks():
         "Forecast",
         "Ranking",
     ]
-    assert get_framework_options("Tabular", "Classification") == ["AutoGluon", "FLAML", "H2O AutoML", "TPOT", "PyCaret", "Lale"]
+    assert get_framework_options("Tabular", "Classification") == ["AutoGluon", "FLAML", "H2O AutoML", "PyCaret", "Lale"]
     assert get_framework_options("Tabular", "Multi-Label Classification") == ["AutoGluon"]
     assert get_framework_options("Tabular", "Anomaly Detection") == ["PyCaret"]
     assert get_framework_options("Tabular", "Clustering") == ["PyCaret"]

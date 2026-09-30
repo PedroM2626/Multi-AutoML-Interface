@@ -8,6 +8,55 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.4.0 - 2026-09-30
+
+### Fixed
+
+- **AutoGluon threw away every text, multimodal and computer-vision result.** The reporting step
+  called `predictor.leaderboard(...)`, which `MultiModalPredictor` does not implement, so the run
+  died *after* training had completed and logged nothing. That path now evaluates the fitted model
+  with `evaluate()`, logs the numeric metrics it returns, and skips the ONNX attempt (the
+  multimodal predictor has no `export_onnx`). Verified end to end on CPU: Text classification
+  (216 s), Multimodal classification (298 s) and CV image classification (128 s) each produced an
+  MLflow run with metrics.
+- **The macOS x64 disk image shipped an interpreter its target machines cannot execute.**
+  `release.yml` built `--mac --x64 --arm64` while `prepare_python_runtime.js` installs the CPython
+  of the runner's own architecture, so both images carried the same arm64 interpreter. macOS is
+  built arm64-only now, and the packaging smoke test reads the bundled interpreter with `lipo` and
+  fails when the image directory declares a different architecture - verified green on a real
+  Apple Silicon runner.
+
+- **TPOT could not reach training at all.** `detect_problem_type` tested the whole column on every
+  loop step (`all(y % 1 == 0 for val in ...)`) and pandas raised "The truth value of a Series is
+  ambiguous" the moment a numeric target arrived; it now checks `(values % 1 == 0).all()`.
+  The estimator is also built from the signature of whichever TPOT is installed, because
+  generations/population_size/scoring/verbosity/config_dict were dropped from the 1.x estimator
+  and raised `TypeError` deep inside the search, after the UI had reported the run as started -
+  the ignored knobs are logged instead of silently swallowed. `setuptools==80.9.0` is pinned:
+  tpot -> stopit -> `import pkg_resources`, which setuptools >= 81 no longer ships, so TPOT could
+  not even be imported in a fresh interpreter.
+- **The availability check asked about the engine, not the module a row needs.** With
+  `autogluon.tabular` installed and no `autogluon.multimodal`, the vision/text/multimodal rows were
+  still offered and died inside the engine; availability is now resolved per
+  (engine, data category), cached per module, and the "how do I install this" hint names the
+  extra (`pip install autogluon.multimodal`) instead of the base package.
+
+### Changed
+
+- **The catalog is 15 pairs across 6 engines.** Object Detection and Image Segmentation are no
+  longer offered: the CV upload infers labels from the directory structure, so there is no COCO
+  box or mask annotation for the engine to read, and AutoGluon's detection pipeline also needs
+  mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that
+  brings an annotated frame. TPOT is no longer offered either - `pip install tpot` gives 1.1.0,
+  which raises `TypeError: TPOTEstimator.__init__() got an unexpected keyword argument 'scoring'`
+  from inside its own `fit` template, while 0.12.2 trains correctly against scikit-learn 1.4 but
+  fails on this project's scikit-learn 1.9 with "Expected an estimator instance ... got estimator
+  class instead". `src/tpot_utils.py` and its orchestrator entry stay for an environment that
+  pins its own scikit-learn.
+- The support matrices list only engines some row can actually run, so TPOT no longer has a column
+  of promises the catalog does not keep, and the docs stop counting the Hugging Face Hub as an
+  eighth engine.
+
 ## 5.3.0 - 2026-09-29
 
 ### Added

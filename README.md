@@ -9,7 +9,7 @@
 
 📘 Full documentation: [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
 
-**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras) with integrated MLOps via MLflow and Hugging Face Hub for model sharing.**
+**A unified interface for experimenting with AutoML, allowing you to compare multiple frameworks (AutoGluon, FLAML, H2O AutoML, PyCaret, Lale, AutoKeras, and TPOT where an older scikit-learn is available) with integrated MLOps via MLflow and Hugging Face Hub for model sharing.**
 
 ---
 
@@ -154,7 +154,7 @@ MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of t
 
 #### **2. Experiment Configuration:**
 - **Data Category + Task Type**: choose one of the 5 categories — Tabular, Sequential, Text, Computer Vision, Multimodal — then a compatible task type.
-- **Framework Agnostic**: AutoGluon, FLAML, H2O AutoML, TPOT, PyCaret, Lale, AutoKeras. The selector only lists the engines this interpreter can import.
+- **Framework Agnostic**: AutoGluon, FLAML, H2O AutoML, PyCaret, Lale, AutoKeras. The selector only lists the engines this interpreter can import.
 - **ONNX Integration**: export and reload models that skl2onnx can convert — scikit-learn learners such as random forest, extra trees and logistic regression. Boosted-tree learners (`lgbm`, `xgboost`, `catboost`) have no converter in skl2onnx and the app says so instead of failing quietly; **HF Hub**: publish models with one click.
 - **Advanced parameters**: seed, time limits, folds, TF-IDF feature caps, CV, forecasting horizon, etc.
 
@@ -162,30 +162,32 @@ MLflow needs no setup: tracking is **local and file-based** (`mlruns/`) out of t
 
 Generated from `TASK_FRAMEWORK_MAP` in `src/task_catalog.py`.
 
-Legend: ✅ = implemented, ⚠️ = partial/beta path, ❌ = not implemented.
+Legend: ✅ = implemented, ❌ = not implemented. A ✅ is a code path, not an installed package.
 
-| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | TPOT | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|---|---|
-| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Clustering | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Forecast | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Sequential | Forecast | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Computer Vision | Object Detection | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Computer Vision | Image Segmentation | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
+|---|---|---|---|---|---|---|---|
+| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Clustering | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Forecast | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Sequential | Forecast | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 Notes:
-- CV Object Detection and Image Segmentation are exposed through AutoGluon but should be treated as beta until broader test coverage is added.
+- Text, Multimodal and Computer Vision rows run through AutoGluon's multimodal predictor, which
+  is an extra install (`pip install autogluon.multimodal`) and is not in the desktop runtime.
+- Object Detection and Image Segmentation are not offered: the CV upload labels images by
+  folder, so there are no COCO boxes or masks to train on, and AutoGluon's detection pipeline
+  needs mmcv with PyTorch <=2.1.
 - Tabular Anomaly Detection and Clustering run through PyCaret's unsupervised modules (no target column required).
 - A row is a code path, not a guarantee that the engine is on your machine: the selectors list only the engines the interpreter can import, so a desktop install offers FLAML until you `pip install` the others into the bundled runtime.
 - Tabular Forecast trains on lag features the app builds; Sequential Forecast hands the raw ordering to the engine's own time series path, which is why AutoGluon is not offered there.
@@ -260,7 +262,7 @@ Signing is wired up in `.github/workflows/release.yml` and activates as soon as 
 | **AutoGluon** | Strong out-of-the-box accuracy; broadest task coverage (tabular, text, CV, multimodal) | Heavier install and memory footprint |
 | **FLAML** | Very fast, economical search; lightweight | Smaller model zoo |
 | **H2O AutoML** | Mature enterprise tabular AutoML | Requires Java; JVM memory overhead |
-| **TPOT** | Interpretable exported pipelines (genetic search) | Slow search for large budgets |
+| **TPOT** | Interpretable exported pipelines (genetic search) | Not offered in the catalog: tpot 1.x fails in its own template and tpot 0.12 needs scikit-learn < 1.5 |
 | **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Requires Python 3.11 |
 | **Lale** | sklearn-compatible topology search | Classification/regression focus |
 | **AutoKeras** | Deep-learning CV AutoML | GPU/TF stack required |
