@@ -1,4 +1,6 @@
 import os
+import socket
+import threading
 import pandas as pd
 import mlflow
 import shutil
@@ -42,8 +44,20 @@ def check_java_availability():
     except Exception:
         return False
 
+# H2O runs a Java cluster, and the h2o client keeps *one* connection per process: two trainings
+# started from different sessions of one server share that JVM, so whoever finishes first shuts
+# down the cluster the other is still using, and the last model loaded stays alive only while the
+# process happens to keep the JVM up. The lock makes a cluster exclusive for the duration of one
+# operation, the private port makes it ours alone, and leaving the context releases the memory
+# (2 GB heap, half of what a permanently parked cluster used to reserve).
+H2O_CLUSTER_MEM_SIZE = "2G"
+_CLUSTER_LOCK = threading.RLock()
+_CLUSTER_DEPTH = threading.local()
+_LOCK_POLL_SECONDS = 5
+
+
 def initialize_h2o():
-    """Initializes the H2O cluster with Java check"""
+    """Start the private H2O cluster this operation will run on. Call inside h2o_cluster()."""
     if not check_java_availability():
         raise RuntimeError(
             "Java is not installed on the system. H2O AutoML requires Java to function.\n\n"
@@ -55,24 +69,164 @@ def initialize_h2o():
             "- Download from: https://adoptium.net/\n"
             "- Or use: winget install EclipseAdoptium.Temurin.11.JDK"
         )
-    
+
     try:
         import h2o
-        h2o.init(max_mem_size="4G", nthreads=-1)
+        # A free port makes h2o launch its own cluster: it can never adopt - and so can never
+        # shut down - a cluster another session is still using. h2o.init replaces a connection
+        # object left over from a released cluster, which is why reuse is not checked here.
+        # start_local_cluster is not a parameter of this client version, and h2o.init(**kwargs)
+        # would forward an unknown name to the JVM.
+        h2o.init(
+            ip="127.0.0.1",
+            port=_free_port(),
+            max_mem_size=H2O_CLUSTER_MEM_SIZE,
+            nthreads=-1,
+        )
         logger.info("H2O Cluster initialized successfully")
         return h2o
     except Exception as e:
         logger.error(f"Error initializing H2O: {e}")
         raise
 
+
+def current_h2o():
+    """The h2o module, for code already inside an h2o_cluster() block.
+
+    Use this instead of initialize_h2o(): the cluster of the current operation was started by the
+    context, and calling initialize_h2o() again would fork a second JVM for the same work.
+    """
+    import h2o
+    return h2o
+
+
 def cleanup_h2o():
-    """Finalizes the H2O cluster"""
+    """Shut the cluster down. No-op when nothing is connected, so a failed run says nothing extra."""
     try:
         import h2o
-        h2o.cluster().shutdown()
+        cluster = h2o.cluster()
+        if cluster is None:
+            return
+        cluster.shutdown(prompt=False)
         logger.info("H2O Cluster finalized")
     except Exception as e:
         logger.warning(f"Error finalizing H2O: {e}")
+
+
+class _ClusterSession:
+    """One operation's ownership of the H2O cluster.
+
+    A class instead of @contextmanager because a StopIteration raised inside a generator body is
+    rewritten to RuntimeError (PEP 479), and training_worker recognises cancellation only as
+    StopIteration.
+    """
+
+    def __init__(self, stop_event=None):
+        self._stop_event = stop_event
+        self._nested = False
+
+    def __enter__(self):
+        depth = getattr(_CLUSTER_DEPTH, "value", 0)
+        if depth:
+            # Already ours in this thread: the lock is re-entrant, so this cannot block, and the
+            # outer block keeps the JVM.
+            _CLUSTER_LOCK.acquire()
+            _CLUSTER_DEPTH.value = depth + 1
+            self._nested = True
+            return self
+
+        while not _CLUSTER_LOCK.acquire(timeout=_LOCK_POLL_SECONDS):
+            if self._stop_event is not None and self._stop_event.is_set():
+                raise StopIteration("Experiment cancelled while waiting for the H2O cluster.")
+        _CLUSTER_DEPTH.value = 1
+        try:
+            initialize_h2o()
+        except BaseException:
+            _release_cluster()
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._nested:
+            _CLUSTER_DEPTH.value = getattr(_CLUSTER_DEPTH, "value", 1) - 1
+            _CLUSTER_LOCK.release()
+        else:
+            _release_cluster()
+        return False
+
+
+def h2o_cluster(stop_event=None):
+    """Own an H2O cluster for one operation, then release it. Re-entrant, so a helper that needs
+    the cluster can be called from inside a larger one without starting a second JVM."""
+    return _ClusterSession(stop_event)
+
+
+def _release_cluster():
+    try:
+        cleanup_h2o()
+    finally:
+        _CLUSTER_DEPTH.value = 0
+        _CLUSTER_LOCK.release()
+
+
+class H2OSessionModel:
+    """Handle to an H2O model: keeps only the run id.
+
+    The trained object is useless without its cluster, so handing it to the UI would mean a JVM
+    parked for the rest of the process. predict_with_h2o resolves this to the real model from the
+    run's MLflow artifacts while it holds a cluster; the Inspector does not resolve it at all and
+    reads h2o_run_leaderboard instead, because that view re-renders on every rerun.
+    """
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+
+    def __repr__(self):
+        return f"H2OSessionModel(run_id={self.run_id!r})"
+
+
+def resolve_h2o_model(model):
+    """The live H2O object behind a handle (or a model that is already live)."""
+    if isinstance(model, H2OSessionModel):
+        return fetch_h2o_model(model.run_id)
+    return model
+
+
+H2O_LEADERBOARD_PREFIX = "h2o_leaderboard_"
+H2O_MODEL_ID_COLUMN = "model_id"
+
+
+def h2o_run_leaderboard(run_id: str):
+    """The run's (leaderboard, leader model id), read from its artifacts - no Java cluster.
+
+    A model reloaded with h2o.load_model is a single estimator: measured on h2o 3.46 it carries
+    neither .leaderboard nor .leader, so the ranking can only come from the CSV the run logged.
+    Reading it costs no JVM, which matters here because the Inspector opens on every rerun.
+    """
+    entries = mlflow.artifacts.list_artifacts(run_id=run_id, artifact_path="")
+    artifact = next(
+        (e.path for e in entries
+         if e.path.startswith(H2O_LEADERBOARD_PREFIX) and e.path.endswith(".csv")),
+        None,
+    )
+    if artifact is None:
+        raise FileNotFoundError(
+            "No leaderboard CSV in this run's artifacts: H2O trained no model, or the "
+            "leaderboard could not be converted. Check the run's log panel."
+        )
+
+    frame = pd.read_csv(mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=artifact))
+    leader_id = None
+    if H2O_MODEL_ID_COLUMN in frame.columns and len(frame):
+        # H2O sorts the leaderboard best-first, and the leader is the model model/ holds.
+        leader_id = str(frame.iloc[0][H2O_MODEL_ID_COLUMN])
+    return frame, leader_id
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
 def prepare_data_for_h2o(train_data: pd.DataFrame, target: str):
     """Prepares data for H2O AutoML"""
@@ -112,7 +266,30 @@ def prepare_data_for_h2o(train_data: pd.DataFrame, target: str):
     
     return h2o_frame, train_data_clean
 
-def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str, 
+def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
+                   valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
+                   max_runtime_secs: int = 300, max_models: int = 10,
+                   nfolds: int = 3, balance_classes: bool = True, seed: int = 42,
+                   sort_metric: str = "AUTO", exclude_algos: list = None,
+                   stop_event=None, telemetry_queue=None):
+    """Train on a cluster of our own and hand back a handle, not the trained object.
+
+    The Java cluster is acquired for the length of the training and released afterwards, so a
+    finished run stops holding 2 GB of RAM; the returned H2OSessionModel reloads the model from
+    the run's artifacts whenever the UI actually predicts with it.
+    """
+    with h2o_cluster(stop_event):
+        _automl, run_id = _train_h2o_model(
+            train_data=train_data, target=target, run_name=run_name, valid_data=valid_data,
+            test_data=test_data, max_runtime_secs=max_runtime_secs, max_models=max_models,
+            nfolds=nfolds, balance_classes=balance_classes, seed=seed,
+            sort_metric=sort_metric, exclude_algos=exclude_algos, stop_event=stop_event,
+            telemetry_queue=telemetry_queue,
+        )
+    return H2OSessionModel(run_id), run_id
+
+
+def _train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str, 
                    valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                    max_runtime_secs: int = 300, max_models: int = 10, 
                    nfolds: int = 3, balance_classes: bool = True, seed: int = 42,
@@ -128,7 +305,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
     logging.info(f"Starting H2O AutoML training for run: {run_name}")
     
     # Initialize H2O
-    h2o_instance = initialize_h2o()
+    h2o_instance = current_h2o()
     
     try:
         # Ensure no leaked runs in this thread
@@ -357,7 +534,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             leaderboard_path = None
             try:
                 leaderboard_df = leaderboard.as_data_frame()
-                leaderboard_path = f"h2o_leaderboard_{run_name}.csv"
+                leaderboard_path = f"{H2O_LEADERBOARD_PREFIX}{run_name}.csv"
                 leaderboard_df.to_csv(leaderboard_path, index=False)
                 mlflow.log_artifact(leaderboard_path)
             except Exception as e:
@@ -365,7 +542,7 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
                 # Save as plain text if CSV fails
                 try:
                     leaderboard_text = str(leaderboard.head(10))
-                    leaderboard_path = f"h2o_leaderboard_{run_name}.txt"
+                    leaderboard_path = f"{H2O_LEADERBOARD_PREFIX}{run_name}.txt"
                     with open(leaderboard_path, "w") as f:
                         f.write(f"H2O AutoML Leaderboard - {run_name}\n")
                         f.write("=" * 50 + "\n")
@@ -376,16 +553,9 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
             
             # Save local model (only if there are models)
             if hasattr(aml, 'leader') and aml.leader is not None:
-                model_dir = "models/h2o_models"
-                os.makedirs(model_dir, exist_ok=True)
-                model_path = f"{model_dir}/h2o_model_{run_name}"
-                
-                # Save best model (leader) rather than AutoML object
+                # Save the best model (not the AutoML object) into a temporary tree and log that
+                # as the run artifact - the only copy that exists afterwards.
                 best_model = aml.leader
-                h2o.save_model(best_model, path=model_path)
-                logger.info(f"Model saved at: {model_path}")
-                
-                # Log model to MLflow
                 temp_model_path = f"temp_h2o_model_{run_name}"
                 os.makedirs(temp_model_path, exist_ok=True)
                 h2o.save_model(best_model, path=temp_model_path)
@@ -478,41 +648,36 @@ def train_h2o_model(train_data: pd.DataFrame, target: str, run_name: str,
         raise
 
 def load_h2o_model(run_id: str):
-    """
-    Loads H2O model from MLflow
-    """
+    """Handle for a stored H2O model: everything else in the app holds H2O models across Streamlit
+    reruns, and a live model is worthless (and keeps a JVM alive) once its cluster is released."""
+    return H2OSessionModel(run_id)
+
+
+def fetch_h2o_model(run_id: str):
+    """The live model behind a handle. Call while an h2o_cluster() is held."""
     import h2o
-    
-    # Initialize H2O if not active
-    try:
-        h2o.init(max_mem_size="2G", nthreads=-1)
-    except Exception:
-        pass  # H2O might already be active
-    
-    try:
-        # Download artifact
-        local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
-        
-        # Find and load the model
-        for root, dirs, files in os.walk(local_path):
-            for file in files:
-                if file.endswith(".zip"):
-                    model_path = os.path.join(root, file)
-                    logger.info(f"Loading H2O model from: {model_path}")
-                    model = h2o.load_model(model_path)
-                    
-                    # Check if model loaded correctly
-                    if model is None:
-                        raise ValueError("Loaded model is None")
-                    
-                    logger.info(f"H2O model loaded successfully: {type(model)}")
-                    return model
-        
+
+    local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
+
+    # h2o.save_model writes an archive named after the model id, without an extension (older
+    # releases used <model>.zip), so match either and prefer the .zip if both are present.
+    candidates = []
+    for root, _dirs, files in os.walk(local_path):
+        for name in files:
+            full = os.path.join(root, name)
+            if name.endswith(".zip"):
+                candidates.insert(0, full)
+            else:
+                candidates.append(full)
+    if not candidates:
         raise FileNotFoundError("H2O model not found in artifacts.")
-        
-    except Exception as e:
-        logger.error(f"Error loading H2O model: {e}")
-        raise
+
+    model = h2o.load_model(candidates[0])
+    if model is None:
+        raise ValueError("Loaded model is None")
+    logger.info(f"H2O model loaded from {candidates[0]}: {type(model)}")
+    return model
+
 
 def predict_with_h2o(model, data: pd.DataFrame):
     """
@@ -527,12 +692,17 @@ def predict_with_h2o(model, data: pd.DataFrame):
     try:
         logger.info(f"Starting prediction with H2O model: {type(model)}")
         
-        # Prepare data the same way as training
-        h2o_frame, _ = prepare_data_for_h2o(data, target="dummy")  # target not used for prediction
-        
-        # Do predictions
-        predictions = model.predict(h2o_frame)
-        pred_array = predictions['predict'].as_data_frame()['predict'].values
+        with h2o_cluster():
+            live_model = resolve_h2o_model(model)
+
+            # Prepare data the same way as training
+            h2o_frame, _ = prepare_data_for_h2o(data, target="dummy")  # target not used for prediction
+
+            # Do predictions
+            predictions = live_model.predict(h2o_frame)
+            # Materialised inside the cluster: the frame below is plain pandas, so releasing the
+            # JVM on the way out cannot invalidate the result.
+            pred_array = predictions['predict'].as_data_frame()['predict'].values
         
         logger.info(f"Prediction complete: {len(pred_array)} predictions")
         return pred_array

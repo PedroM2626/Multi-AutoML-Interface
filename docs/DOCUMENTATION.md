@@ -426,7 +426,23 @@ All parameters below are verified against the configuration blocks in `app.py` a
 
 ### H2O AutoML (`src/h2o_utils.py` → `train_h2o_model`)
 
-> Requires Java 11+. The module verifies Java before training and the cluster starts with `h2o.init(max_mem_size="4G", nthreads=-1)`.
+> Requires Java 11+. The module verifies Java before training; the cluster starts on a free
+> loopback port with `h2o.init(ip="127.0.0.1", port=<free>, max_mem_size="2G", nthreads=-1)`.
+
+> **One cluster at a time, and only for the length of an operation.** H2O's client keeps a single
+> connection per process, so in this multi-session process two runs would share one JVM and the
+> first to finish would shut down the cluster the other was still training on. `h2o_cluster()`
+> therefore takes a lock, launches a private cluster on a free loopback port, and shuts it down on
+> the way out - including when the body raises - so a finished run stops holding 2 GB of heap.
+>
+> What the UI keeps is `H2OSessionModel(run_id)`, not the trained object. `predict_with_h2o`
+> reopens a cluster, reloads the model from the run's `model/` artifact (`fetch_h2o_model`, which
+> accepts both the extensionless archive `h2o.save_model` writes and the older `<model_id>.zip`),
+> and releases the cluster again; predictions are converted to numpy inside the block for the same
+> reason. The Pipeline Inspector reads the ranking through `h2o_run_leaderboard(run_id)` from the
+> `h2o_leaderboard_<run>.csv` artifact instead - a reloaded model is a single estimator and carries
+> no leaderboard, and that view re-renders on every rerun, so it must not start Java. A run
+> waiting for the cluster can still be cancelled.
 
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
@@ -547,7 +563,7 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 | `OMP_NUM_THREADS` | `Dockerfile.autogluon_cv` (set to `2`) | Prevents thread-locking in small containers |
 | `MLFLOW_ALLOW_FILE_STORE` | `src/mlflow_utils.py`, `docker-compose.yml`, `tests/conftest.py` | MLflow 3 refuses a file-based tracking store unless this is set; the app opts in for its own `mlruns/` default. Already set when the caller provided it. |
 
-> Note: H2O cluster memory is not controlled by an environment variable in this codebase — it is fixed in `src/h2o_utils.py` via `h2o.init(max_mem_size="4G", nthreads=-1)` (2G when loading models for prediction).
+> Note: H2O cluster memory is not controlled by an environment variable in this codebase — it is the `H2O_CLUSTER_MEM_SIZE` constant in `src/h2o_utils.py` (`"2G"`), applied to the private cluster every operation starts and releases.
 
 ---
 
@@ -687,7 +703,7 @@ One Streamlit process serves several users, so anything process-global needs car
 | GUI / interface | `test_streamlit_gui.py`, `test_interface_simulation.py` |
 | Orchestrator & catalog | `test_orchestrator.py`, `test_task_catalog.py` |
 | TPOT | `test_tpot_integration.py`, `test_tpot_large_data.py`, `test_tpot_nan_fix.py`, `test_tpot_sparse_fix.py`, `test_tpot_timeout_fix.py` |
-| H2O | `test_h2o_integration.py`, `test_h2o_simulation.py`, `test_h2o_docker_simulation.py` |
+| H2O | `test_h2o_integration.py`, `test_h2o_simulation.py`, `test_h2o_docker_simulation.py`, `test_h2o_cluster_lifecycle.py` |
 | PyCaret / Lale | `test_pycaret_utils.py`, `test_lale_utils.py` |
 | AutoGluon / CV | `test_autogluon_dispatch.py`, `test_cv_utils.py`, `test_empty_leaderboard.py` |
 | External integrations | `test_external_integrations.py` |
@@ -800,7 +816,7 @@ Multi-AutoML-Interface/
 | **Auto-EDA fails / cannot install** | `ydata-profiling` requires `numpy<2.4`, this project pins `numpy==2.5.0`: install the profiling stack in a separate environment rather than changing the app pins. |
 | **DVC messages ("DVC is not installed or not in PATH")** | Install `dvc` or ignore — the app falls back to MD5 hashing and remains functional. |
 | **ONNX export error** | `pip install onnx onnxruntime`; a Data Lake dataset is required for shape inference. |
-| **Memory errors during training** | Reduce `n_jobs` (Parallelism expander → Manual), shrink time limits/populations, or lower CV folds. H2O's cluster cap is fixed at `max_mem_size="4G"` in `src/h2o_utils.py` — edit that value to change it. DFS at depth ≥ 2 can consume massive RAM; keep depth at 1. |
+| **Memory errors during training** | Reduce `n_jobs` (Parallelism expander → Manual), shrink time limits/populations, or lower CV folds. H2O's cluster cap is the `H2O_CLUSTER_MEM_SIZE` constant (`"2G"`) in `src/h2o_utils.py` — edit that value to change it. DFS at depth ≥ 2 can consume massive RAM; keep depth at 1. |
 | **Electron window shows the error page** | Streamlit did not start within ~20 retries. Ensure Python + Streamlit are installed and port 8501 is free; use `npm run dev` to watch both processes. |
 | **Electron build fails** | Requires Node 18+ (CI uses 20). Delete `node_modules`/`dist` and rerun `npm install`, then `npm run build-win|mac|linux`. macOS builds use `GH_TOKEN`. |
 | **Windows PowerShell: `&&` not recognized** | PowerShell v5 does not support `&&` as a statement separator — chain commands with `;` instead (e.g. `pip install dvc; dvc init`). |

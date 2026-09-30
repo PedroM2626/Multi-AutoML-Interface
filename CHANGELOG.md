@@ -8,6 +8,48 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## [Unreleased]
+
+### Fixed
+
+- **An H2O run no longer leaves a Java cluster running for the rest of the process.** The client
+  keeps one connection per process, so `train_h2o_model` used to hand the live `H2OAutoML` to the
+  session and never shut the cluster down: that is what let post-training prediction work, and it
+  also meant 2-4 GB of heap parked in a shared, multi-session server, plus the risk of one run's
+  `cleanup_h2o()` killing the cluster another run was still training on. `h2o_cluster()` now holds
+  a lock, starts a **private cluster on a free loopback port**, and shuts it down on the way out -
+  including when the body raises or `initialize_h2o()` itself fails, which used to strand the lock.
+  The free port matters: without one the client *adopts* whatever cluster is listening on 54321,
+  which is how a second session ended up shutting down the first one's JVM.
+  Training returns `H2OSessionModel(run_id)`; `predict_with_h2o` reopens a cluster, reloads the
+  model with `fetch_h2o_model`, and materialises the result as numpy before releasing. Verified
+  live on the 3.11 interpreter: after train, after a leaderboard read and after prediction, `jps -l`
+  lists no `H2OApp`.
+- **The H2O model reload path had never worked.** `fetch_h2o_model` only matched a `*.zip`
+  artifact, but `h2o.save_model` writes an archive named after the model id **with no extension**,
+  so every reload raised `H2O model not found in artifacts.` It was invisible because training had
+  always handed the live object to the caller. Both layouts are accepted now, `.zip` first.
+- **The H2O Inspector reads its leaderboard from the run's artifacts.** The first version of the
+  reloaded-cluster Inspector called `model.leaderboard` on the model `h2o.load_model` returns; that
+  attribute does not exist. Measured on h2o 3.46 with a real run: `hasattr` is `False` for
+  `leaderboard`, `leader`, `best_model` and `all_models`, and reading it raises
+  `AttributeError: type object 'ModelBase' has no attribute 'leaderboard'` - a reloaded model is one
+  estimator, not the AutoML object. `h2o_run_leaderboard(run_id)` now parses the
+  `h2o_leaderboard_<run>.csv` the run logs (writer and reader share one constant, and a test fails
+  if the training path stops using it), which also means opening that expander costs no JVM. A run
+  that trained no model says so instead of showing an empty table.
+
+### Added
+
+- **`tests/test_h2o_cluster_lifecycle.py`** - 16 tests against a fake `h2o` module, so the whole
+  lifecycle is covered without Java: one cluster per nested operation, release when the body
+  raises, release when the cluster never started, exclusivity across threads (a waiting operation
+  starts no JVM and cannot shut one down), cancellation while queued, handle-not-object returned by
+  training, extensionless and `.zip` artifact reloads, and predictions materialised before the
+  cluster goes away. `h2o_cluster` is a class rather than `@contextmanager` because PEP 479 turns a
+  `StopIteration` raised in a generator body into `RuntimeError`, which `training_worker` would
+  stop recognising as a cancellation - the test for that is what found it.
+
 ## 5.5.0 - 2026-09-30
 
 ### Added

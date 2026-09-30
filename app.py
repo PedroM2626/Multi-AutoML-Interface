@@ -2166,29 +2166,38 @@ elif menu == "Experiments":
                             st.warning(f"Could not read FLAML results: {fe}")
 
                     elif fw_type == "h2o" and predictor:
-                        if predictor.leader:
-                            st.success(f"✅ Best model: **{predictor.leader.model_id}**")
-                            lb_key = f"lb_df_{entry.key}"
-                            if lb_key not in st.session_state or st.button("🔄 Refresh", key=f"h2o_ref_{entry.key}"):
-                                try:
-                                    st.session_state[lb_key] = predictor.leaderboard.as_data_frame()
-                                except Exception as h2o_lb_err:
-                                    st.warning(f"Leaderboard: {h2o_lb_err}")
-                                    st.session_state[lb_key] = None
-                            lb_df = st.session_state.get(lb_key)
-                            if lb_df is not None:
-                                st.dataframe(lb_df, use_container_width=True)
-                                id_col  = lb_df.columns[0]
-                                num_cols = lb_df.select_dtypes("number").columns.tolist()
-                                if num_cols:
-                                    metric_col = num_cols[0]
-                                    top_h2o = lb_df.head(10)
-                                    _fig_h2o = _make_leaderboard_bar(
-                                        tuple(top_h2o[id_col].tolist()),
-                                        tuple(top_h2o[metric_col].tolist()),
-                                        metric_col, "H2O Model Leaderboard", "#3fb950"
-                                    )
-                                    st.pyplot(_fig_h2o, use_container_width=True)
+                        # The ranking comes from the run's artifacts, not from a cluster: a
+                        # reloaded H2O model is a single estimator with no leaderboard of its own,
+                        # and this view re-renders on every rerun, so it must not cost a JVM.
+                        from src.h2o_utils import h2o_run_leaderboard
+                        lb_key = f"lb_df_{entry.key}"
+                        leader_key = f"h2o_leader_{entry.key}"
+                        if lb_key not in st.session_state or st.button("🔄 Refresh", key=f"h2o_ref_{entry.key}"):
+                            try:
+                                lb_df, leader_id = h2o_run_leaderboard(run_id)
+                                st.session_state[lb_key] = lb_df
+                                st.session_state[leader_key] = leader_id
+                            except Exception as h2o_lb_err:
+                                st.warning(f"Leaderboard: {h2o_lb_err}")
+                                st.session_state[lb_key] = None
+                                st.session_state[leader_key] = None
+                        lb_df = st.session_state.get(lb_key)
+                        if lb_df is not None:
+                            leader_id = st.session_state.get(leader_key)
+                            if leader_id:
+                                st.success(f"✅ Best model: **{leader_id}**")
+                            st.dataframe(lb_df, use_container_width=True)
+                            id_col  = lb_df.columns[0]
+                            num_cols = lb_df.select_dtypes("number").columns.tolist()
+                            if num_cols:
+                                metric_col = num_cols[0]
+                                top_h2o = lb_df.head(10)
+                                _fig_h2o = _make_leaderboard_bar(
+                                    tuple(top_h2o[id_col].tolist()),
+                                    tuple(top_h2o[metric_col].tolist()),
+                                    metric_col, "H2O Model Leaderboard", "#3fb950"
+                                )
+                                st.pyplot(_fig_h2o, use_container_width=True)
 
                     elif fw_type == "tpot" and predictor:
                         from src.pipeline_parser import extract_best_tpot_pipeline
