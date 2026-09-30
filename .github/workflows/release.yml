@@ -66,7 +66,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv (fetches the bundled CPython)
-        run: python -m pip install uv
+        run: |
+          # The version requirements.txt pins, not "latest": a newer uv started refusing
+          # `pip install --system --python runtime/bin/python3` ("No system Python installation
+          # found"), which failed the Linux and macOS runtime builds while Windows passed.
+          UV_VERSION="$(sed -n 's/^uv==//p' requirements.txt | tr -d '\r')"
+          python -m pip install "uv==${UV_VERSION}"
 
       - name: Check version matches tag
         run: |

@@ -128,7 +128,7 @@ To train with **every** engine the catalog offers - AutoGluon (tabular, text, mu
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Beyond the core stack the engines are `autogluon.tabular` + `autogluon.multimodal` (the latter needs `jsonschema<4.24` and pulls torch), `h2o` (requires Java 11+), `pycaret` (Python 3.11 only), `lale`, `tpot` (scikit-learn <1.5) and `huggingface_hub` (Hub push/pull), `dvc` (data versioning). `requirements-all.txt` installs them together. AutoKeras is not offered: its last release requires `keras>=3.0.0`, under which its own heads fail.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Beyond the core stack the engines are `autogluon.tabular` + `autogluon.multimodal` (the latter needs `jsonschema<4.24` and `setuptools<81` - its `data.templates` imports `pkg_resources`, which setuptools 81 dropped - and it pulls torch), `h2o` (requires Java 11+), `pycaret` (Python 3.11 only), `lale`, `tpot` (scikit-learn <1.5) and `huggingface_hub` (Hub push/pull), `dvc` (data versioning). `requirements-all.txt` installs them together on 3.11. AutoKeras is not offered: its last release requires `keras>=3.0.0`, under which its own heads fail.
 
 #### **Run the Application:**
 ```bash
