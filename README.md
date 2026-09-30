@@ -3,7 +3,7 @@
 ![Version](https://img.shields.io/badge/version-5.1.0-blue)
 [![Release](https://img.shields.io/github/v/release/PedroM2626/Multi-AutoML-Interface)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
 [![Downloads](https://img.shields.io/github/downloads/PedroM2626/Multi-AutoML-Interface/total)](https://github.com/PedroM2626/Multi-AutoML-Interface/releases)
-![Python](https://img.shields.io/badge/python-3.11-blue.svg)
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.11%20(all%20engines)-blue.svg)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/PedroM2626/Multi-AutoML-Interface)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -101,7 +101,7 @@ Note: FastAPI is not the application backend — the app is a Streamlit applicat
 ## 🚀 **Quick Start**
 
 ### 📋 **Prerequisites:**
-- **Python 3.11 or 3.12** — the desktop runtime and the CI/Docker core path use 3.12. PyCaret and Lale are the reason a Python 3.11 interpreter is suggested: they need `numpy<1.27` and `scikit-learn<1.8`, which the project's own pins (numpy 2.5 / scikit-learn 1.9) do not allow - both do resolve on 3.12 once those are relaxed. `run.py` re-launches on 3.11 when it finds one.
+- **Python 3.12 for the core app, 3.11 for every engine** — the desktop runtime, CI and the Docker image run on 3.12 (numpy 2.5 requires it). PyCaret 3.3.2 refuses to import on 3.12 and pins scikit-learn 1.4.2, so the all-engine environment (`requirements-all.txt`) is Python 3.11. On that older scikit-learn the app preloads torch before anything imports it, because those wheels vendor `vcomp140.dll` and torch's `c10.dll` then fails to initialise on Windows.
 - **Node.js 18+** (for the Electron desktop app; CI builds with Node 20)
 - **Java 11+** (only for H2O AutoML)
 - **Git**
@@ -113,8 +113,8 @@ Note: FastAPI is not the application backend — the app is a Streamlit applicat
 git clone https://github.com/PedroM2626/Multi-AutoML-Interface.git
 cd Multi-AutoML-Interface
 
-# 2. Create and activate a Python 3.11 virtual environment
-py -3.11 -m venv venv
+# 2. Create and activate a Python 3.12 virtual environment (3.11 for the all-engine stack)
+py -3.12 -m venv venv
 venv\Scripts\activate        # Windows
 source venv/bin/activate     # Mac/Linux
 
@@ -122,18 +122,20 @@ source venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs only the core stack (Streamlit, MLflow, FLAML, FastAPI, scikit-learn, XGBoost, and supporting libraries). For a fully reproducible environment, compile your own lock from it: `pip-compile requirements.txt` (the lock file itself is not committed).
+`requirements.txt` installs the core stack (Streamlit, MLflow, FLAML, LightGBM, XGBoost, scikit-learn, ONNX export and SHAP) and is what the desktop installers bundle. `pip-audit -r requirements.txt` reports no known vulnerabilities on it.
+
+To train with **every** engine the catalog offers - AutoGluon (tabular, text, multimodal, vision), PyCaret, Lale, TPOT and H2O next to FLAML - create the environment on **Python 3.11** and install `requirements-all.txt`, the compiled lock for that set. It cannot be made CVE-clean (PyCaret pins scikit-learn 1.4.2, TPOT pins setuptools <81), and it adds about 1.7 GB of packages, which is why it is not what the installers ship.
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. `requirements.txt` already covers the core stack, ONNX export and SHAP; the engines are the extra installs: `autogluon` (or `autogluon.tabular` / `autogluon.multimodal` on their own), `h2o` (requires Java 11+), `pycaret`, `lale`, `autokeras` **plus** `tensorflow`, `huggingface_hub` (Hub push/pull), `dvc` (data versioning) — e.g. `pip install autogluon pycaret`. TPOT is integrated but no public release runs on this project's scikit-learn pin, so it is not offered.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Beyond the core stack the engines are `autogluon.tabular` + `autogluon.multimodal` (the latter needs `jsonschema<4.24` and pulls torch), `h2o` (requires Java 11+), `pycaret` (Python 3.11 only), `lale`, `tpot` (scikit-learn <1.5) and `huggingface_hub` (Hub push/pull), `dvc` (data versioning). `requirements-all.txt` installs them together. AutoKeras is not offered: its last release requires `keras>=3.0.0`, under which its own heads fail.
 
 #### **Run the Application:**
 ```bash
-# Recommended: auto-selects a Python 3.11 interpreter and starts Streamlit
+# Recommended: starts Streamlit on this interpreter and binds it to 127.0.0.1
 python run.py
 
-# Or directly (inside a Python 3.11 environment)
+# Or directly, on the interpreter that holds the environment
 streamlit run app.py
 ```
 
@@ -178,15 +180,18 @@ Legend: ✅ = implemented, ❌ = not implemented. A ✅ is a code path, not an i
 | Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 Notes:
 - Text, Multimodal and Computer Vision rows run through AutoGluon's multimodal predictor, which
   is an extra install (`pip install autogluon.multimodal`) and is not in the desktop runtime.
-- Object Detection and Image Segmentation are not offered: the CV upload labels images by
-  folder, so there are no COCO boxes or masks to train on, and AutoGluon's detection pipeline
-  needs mmcv with PyTorch <=2.1.
+- Computer Vision Multi-Label Classification needs the annotations CSV the CV upload accepts (an
+  `image` column plus one 0/1 column per label); folder names alone carry only one class per image.
+- Object Detection and Image Segmentation are not offered: their AutoGluon pipeline needs mmcv, and
+  mmcv publishes no wheels on PyPI, so it cannot be installed without compiling it against one
+  exact PyTorch build. The CV upload also has no box or mask annotation format to read.
 - Tabular Anomaly Detection and Clustering run through PyCaret's unsupervised modules (no target column required).
 - A row is a code path, not a guarantee that the engine is on your machine: the selectors list only the engines the interpreter can import, so a desktop install offers FLAML until you `pip install` the others into the bundled runtime.
 - Tabular Forecast trains on lag features the app builds; Sequential Forecast hands the raw ordering to the engine's own time series path, which is why AutoGluon is not offered there.
@@ -273,7 +278,7 @@ No hardcoded benchmark numbers are published: results depend strongly on dataset
 ## 🔧 **Troubleshooting**
 
 - **"Java not found" (H2O)**: set `JAVA_HOME` to a Java 11+ installation (e.g. `set JAVA_HOME="C:\Program Files\Java\jdk-11"` on Windows, `export JAVA_HOME=/usr/lib/jvm/java-11-openjdk` on Linux).
-- **"Python 3.11 not found" (run.py)**: run.py prefers 3.11 because PyCaret and Lale need `numpy<1.27` and `scikit-learn<1.8`. Install 3.11 and retry, or start on the interpreter you have - `run.py` warns and continues, and those two engines will not import while the project's own numpy/sklearn pins are in effect.
+- **`run.py` prints a NOTE about missing engines**: the app runs on the core stack alone; that note lists the catalog engines this interpreter cannot import and how to add them. For all of them at once, create a **Python 3.11** environment and `pip install -r requirements-all.txt` - PyCaret 3.3.2 raises at import on 3.12, and Lale and TPOT need an older scikit-learn.
 - **DagsHub panel says tokens are disabled**: the app is reachable from outside the machine, so per-user tokens would be shared by every session. Use one service account in the environment, or bind loopback with `--server.address=127.0.0.1`.
 - **"Loading error: ... unpickles the artifact"**: every framework restores models with pickle/joblib, so loading by Run ID needs the "I trust the artifacts of this run" box ticked. Only tick it for runs you trained yourself.
 - **"Port already in use"**: start on another port — `streamlit run app.py --server.port 8502`.
@@ -342,9 +347,11 @@ Multi-AutoML-Interface/
 ├── 📁 .github/workflows/           # CI: ci.yml, build-electron.yml
 ├── 📁 deploy_[run_id]/             # Generated FastAPI deployment packages (at runtime)
 ├── 📄 app.py                       # Streamlit application entry
-├── 📄 run.py                       # Launcher (requires Python 3.11+, re-launches on 3.11 when needed)
+├── 📄 run.py                       # Launcher (starts Streamlit on this interpreter, binds 127.0.0.1)
 ├── 📄 pyproject.toml               # Project metadata & tooling config
-├── 📄 requirements.txt             # Lightweight core dependencies
+├── 📄 requirements.txt             # Lightweight core dependencies (what the installers bundle)
+├── 📄 requirements-all.in          # Intent behind the all-engine set (Python 3.11)
+├── 📄 requirements-all.txt         # Compiled lock with every catalog engine
 ├── 📄 requirements-dev.txt         # Dev tooling (ruff, pytest)
 ├── 📄 requirements-compiled.txt    # pip-compile lock (generated locally, not committed)
 ├── 📄 CHANGELOG.md                 # Release notes

@@ -192,21 +192,32 @@ def run_predictions(
         pycaret_cls = importlib.import_module(_get_pycaret_module_name(task_type))
         pycaret_predict = getattr(pycaret_cls, "predict_model")
 
-        preds_df = pycaret_predict(predictor, data=prediction_input_df)
-        if task_type == "Anomaly Detection" and "Anomaly" in preds_df.columns:
-            predictions = preds_df["Anomaly"]
-        elif task_type == "Anomaly Detection" and "Label" in preds_df.columns:
-            predictions = preds_df["Label"]
-        elif task_type == "Clustering" and "Cluster" in preds_df.columns:
-            predictions = preds_df["Cluster"]
-        elif task_type == "Clustering" and "Label" in preds_df.columns:
-            predictions = preds_df["Label"]
-        elif "prediction_label" in preds_df.columns:
-            predictions = preds_df["prediction_label"]
-        elif "Label" in preds_df.columns:
-            predictions = preds_df["Label"]
+        centers = getattr(predictor, "cluster_centers_", None)
+
+        if task_type == "Forecast":
+            # PyCaret's time series predict_model is predict_model(estimator, fh=None, X=None):
+            # there is no data argument, the horizon comes from the fitted estimator. Passing the
+            # frame raised TypeError, so a Forecast run could never be scored from the UI.
+            predictions = pycaret_predict(predictor, verbose=False).iloc[:, -1]
+        elif task_type == "Clustering" and centers is not None and not hasattr(predictor, "steps"):
+            # create_model returns the bare estimator, and PyCaret's preprocessing left it in
+            # float32. Its own predict_model passes the frame as float64 and sklearn's Cython loop
+            # answers "Buffer dtype mismatch, expected 'const double' but got 'float'", so every
+            # clustering prediction from the Experiments page failed. Score with the dtype the
+            # fitted model actually uses.
+            predictions = predictor.predict(prediction_input_df.to_numpy(dtype=str(centers.dtype)))
         else:
-            predictions = preds_df.iloc[:, -1]
+            preds_df = pycaret_predict(predictor, data=prediction_input_df)
+            if task_type == "Anomaly Detection" and "Anomaly" in preds_df.columns:
+                predictions = preds_df["Anomaly"]
+            elif task_type == "Clustering" and "Cluster" in preds_df.columns:
+                predictions = preds_df["Cluster"]
+            elif "prediction_label" in preds_df.columns:
+                predictions = preds_df["prediction_label"]
+            elif "Label" in preds_df.columns:
+                predictions = preds_df["Label"]
+            else:
+                predictions = preds_df.iloc[:, -1]
     elif model_type == "lale":
         if isinstance(predictor, dict):
             model = predictor["model"]

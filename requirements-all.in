@@ -1,0 +1,42 @@
+# Every engine the task catalog can offer, resolved into one interpreter.
+#
+# Python 3.11 only, and that is not a preference: pycaret 3.3.2 raises
+# "Pycaret only supports python 3.9, 3.10, 3.11" while importing on 3.12, and its
+# scikit-learn 1.4.2 pin drags numpy/pandas/matplotlib back with it.
+#
+# Regenerate the committed lock after editing this file:
+#   uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt
+#
+# The shipped desktop runtime does not use this file. It installs requirements.txt, which keeps
+# the current numpy/pandas/scikit-learn pins; adding this stack to the installer would trade
+# those pins for a scikit-learn with a published CVE (CVE-2024-5206, fixed only in 1.5.0) and a
+# multi-gigabyte payload over GitHub's 2 GiB per-asset limit.
+
+# Application
+streamlit==1.58.0
+mlflow==3.16.1
+
+# AutoML engines behind the catalog labels
+FLAML==2.6.0
+autogluon.tabular==1.6.3
+autogluon.multimodal==1.6.3
+pycaret==3.3.2
+lale==0.9.5
+tpot==0.12.2
+h2o
+
+# setuptools below 81 is load-bearing twice over: tpot pulls in stopit, and
+# autogluon.multimodal's data.templates imports pkg_resources - both removed in setuptools 81.
+# The shipped lock (requirements.txt) has neither engine and therefore keeps the patched 84.
+setuptools<81
+
+# Explanations, ONNX export and the notebook/code exports the Experiments page writes
+shap
+skl2onnx
+onnx
+onnxruntime
+nbformat
+
+# Tests
+pytest
+pytest-mock

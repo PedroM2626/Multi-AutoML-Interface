@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import threading
 from typing import Iterable
 
@@ -33,14 +34,16 @@ TASK_OPTIONS_BY_CATEGORY = {
         "Classification",
         "Regression",
     ],
-    # Only folder-labelled image classification is offered: an image sits in one class folder, so
-# there is no multi-hot target for a multi-label run either. Object Detection and Image Segmentation
-    # were removed: the CV upload infers labels from the directory structure, so there is no
-    # COCO box or mask annotation for the engine to read, and AutoGluon's detection pipeline
-    # additionally needs mmcv with PyTorch <=2.1. The problem types stay in autogluon_utils for
-    # callers that do bring an annotated dataframe.
+    # Multi-label image classification needs one column per label, which the folder layout cannot
+    # express: an image sits in a single class folder. The CV upload therefore also takes an
+    # annotations CSV ('image' plus one 0/1 column per label), and only that shape trains this row.
+    # Object Detection and Image Segmentation stay removed: their AutoGluon pipeline needs mmcv, and
+    # mmcv publishes no wheels on PyPI (its latest release is a sdist), so nothing here could
+    # install it without compiling it against one exact torch build. The problem types stay in
+    # autogluon_utils for a caller that brings an annotated dataframe.
     "Computer Vision": [
         "Image Classification",
+        "Multi-Label Classification",
     ],
     "Multimodal": ["Classification", "Regression"],
 }
@@ -68,6 +71,7 @@ TASK_FRAMEWORK_MAP = {
     ("Text", "Classification"): ["AutoGluon"],
     ("Text", "Regression"): ["AutoGluon"],
     ("Computer Vision", "Image Classification"): ["AutoGluon"],
+    ("Computer Vision", "Multi-Label Classification"): ["AutoGluon"],
     ("Multimodal", "Classification"): ["AutoGluon"],
     ("Multimodal", "Regression"): ["AutoGluon"],
 }
@@ -81,8 +85,13 @@ TASK_FRAMEWORK_MAP = {
 
 # TPOT is not offered: tpot 1.1.0 raises TypeError from its own template ("TPOTEstimator
 # .__init__() got an unexpected keyword argument 'scoring'") and tpot 0.12.2 only runs against
-# scikit-learn < 1.5, while this project pins 1.9. src/tpot_utils.py and the orchestrator entry
-# stay for a caller that installs TPOT in its own environment.
+# scikit-learn < 1.5, while this project pins 1.9. Even in the interpreter that has scikit-learn
+# 1.4.2 (requirements-all.txt) a classification run dies after fitting: MLflow logs the pipeline
+# with skops and refuses it for untrusted types - tpot.builtins.stacking_estimator.StackingEstimator,
+# sklearn.neighbors._kd_tree.KDTree, sklearn.metrics._dist_metrics.ManhattanDistance64 - and
+# whitelisting those would switch off the same CWE-502 guard the model loader asks the user to
+# confirm by hand. src/tpot_utils.py and the orchestrator entry stay for a caller that installs
+# TPOT in its own environment.
 
 DEFAULT_DATA_CATEGORY = "Tabular"
 
@@ -137,6 +146,37 @@ def _module_available(module_name: str) -> bool:
 
 def framework_import_name(framework: str, data_category: str | None = None) -> str | None:
     return FRAMEWORK_CATEGORY_MODULES.get((framework, data_category)) or FRAMEWORK_IMPORTS.get(framework)
+
+
+def preload_torch_before_sklearn() -> None:
+    """Load torch's native libraries before any module imports scikit-learn.
+
+    scikit-learn <=1.4 vendors vcomp140.dll in sklearn/.libs and maps it from
+    sklearn/_distributor_init.py. Once that MSVC OpenMP runtime is loaded, torch's c10.dll
+    fails its DllMain with OSError [WinError 1114], and every autogluon.multimodal import
+    after it dies - which is how the PyCaret-era lock broke the vision and text rows.
+    Importing torch first leaves both usable. Wheels that do not vendor vcomp140.dll need
+    no preload, so a modern interpreter does not pay for the import.
+    """
+    if importlib.util.find_spec("torch") is None:
+        return
+    sklearn_spec = importlib.util.find_spec("sklearn")
+    if sklearn_spec is None or sklearn_spec.submodule_search_locations is None:
+        return
+    if not any(
+        os.path.isfile(os.path.join(folder, ".libs", "vcomp140.dll"))
+        for folder in sklearn_spec.submodule_search_locations
+    ):
+        return
+    try:
+        _import_torch()
+    except Exception:
+        # torch unusable: let the engine that needs it report the real error.
+        pass
+
+
+def _import_torch() -> None:
+    import torch  # noqa: F401
 
 
 def framework_available(framework: str, data_category: str | None = None) -> bool:

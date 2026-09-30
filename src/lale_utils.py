@@ -127,10 +127,13 @@ def run_lale_experiment(
             # 2. Hyperparameter Tuning
             logger.info("Step: Tuning with Hyperopt...")
             max_evals = 10 if time_limit is None or time_limit >= 300 else 5
-            time_args = {}
-            if time_limit and time_limit > 0:
-                time_args['max_eval_time'] = time_limit
 
+            # Lale's per-evaluation time limits (max_eval_time, max_opt_time) are not usable
+            # here: the first makes Lale spawn one multiprocessing child per trial through the
+            # spawn start method, which re-imports the parent's __main__ - the Streamlit CLI in
+            # this app - and blocks forever in multiprocessing.reduction.dump, and the second
+            # answers a timeout with sys.exit(0) inside the search thread. The budget therefore
+            # bounds evaluations instead of wall clock.
             optimizer = Hyperopt(
                 estimator=planned_pipeline,
                 max_evals=max_evals,
@@ -138,7 +141,6 @@ def run_lale_experiment(
                 scoring=scoring_metric,
                 show_progressbar=False,
                 verbose=True,   # show per-trial info so we can debug failures
-                **time_args
             )
 
             # 3. Fit Model

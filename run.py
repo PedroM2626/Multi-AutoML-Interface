@@ -1,49 +1,43 @@
 """
-run.py - Entry point that ensures the app is launched with the correct Python (3.11).
+run.py - Local launcher: starts the Streamlit app on the current interpreter, bound to loopback.
 
 Usage:
     python run.py
-    py -3.11 run.py
+    python run.py --server.address 0.0.0.0
 """
 import sys
 import os
-import shutil
-import subprocess
 
-REQUIRED_MAJOR = 3
-REQUIRED_MINOR = 11
+MIN_MINOR = 11
 
 
-def _is_target_python(version_output: str) -> bool:
-    return f"Python {REQUIRED_MAJOR}.{REQUIRED_MINOR}" in version_output
+def _missing_engine_report():
+    """Which catalog engines this interpreter cannot import, and what would add them.
 
+    The app itself only needs the core stack, so a missing engine is a capability note and not a
+    reason to refuse to start - the Training page hides those rows for the same reason. Only
+    engines the catalog offers are named: AutoKeras has no release that runs, and promising it
+    would be a false fix.
+    """
+    try:
+        from src.task_catalog import TASK_FRAMEWORK_MAP, framework_available, install_hint
+    except Exception as error:  # the app's own dependencies are missing
+        return (
+            "The app's own dependencies are missing, so it will not start: "
+            f"{error}. Install them with `pip install -r requirements.txt`."
+        )
 
-def _find_python_311_cmd():
-    """Return a command prefix that launches Python 3.11, or None if unavailable."""
-    candidates = [
-        ["py", f"-{REQUIRED_MAJOR}.{REQUIRED_MINOR}"],
-        ["python3.11"],
-        ["python"],
-    ]
+    offered = {name for names in TASK_FRAMEWORK_MAP.values() for name in names}
+    missing = sorted(name for name in offered if not framework_available(name))
+    if not missing:
+        return None
+    return (
+        f"engines this interpreter cannot import: {', '.join(missing)} - "
+        f"`pip install {install_hint(missing)}`. PyCaret, Lale and TPOT need an older "
+        "numpy/pandas/scikit-learn and Python 3.11 (PyCaret 3.3.2 refuses to import on 3.12); "
+        "`pip install -r requirements-all.txt` installs every engine at once."
+    )
 
-    for cmd_prefix in candidates:
-        exe = shutil.which(cmd_prefix[0])
-        if not exe:
-            continue
-        try:
-            result = subprocess.run(
-                cmd_prefix + ["--version"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            version_text = (result.stdout or "") + (result.stderr or "")
-            if _is_target_python(version_text):
-                return cmd_prefix
-        except Exception:
-            continue
-    return None
 
 def _streamlit_args():
     """
@@ -66,36 +60,19 @@ def _start_streamlit():
 
 
 def main():
-    major = sys.version_info.major
-    minor = sys.version_info.minor
-
-    if major == REQUIRED_MAJOR and minor == REQUIRED_MINOR:
-        _start_streamlit()
-
-    py311 = _find_python_311_cmd()
-    if py311 is not None:
-        # Try to re-launch using a discovered Python 3.11 interpreter
-        print(f"Re-launching with Python {REQUIRED_MAJOR}.{REQUIRED_MINOR}...")
-        cmd = py311 + ["-m", "streamlit", "run", "app.py"] + _streamlit_args()
-        raise SystemExit(subprocess.call(cmd))
-
-    if major != REQUIRED_MAJOR or minor < REQUIRED_MINOR:
+    major, minor = sys.version_info.major, sys.version_info.minor
+    if major != 3 or minor < MIN_MINOR:
         print(
-            f"ERROR: Python {REQUIRED_MAJOR}.{REQUIRED_MINOR} not found.\n"
+            f"ERROR: this project pins libraries that need Python 3.{MIN_MINOR} or newer.\n"
             f"Currently running: Python {major}.{minor}\n"
-            f"Frameworks need scikit-learn built for this project's target interpreter.\n"
-            f"Please run:\n"
-            f"  py -3.11 -m streamlit run app.py"
+            "Launch with a newer interpreter, e.g. `py -3.12 run.py`."
         )
         sys.exit(1)
 
-    # Newer interpreter and no 3.11 around: keep going, but say what is degraded.
-    print(
-        f"WARNING: running on Python {major}.{minor}; Python {REQUIRED_MAJOR}.{REQUIRED_MINOR} "
-        "was not found. The app starts, but PyCaret and Lale may fail to import because they "
-        "need scikit-learn packages built for "
-        f"{REQUIRED_MAJOR}.{REQUIRED_MINOR}."
-    )
+    report = _missing_engine_report()
+    if report:
+        print(f"NOTE: {report}")
+
     _start_streamlit()
 
 

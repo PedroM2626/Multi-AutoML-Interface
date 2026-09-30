@@ -15,9 +15,15 @@ from src.task_catalog import (
     infer_multimodal_columns,
     install_hint,
     partition_frameworks,
+    preload_torch_before_sklearn,
 )
+
+# Every other src module reaches scikit-learn, which on the PyCaret-era lock kills torch's
+# native libraries. This has to run before they are imported, so it sits above them.
+preload_torch_before_sklearn()
+
 from src.orchestrator import UniversalAutoMLOrchestrator
-from src.data_utils import safe_path_component
+from src.data_utils import CV_IMAGE_COLUMN, cv_label_columns, safe_path_component
 
 
 def _compat_fragment(*args, **kwargs):
@@ -854,6 +860,15 @@ if menu == "Data Upload":
         with cv_col:
             st.info("Upload multiple images (PNG/JPG) or a single ZIP archive containing your images.")
             uploaded_images = st.file_uploader("Upload Images or ZIP", type=["png", "jpg", "jpeg", "zip"], accept_multiple_files=True)
+            cv_annotations = st.file_uploader(
+                "Annotations CSV (optional)",
+                type=["csv"],
+                help=(
+                    "For Computer Vision Multi-Label Classification: a table with an 'image' column naming "
+                    "files inside this dataset, plus one 0/1 column per label. Without it the labels come "
+                    "from the folder names and only single-label image classification is possible."
+                ),
+            )
             dataset_name = st.text_input("Computer Vision Dataset Name", value="image_dataset")
             cv_upload_btn = st.button("📸 Extract & Save Image Dataset", type="primary")
             
@@ -869,7 +884,9 @@ if menu == "Data Upload":
                 with st.spinner("Processing and transferring images to Data Lake…"):
                     from src.data_utils import process_image_upload
                     is_zip = len(uploaded_images) == 1 and uploaded_images[0].name.endswith('.zip')
-                    cv_dir, full_hash, short_hash = process_image_upload(uploaded_images, dataset_name, is_zip)
+                    cv_dir, full_hash, short_hash = process_image_upload(
+                        uploaded_images, dataset_name, is_zip, annotation_file=cv_annotations
+                    )
                     st.cache_data.clear()
                 st.success(f"✅ Image Dataset ready in Data Lake! Hash: `{short_hash}`")
             except Exception as e:
@@ -1227,7 +1244,7 @@ elif menu == "Training":
             "Tabular": "CSV/Excel with numeric, categorical, or text columns.",
             "Sequential": "One time-ordered series (or several items) in a CSV/Excel table.",
             "Text": "A table whose predictive features are free-text columns.",
-            "Computer Vision": "Image folders or ZIP archives with labels inferred from the directory structure.",
+            "Computer Vision": "Image folders or ZIP archives; labels come from the directory structure unless an annotations CSV is uploaded with them.",
             "Multimodal": "Mixed tabular + text + image-path columns in a single table.",
         }
         st.caption(data_category_help.get(data_category, "Choose the data family that matches your training set."))
@@ -1269,8 +1286,27 @@ elif menu == "Training":
         multimodal_image_columns = []
 
         if data_category == "Computer Vision":
-            target = "label"
-            st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
+            if task_type == "Multi-Label Classification":
+                label_columns = cv_label_columns(columns)
+                if CV_IMAGE_COLUMN not in columns:
+                    st.warning(
+                        "This image dataset has no annotation table. Re-upload it together with a "
+                        f"CSV that has a `{CV_IMAGE_COLUMN}` column and one 0/1 column per label."
+                    )
+                previous = st.session_state.get("target", [])
+                if not isinstance(previous, list):
+                    previous = [previous] if previous in label_columns else []
+                target = st.multiselect(
+                    "Select Label Columns",
+                    label_columns,
+                    default=[col for col in previous if col in label_columns],
+                    help="One column per label, holding 0 or 1. They come from the annotations CSV.",
+                )
+                if len(target) < 2:
+                    st.warning("Multi-label image classification needs at least two label columns.")
+            else:
+                target = "label"
+                st.info("Target column is automatically set to 'label' for Image tasks (inferred from directory structure).")
         elif data_category == "Tabular" and task_type in ["Anomaly Detection", "Clustering"]:
             target = None
             st.info(f"{task_type} is unsupervised in this interface, so no target column is required.")
@@ -1730,7 +1766,7 @@ elif menu == "Training":
         launch_disabled = (
             framework is None
             or (
-                data_category == "Tabular" and task_type == "Multi-Label Classification"
+                data_category in ("Tabular", "Computer Vision") and task_type == "Multi-Label Classification"
                 and isinstance(target, list) and len(target) < 2
             )
             or (data_category == "Text" and not st.session_state.get('text_columns'))

@@ -119,3 +119,61 @@ def test_the_ui_filters_both_framework_selectors():
             f"the '{label}' selector binds {ast.unparse(option)}; it has to bind one of "
             f"{sorted(filtered_lists)}"
         )
+
+
+def test_app_preloads_torch_before_it_imports_scikit_learn():
+    """scikit-learn <=1.4 loads vcomp140.dll, and torch's c10.dll then dies with WinError 1114,
+    so an interpreter that has both has to be shown torch before scikit-learn."""
+    tree = ast.parse(open("app.py", encoding="utf-8").read())
+
+    def imported_modules(node):
+        if isinstance(node, ast.ImportFrom):
+            return [node.module or ""]
+        if isinstance(node, ast.Import):
+            return [alias.name for alias in node.names]
+        return []
+
+    preload_call = next(
+        (node for node in tree.body
+         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+         and isinstance(node.value.func, ast.Name)
+         and node.value.func.id == "preload_torch_before_sklearn"),
+        None,
+    )
+    assert preload_call is not None, "app.py has to call preload_torch_before_sklearn() at module level"
+
+    # src.task_catalog is where the helper lives and imports nothing heavy; every other module
+    # reaches scikit-learn, so the call has to land before the first of those.
+    first_sklearn_import = min(
+        (node.lineno for node in tree.body
+         if any(m == "sklearn" or (m.startswith("src.") and m != "src.task_catalog")
+                for m in imported_modules(node))),
+        default=None,
+    )
+    assert first_sklearn_import is not None, "app.py no longer imports sklearn or src modules"
+    assert preload_call.lineno < first_sklearn_import, (
+        f"torch is preloaded on line {preload_call.lineno}, after the first module that "
+        f"imports scikit-learn on line {first_sklearn_import}"
+    )
+
+
+def test_the_preload_only_runs_for_a_vendored_openmp(monkeypatch, tmp_path):
+    """A modern scikit-learn wheel does not vendor vcomp140.dll, and importing torch on every
+    app start to work around a problem that interpreter does not have costs seconds of startup
+    and hundreds of MB in a process that serves several sessions."""
+    from src import task_catalog
+
+    class Spec:
+        submodule_search_locations = [str(tmp_path)]
+
+    monkeypatch.setattr(task_catalog.importlib.util, "find_spec",
+                        lambda name: Spec() if name == "sklearn" else object())
+    calls = []
+    monkeypatch.setattr(task_catalog, "_import_torch", lambda: calls.append("torch"))
+    task_catalog.preload_torch_before_sklearn()
+    assert calls == [], "torch was imported although sklearn/.libs/vcomp140.dll is absent"
+
+    (tmp_path / ".libs").mkdir()
+    (tmp_path / ".libs" / "vcomp140.dll").write_bytes(b"")
+    task_catalog.preload_torch_before_sklearn()
+    assert calls == ["torch"], "the vendored vcomp140.dll did not trigger the preload"

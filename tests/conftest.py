@@ -4,6 +4,14 @@ import tempfile
 import os
 import shutil
 
+from src.task_catalog import preload_torch_before_sklearn
+
+# conftest is imported before any test module, so this reproduces app.py's import order for the
+# whole suite. Without it the unified interpreter crashes during collection: scikit-learn <=1.4
+# maps vcomp140.dll, torch's c10.dll then fails its DllMain, and importing flaml.automl or lale
+# (both of which reach torch) takes the process down with WinError 1114.
+preload_torch_before_sklearn()
+
 @pytest.fixture(autouse=True)
 def mlflow_test_setup_teardown():
     # End any active runs before test

@@ -2,6 +2,8 @@
 // runtime/ so the packaged desktop app does not need Python installed by the user.
 //
 //   node scripts/prepare_python_runtime.js [--force]
+//   RUNTIME_REQUIREMENTS=requirements-all.txt RUNTIME_PYTHON_VERSION=3.11 \
+//     node scripts/prepare_python_runtime.js   # every engine, see requirements-all.in
 //
 // Requires: node, and a python on PATH (or PYTHON_BIN) that can run `python -m uv`.
 const { execFileSync } = require('child_process');
@@ -12,9 +14,12 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'runtime');
-const REQUIREMENTS = path.join(ROOT, 'requirements.txt');
-// numpy 2.5.0 requires Python >=3.12, so the bundled interpreter is 3.12; moving to 3.11
-// would mean downgrading numpy and everything built against it.
+// The installers ship the core stack. requirements-all.txt adds the engines whose pins drag
+// numpy/pandas/scikit-learn back (PyCaret, Lale, TPOT) and torch, which multiplies the payload:
+// it is there for a local build, not for a GitHub release asset (2 GiB per file).
+const REQUIREMENTS = path.join(ROOT, process.env.RUNTIME_REQUIREMENTS || 'requirements.txt');
+// numpy 2.5.0 requires Python >=3.12, so the bundled interpreter is 3.12; requirements-all.txt
+// needs 3.11 because pycaret 3.3.2 refuses to import on anything newer.
 const PYTHON_VERSION = process.env.RUNTIME_PYTHON_VERSION || '3.12';
 const IS_WINDOWS = process.platform === 'win32';
 

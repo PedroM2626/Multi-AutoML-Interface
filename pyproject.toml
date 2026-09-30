@@ -17,6 +17,9 @@ select = ["E9", "F63", "F7", "F82"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
+markers = [
+  "engine: trains a real AutoML engine end to end; needs the full engine lock installed",
+]
 filterwarnings = [
   "ignore::DeprecationWarning",
 ]

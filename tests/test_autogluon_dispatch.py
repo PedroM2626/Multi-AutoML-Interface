@@ -1,5 +1,9 @@
 from types import ModuleType, SimpleNamespace
+import os
 import sys
+
+import pandas as pd
+import pytest
 
 from src import autogluon_utils
 from src.code_gen_utils import generate_consumption_code
@@ -62,3 +66,74 @@ def test_codegen_switches_autogluon_loader_for_multimodal(monkeypatch):
     code = generate_consumption_code("autogluon", "run-3", "target")
 
     assert "MultiModalPredictor.load" in code
+
+
+def test_cv_multilabel_trains_one_predictor_per_label_column(monkeypatch, tmp_path):
+    """The CV upload stores an annotations CSV inside the image folder when one is given, and that
+    table - image names plus one 0/1 column per label - is the only shape that can carry a
+    multi-label image target, because a folder name holds exactly one class. AutoGluon's
+    MultiModalPredictor has no multilabel problem type, so the row trains one predictor per label."""
+    calls = []
+
+    class _RecordingPredictor:
+        def __init__(self, label=None, problem_type=None, path=None):
+            calls.append({"label": label, "problem_type": problem_type, "path": path})
+            self.label = label
+
+        def fit(self, **kwargs):
+            calls[-1]["fit"] = kwargs
+            return self
+
+        def evaluate(self, data):
+            return {"accuracy": 0.5}
+
+    multimodal_mod = ModuleType("autogluon.multimodal")
+    multimodal_mod.MultiModalPredictor = _RecordingPredictor
+    monkeypatch.setitem(sys.modules, "autogluon", ModuleType("autogluon"))
+    monkeypatch.setitem(sys.modules, "autogluon.multimodal", multimodal_mod)
+
+    images = tmp_path / "images"
+    (images / "red").mkdir(parents=True)
+    (images / "red" / "shot.png").write_bytes(b"\x89PNG")
+    annotated = pd.DataFrame({
+        "image": ["red/shot.png"],
+        "warm": [1],
+        "bright": [0],
+        "Image_Directory": [str(images)],
+    })
+
+    predictor, run_id = autogluon_utils.train_model(
+        train_data=annotated,
+        target=["warm", "bright"],
+        run_name="cv_multilabel_dispatch",
+        time_limit=5,
+        task_type="Computer Vision - Multi-Label Classification",
+        data_category="Computer Vision",
+    )
+
+    assert [call["label"] for call in calls] == ["warm", "bright"]
+    assert {call["problem_type"] for call in calls} == {"classification"}
+    for call, other_label in zip(calls, ["bright", "warm"]):
+        trained = call["fit"]["train_data"]
+        assert trained["image"].iloc[0] == os.path.normpath(os.path.join(str(images), "red", "shot.png"))
+        assert os.path.isabs(trained["image"].iloc[0]), "the annotation table kept relative image paths"
+        assert "Image_Directory" not in trained.columns
+        assert other_label not in trained.columns, "the other label column leaked into this predictor"
+        assert call["path"].endswith(call["label"])
+
+    assert isinstance(predictor, autogluon_utils.MultiLabelAutoGluonPredictor)
+    assert set(predictor.predictors_by_target) == {"warm", "bright"}
+    assert run_id
+
+
+def test_tabular_rows_are_refused_when_pandas_is_too_old_for_autogluon(monkeypatch):
+    """In the all-engine interpreter pandas is pinned below 2.2 by PyCaret, and AutoGluon's tabular
+    fit dies inside preprocessing with a bare OptionError. Say what is wrong before the fit."""
+    monkeypatch.setattr(autogluon_utils, "_pandas_lacks_the_downcasting_option", lambda: True)
+    frame = pd.DataFrame({"x0": [1.0, 2.0, 3.0, 4.0], "y": ["a", "b", "a", "b"]})
+
+    with pytest.raises(ValueError, match="no_silent_downcasting"):
+        autogluon_utils.train_model(
+            train_data=frame, target="y", run_name="ag_pandas_guard", time_limit=5,
+            task_type="Classification", data_category="Tabular",
+        )

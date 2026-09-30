@@ -1,6 +1,8 @@
 import os
+import importlib.metadata
 import pandas as pd
 import mlflow
+import re
 import shutil
 import logging
 import time
@@ -9,9 +11,24 @@ import json
 from typing import Dict
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
-from src.data_utils import resolve_inside_dir
+from src.data_utils import CV_METADATA_COLUMNS, resolve_inside_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _pandas_lacks_the_downcasting_option() -> bool:
+    """True when this interpreter's pandas is older than the key AutoGluon's tabular fit opens.
+
+    `autogluon.tabular.learner.abstract_learner` wraps its preprocessing in
+    `pd.option_context("future.no_silent_downcasting", True)`, a registered option only from
+    pandas 2.2. PyCaret 3.3.2 pins `pandas<2.2`, and in an interpreter that has both the fit dies
+    with a bare `OptionError` after the data has already been processed.
+    """
+    version = importlib.metadata.version("pandas")
+    match = re.match(r"(\d+)\.(\d+)", version)
+    if not match:
+        return False
+    return (int(match.group(1)), int(match.group(2))) < (2, 2)
 
 
 class MultiLabelAutoGluonPredictor:
@@ -41,6 +58,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
     # marked as text. TabularPredictor would treat a free-text column as one categorical feature.
     is_multimodal_task = data_category in ("Multimodal", "Text")
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
+    is_cv_multilabel = task_type == "Computer Vision - Multi-Label Classification"
     is_tabular_multilabel = data_category == "Tabular" and task_type in ["Multi-Label Classification", "Multi-Task Classification"]
     target_columns = target if isinstance(target, list) else [target]
 
@@ -50,7 +68,27 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
         for column in target_columns:
             if column not in train_data.columns:
                 raise ValueError(f"Target column '{column}' not found in training data.")
+
+    if is_cv_multilabel:
+        if len(target_columns) < 2:
+            raise ValueError(
+                "Computer Vision Multi-Label Classification needs at least two label columns. "
+                "Upload the images together with an annotations CSV that has an 'image' column "
+                "and one 0/1 column per label."
+            )
+        for column in target_columns:
+            if column not in train_data.columns:
+                raise ValueError(f"Label column '{column}' is not in the annotation table.")
     
+    if not (is_cv_task or is_multimodal_task) and _pandas_lacks_the_downcasting_option():
+        raise ValueError(
+            "AutoGluon's tabular predictor cannot run in this interpreter: its fit opens "
+            f"pd.option_context('future.no_silent_downcasting'), a key pandas "
+            f"{importlib.metadata.version('pandas')} does not define (it arrived in 2.2). "
+            "Pick another engine for this run, or use an environment with pandas >= 2.2 - "
+            "requirements.txt has it, the all-engine lock cannot (PyCaret pins pandas<2.2)."
+        )
+
     if is_cv_task:
         from autogluon.multimodal import MultiModalPredictor
         
@@ -58,6 +96,16 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             if path_df is None or "Image_Directory" not in path_df.columns:
                 return path_df
             img_dir = path_df.iloc[0]["Image_Directory"]
+            if "image" in path_df.columns:
+                # Annotated dataset: the upload stored a table of image names plus one column
+                # per label, which is the only shape that can carry multi-label image targets.
+                prepared = path_df.drop(columns=[c for c in CV_METADATA_COLUMNS if c in path_df.columns])
+                prepared = prepared.copy()
+                prepared["image"] = [
+                    value if os.path.isabs(value) else os.path.normpath(os.path.join(img_dir, value))
+                    for value in prepared["image"].astype(str)
+                ]
+                return prepared
             data = []
             for root, _, files in os.walk(img_dir):
                 label = os.path.basename(root)
@@ -113,7 +161,8 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
         mlflow.log_param("data_category", data_category)
         mlflow.log_param("task_type", task_type)
         mlflow.log_param("is_tabular_multilabel", str(is_tabular_multilabel).lower())
-        if is_tabular_multilabel:
+        mlflow.log_param("is_cv_multilabel", str(is_cv_multilabel).lower())
+        if is_tabular_multilabel or is_cv_multilabel:
             mlflow.log_param("multilabel_targets", json.dumps(target_columns))
         if is_multimodal_task:
             mlflow.log_param("multimodal_text_columns", str(multimodal_text_columns or []))
@@ -138,7 +187,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             test_data = test_data.dropna(subset=target_columns)
             mlflow.log_param("has_test_data", True)
             
-        if is_cv_task or is_multimodal_task:
+        if (is_cv_task or is_multimodal_task) and not is_cv_multilabel:
             mm_fit_args = {"train_data": train_data, "time_limit": time_limit}
             if valid_data is not None:
                 mm_fit_args["tuning_data"] = valid_data
@@ -200,6 +249,63 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                 [{"target": lbl, "best_score": score} for lbl, score in label_scores.items()]
             )
             leaderboard_df.to_csv(leaderboard_path, index=False)
+        elif is_cv_multilabel:
+            # AutoGluon's MultiModalPredictor has no multilabel problem type - asking for one
+            # asserts inside fit() and lists classification, binary, multiclass, regression,
+            # object_detection, semantic_segmentation, the similarity and the NER types. The row is
+            # therefore trained like the tabular multi-label one: one predictor per label column.
+            mm_presets = "high_quality" if presets in ["best_quality", "high_quality"] else "medium_quality"
+            per_label_time_limit = (
+                max(30, int((time_limit or 300) / max(1, len(target_columns)))) if time_limit else None
+            )
+
+            predictors_by_target = {}
+            label_metrics = {}
+
+            for target_name in target_columns:
+                if stop_event and stop_event.is_set():
+                    raise StopIteration("Training cancelled by user")
+
+                drop_targets = [col for col in target_columns if col != target_name]
+                train_subset = train_data.drop(columns=drop_targets, errors="ignore")
+                valid_subset = valid_data.drop(columns=drop_targets, errors="ignore") if valid_data is not None else None
+                test_subset = test_data.drop(columns=drop_targets, errors="ignore") if test_data is not None else None
+
+                fit_args = {"train_data": train_subset, "time_limit": per_label_time_limit, "presets": mm_presets}
+                if valid_subset is not None:
+                    fit_args["tuning_data"] = valid_subset
+
+                predictor_single = MultiModalPredictor(
+                    label=target_name,
+                    problem_type="classification",
+                    path=os.path.join(model_path, target_name),
+                ).fit(**fit_args)
+                predictors_by_target[target_name] = predictor_single
+
+                eval_subset = (
+                    test_subset if test_subset is not None
+                    else (valid_subset if valid_subset is not None else train_subset)
+                )
+                scores = predictor_single.evaluate(eval_subset)
+                if not isinstance(scores, dict):
+                    scores = {"score": scores}
+                numeric = {}
+                for key, value in scores.items():
+                    try:
+                        numeric[str(key)] = float(value)
+                    except (TypeError, ValueError):
+                        logger.info("Skipping non-numeric evaluation entry %s=%r", key, value)
+                label_metrics[target_name] = numeric
+
+            predictor = MultiLabelAutoGluonPredictor(predictors_by_target)
+            for target_name, numeric in label_metrics.items():
+                safe_label = target_name.replace(" ", "_").replace("-", "_").lower()
+                for key, value in numeric.items():
+                    mlflow.log_metric(f"{safe_label}_{key}", value)
+
+            leaderboard_path = "leaderboard.csv"
+            rows = [{"label": name, **metrics} for name, metrics in label_metrics.items()]
+            pd.DataFrame(rows or [{"label": None}]).to_csv(leaderboard_path, index=False)
         else:
             fit_args = {
                 "train_data": train_data,
@@ -258,7 +364,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
         
         eval_data = test_data if test_data is not None else (valid_data if valid_data is not None else train_data)
 
-        if is_cv_task or is_multimodal_task:
+        if (is_cv_task or is_multimodal_task) and not is_cv_multilabel:
             # MultiModalPredictor trains a single model and exposes evaluate(), not
             # leaderboard(); asking for the leaderboard raised AttributeError after the training
             # had already finished, which threw away the run's whole result.
@@ -275,7 +381,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                 mlflow.log_metrics(numeric_scores)
             leaderboard_path = "leaderboard.csv"
             pd.DataFrame([numeric_scores or {"score": None}]).to_csv(leaderboard_path, index=False)
-        elif not is_tabular_multilabel:
+        elif not (is_tabular_multilabel or is_cv_multilabel):
             leaderboard = predictor.leaderboard(eval_data, silent=True)
             # Log the best model's score
             best_model_score = leaderboard.iloc[0]['score_val']
@@ -292,6 +398,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
         
         # Log AutoGluon model directory as a generic artifact
         # We use a try-except here because disk space issues frequently occur during artifact copy
+        model_folder_removed = False
         try:
             mlflow.log_artifacts(model_path, artifact_path="model")
             mlflow.log_param("model_type", "autogluon")
@@ -314,11 +421,26 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             # Only do this if it was logged successfully to the tracking server/local mlruns
             if os.path.exists(model_path):
                 shutil.rmtree(model_path)
+                model_folder_removed = True
                 logger.info(f"Cleaned up local model folder: {model_path}")
         except Exception as e:
             logger.error(f"Failed to log model artifacts to MLflow (likely disk space): {e}")
             # Do NOT delete model_path here so the user can potentially recover it manually
             # if the MLflow log failed.
+
+        if model_folder_removed:
+            # The predictor that was just fitted reads its estimators from
+            # models/<run>/models/*/model.pkl, which the cleanup above removed, so returning it
+            # handed the app an object that failed on the first prediction after a successful
+            # training. The artifact copy is the model's home now: reload from it.
+            try:
+                predictor = load_model_from_mlflow(run.info.run_id)
+                logger.info(f"Reloaded {run_name} from its MLflow artifact for in-session use.")
+            except Exception as e:
+                logger.warning(
+                    f"Could not reload {run_name} from MLflow ({e}); the predictor in this session "
+                    f"points at the deleted folder {model_path}."
+                )
         
         # Generate and log consumption code sample
         try:
@@ -340,33 +462,47 @@ def load_model_from_mlflow(run_id: str):
     Loads a model from MLflow artifacts.
     """
     import mlflow
+    is_tabular_multilabel = False
+    is_cv_multilabel = False
+    multilabel_targets_raw = "[]"
     try:
         run = mlflow.tracking.MlflowClient().get_run(run_id)
         data_category = run.data.params.get("data_category", "Tabular")
         task_type = run.data.params.get("task_type", "Classification")
         is_tabular_multilabel = run.data.params.get("is_tabular_multilabel", "false") == "true"
+        is_cv_multilabel = run.data.params.get("is_cv_multilabel", "false") == "true"
         multilabel_targets_raw = run.data.params.get("multilabel_targets", "[]")
     except Exception:
         data_category = "Tabular"
         task_type = "Classification"
-        is_tabular_multilabel = False
-        multilabel_targets_raw = "[]"
-    
+
     # Download the artifact folder
     local_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
-    
+
+    try:
+        target_columns = json.loads(multilabel_targets_raw)
+    except Exception:
+        target_columns = []
+
     # Load the predictor from the local path
-    if data_category == "Multimodal" or task_type.startswith("Computer Vision"):
+    if is_cv_multilabel:
+        from autogluon.multimodal import MultiModalPredictor
+
+        predictors_by_target = {}
+        for target_name in target_columns:
+            target_model_dir = os.path.join(local_path, target_name)
+            if os.path.isdir(target_model_dir):
+                predictors_by_target[target_name] = MultiModalPredictor.load(target_model_dir)
+
+        if not predictors_by_target:
+            raise FileNotFoundError("No per-label multimodal predictors found for this CV multi-label run.")
+        predictor = MultiLabelAutoGluonPredictor(predictors_by_target)
+    elif data_category == "Multimodal" or task_type.startswith("Computer Vision"):
         from autogluon.multimodal import MultiModalPredictor
 
         predictor = MultiModalPredictor.load(local_path)
     elif is_tabular_multilabel:
         from autogluon.tabular import TabularPredictor
-
-        try:
-            target_columns = json.loads(multilabel_targets_raw)
-        except Exception:
-            target_columns = []
 
         predictors_by_target = {}
         for target_name in target_columns:

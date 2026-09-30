@@ -40,7 +40,7 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 
 | Engine | Integration module | Strengths in this project |
 |---|---|---|
-| AutoGluon | `src/autogluon_utils.py` | The engine behind every Text, Multimodal and Computer Vision row; detection/segmentation only for a caller that supplies an annotated frame |
+| AutoGluon | `src/autogluon_utils.py` | The engine behind every Text, Multimodal and Computer Vision row; multi-label CV from an annotations CSV, detection/segmentation only for a caller that supplies an annotated frame |
 | FLAML | `src/flaml_utils.py` | Cost-effective hyperparameter search; classification, regression, forecast, ranking |
 | H2O AutoML | `src/h2o_utils.py` | Distributed-style Java cluster training with native leaderboards (requires Java) |
 | TPOT | `src/tpot_utils.py` | Genetic-algorithm pipeline search; exports the best pipeline as a `.py` file to `tpot_models/`. Integrated but not in the task catalog - see the optional-dependency table |
@@ -56,7 +56,7 @@ Defined in `src/task_catalog.py` (`DATA_CATEGORIES`):
 1. **Tabular** — CSV/Excel with numeric, categorical, or text columns.
 2. **Sequential** — one time-ordered table; the engine's native time series path reads the date column directly. Its task is Forecast.
 3. **Text** — free-text columns as the predictive features, trained through AutoGluon's multimodal predictor.
-4. **Computer Vision** — image folders/ZIP uploads; labels inferred from directory structure.
+4. **Computer Vision** — image folders/ZIP uploads; labels inferred from directory structure, or taken from an annotations CSV (`image` plus one 0/1 column per label) for multi-label work.
 5. **Multimodal** — mixed tabular + text + image-path columns (natively supported via AutoGluon).
 
 ### Deployment targets
@@ -169,20 +169,22 @@ The training pipeline is split across three modules:
 
 | Runtime | Python | Notes |
 |---|---|---|
-| Full local app via `run.py` | **3.11 preferred for PyCaret/Lale** | PyCaret and Lale need `numpy<1.27` and `scikit-learn<1.8`; with those relaxed they also install on 3.12, so the version is not the barrier - the project's pins are. `run.py` re-launches itself on a Python 3.11 interpreter (`py -3.11`, `python3.11`, or `python`) whenever the current one differs, refuses to start on an interpreter older than 3.11, and on a newer one (3.12+) starts with a warning that PyCaret/Lale may fail to import. It also binds the dev server to `127.0.0.1` unless `--server.address` or `STREAMLIT_SERVER_ADDRESS` is given, because Streamlit otherwise listens on every interface. |
-| Core app (without PyCaret/Lale) | 3.12 | The Streamlit app itself, CI, and the base Docker image run on Python 3.12. |
-| Docker base image | 3.12 | `Dockerfile` uses `python:3.12-slim`. |
-| CI workflows | 3.12 | `actions/setup-python` with `python-version: "3.12"`. |
+| Shipped desktop runtime | 3.12 | `scripts/prepare_python_runtime.js` bundles a standalone CPython 3.12 and installs `requirements.txt` into it (numpy 2.5.0 requires >=3.12). Set `RUNTIME_REQUIREMENTS=requirements-all.txt RUNTIME_PYTHON_VERSION=3.11` to build a runtime with every engine for a local install - see the requirement files below before doing that. |
+| Core app, CI, Docker | 3.12 | The Streamlit app itself, the CI gates and the base Docker image run on Python 3.12. |
+| All seven engines (`requirements-all.txt`) | **3.11 only** | `pycaret 3.3.2` raises `RuntimeError: Pycaret only supports python 3.9, 3.10, 3.11` while importing on 3.12 - its PyPI metadata does not say so, so the install succeeds and the first import fails. Its pins also drag `numpy<1.27`, `pandas<2.2`, `scipy<=1.11.4`, `matplotlib<3.8` and `scikit-learn==1.4.2` along. That scikit-learn vendors `sklearn/.libs/vcomp140.dll`; once it is mapped, torch's `c10.dll` fails its DllMain with `OSError [WinError 1114]`, so `app.py` preloads torch before anything imports scikit-learn (`preload_torch_before_sklearn()` in `src/task_catalog.py`, also called from `tests/conftest.py`). |
+| Local launcher `run.py` | 3.11+ | Starts Streamlit on whatever interpreter runs it, prints which catalog engines that interpreter cannot import and how to add them, and binds the dev server to `127.0.0.1` unless `--server.address` or `STREAMLIT_SERVER_ADDRESS` is given, because Streamlit otherwise listens on every interface. It no longer re-launches itself on 3.11: the shipped stack is 3.12, and moving to an interpreter without those pins installed only broke the launch. |
 | Generated deployment packages | 3.11 | `deploy_<run_id>/Dockerfile` uses `python:3.11-slim`. |
-| AutoGluon CV image | 3.10 | `Dockerfile.autogluon_cv` uses `python:3.10-slim` (torch 2.1.0 + mmcv 2.1.0 constraint). |
+| AutoGluon CV image | 3.10 | `Dockerfile.autogluon_cv` targets torch 2.1 + mmcv for object detection. Kept for reference: mmcv publishes no wheels on PyPI in any release, so this image builds only where mmcv can be compiled. |
 
 ### Requirement files
 
 | File | Role |
 |---|---|
-| `requirements.txt` | **Lightweight core stack**: Streamlit, pandas, numpy, scikit-learn, MLflow, FLAML, xgboost, matplotlib, FastAPI/Uvicorn, nbformat, pytest. Deliberately excludes the heavy engines so the base app and Docker image stay small. |
+| `requirements.txt` | **Shipped core stack**: Streamlit, pandas, numpy, scikit-learn, MLflow, FLAML, xgboost, matplotlib, FastAPI/Uvicorn, nbformat, pytest, plus the ONNX/SHAP set the Experiments page needs. Deliberately excludes the heavy engines: `pip-audit -r requirements.txt` reports no known vulnerabilities, and the installers stay a few hundred MB. |
+| `requirements-all.in` | The intent behind the all-engine set: the seven catalog engines plus the app, with the pins that are load-bearing (`setuptools<81` for TPOT's `pkg_resources`). |
+| `requirements-all.txt` | **Every engine in one interpreter**, compiled for Python 3.11 with `uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt` (284 packages, torch, ray, transformers). Verified by `tests/test_engine_matrix.py`, which trains every catalog row. It cannot be made CVE-clean: scikit-learn 1.4.2 (CVE-2024-5206, fixed only in 1.5.0 that PyCaret forbids), setuptools 80.x (CVE-2026-59890, fixed only in 83.0.0 that TPOT forbids), h2o 3.46.0.12 and nltk 3.10.3 (no fixed release). That is why it is not what the installers ship. |
 | `requirements-dev.txt` | Developer quality gates: `ruff==0.15.20`, `pytest==9.1.1`. |
-| `requirements-compiled.txt` | Full pip-compile lock for **Python 3.11**, produced with `pip-compile --output-file=requirements-compiled.txt requirements.txt`. **Not committed** (`.gitignore` excludes `*.txt*`) and currently stale against `requirements.txt` (44 pins differ, 42 packages missing, incl. `cryptography`, `fastapi`, `uvicorn`, `xgboost`). Regenerate before relying on it for a reproducible environment. |
+| `requirements-compiled.txt` | Stale PyCaret-era lock, generated locally and not committed (`.gitignore` excludes `*.txt*`). History, not truth - regenerate from `requirements.txt` before relying on it. |
 
 ### Basic quick start
 
@@ -191,21 +193,22 @@ The training pipeline is split across three modules:
 git clone https://github.com/PedroM2626/Multi-AutoML-Interface.git
 cd Multi-AutoML-Interface
 
-# 2. Create a Python 3.11 virtual environment
-py -3.11 -m venv .venv
+# 2. Create a Python 3.12 virtual environment (3.11 for requirements-all.txt)
+py -3.12 -m venv .venv
 .venv\Scripts\activate          # Windows PowerShell
 # source .venv/bin/activate     # Linux/macOS
 
 # 3. Install the core stack (lightweight)
 pip install -r requirements.txt
 
-# 4. Launch (run.py enforces Python 3.11)
+# 4. Launch
 python run.py
 # or directly:
-py -3.11 -m streamlit run app.py
+python -m streamlit run app.py
 ```
 
-The UI opens at `http://localhost:8501`.
+The UI opens at `http://localhost:8501`. To train with every engine instead, create the
+environment on **Python 3.11** and `pip install -r requirements-all.txt`.
 
 ### Optional per-framework installs
 
@@ -213,11 +216,11 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 
 | Extra | Install command | Additional requirements |
 |---|---|---|
-| AutoGluon | `pip install autogluon` | Large install (PyTorch for CV/multimodal) |
+| AutoGluon | `pip install autogluon.tabular autogluon.multimodal "jsonschema<4.24" "setuptools<81"` | Three of its own constraints bite. `autogluon.multimodal` needs `jsonschema<4.24` (the project pins 4.26) and its `data.templates` imports `pkg_resources`, which setuptools >= 81 no longer ships - so an interpreter carrying AutoGluon cannot also carry the fix for CVE-2026-59890. Its tabular predictor opens `pd.option_context("future.no_silent_downcasting")`, a key that exists only from pandas 2.2, which rules out the interpreter that carries PyCaret (`pandas<2.2`). Large payload: torch, torchvision, transformers, timm, ray and scikit-image (~1.7 GB of site-packages measured). `train_model` refuses the tabular rows with that explanation instead of letting the `OptionError` escape. |
 | H2O AutoML | `pip install h2o` | **Java 11+** (JRE/JDK) must be on PATH |
-| TPOT | `pip install "tpot==0.12.2" "scikit-learn<1.5"` in its own environment | Neither public release runs on this project's pins: tpot 1.1.0 raises `TypeError` from its own `fit` template, tpot 0.12.2 raises `Expected an estimator instance ... got estimator class instead` from scikit-learn 1.9. Both also need `setuptools<81` (stopit imports `pkg_resources`) |
-| PyCaret | `pip install pycaret` in its own environment | Needs `numpy<1.27`, `pandas<2.2`, `matplotlib<3.8` - not the project's pins |
-| Lale | `pip install lale` in its own environment | Needs `scikit-learn<1.8`; the project pins 1.9 |
+| TPOT | `pip install "tpot==0.12.2" "scikit-learn<1.5" "setuptools<81"` in its own environment | Neither public release runs on this project's pins: tpot 1.1.0 raises `TypeError` from its own `fit` template, tpot 0.12.2 raises `Expected an estimator instance ... got estimator class instead` from scikit-learn 1.9. `stopit` imports `pkg_resources`, which setuptools >=81 no longer ships. Even inside the all-engine interpreter a classification run dies *after* fitting, when MLflow logs the pipeline through skops: `StackingEstimator`, `KDTree` and `ManhattanDistance64` are untrusted types, and whitelisting them would disable the same CWE-502 guard the model loader makes the user confirm |
+| PyCaret | `pip install pycaret` in a **Python 3.11** environment | Refuses to import on 3.12 (see the version table) and needs `numpy<1.27`, `pandas<2.2`, `matplotlib<3.8`, `scikit-learn==1.4.2` |
+| Lale | `pip install lale` in its own environment | Needs `scikit-learn<1.8`; the project pins 1.9. Its per-trial time limits cannot be used here (see `src/lale_utils.py`) |
 | AutoKeras | - | Not installable in a working combination: 3.0.0 (its last release) requires `keras>=3.0.0` per PyPI metadata, and against keras 3 its head dies with "Received an invalid value for `units`, expected a positive integer. Received: units=1". It also does not depend on TensorFlow, so `pip install autokeras` alone leaves `import tensorflow` missing |
 | SHAP (XAI) | in `requirements.txt` (every platform except Intel macOS) | Tabular explanations; `shap` needs `numba`, whose Intel-macOS cap conflicts with the numpy pin, so XAI is skipped there |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
@@ -271,6 +274,7 @@ Legend: ✅ supported · — not supported
 | Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
 |---|---|---|---|---|---|
 | Image Classification | ✅ | — | — | — | —
+| Multi-Label Classification | ✅ | — | — | — | —
 
 ### Multimodal
 
@@ -281,10 +285,12 @@ Legend: ✅ supported · — not supported
 
 Notes:
 
-- Only folder-labelled image classification is offered for Computer Vision: an image sits in one class folder, so there is no multi-hot target for multi-label and no boxes or masks for detection and segmentation; AutoGluon's detection pipeline also needs mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that brings an annotated frame.
+- Computer Vision Multi-Label Classification trains from the annotations CSV the CV upload stores inside the image folder (`image` plus one 0/1 column per label); a folder name holds one class per image, so without that table only `Image Classification` is possible. `MultiModalPredictor` has no multilabel problem type, so the row fits one predictor per label column and wraps them, the same way the tabular multi-label row does.
+- Object Detection and Image Segmentation are not offered: their AutoGluon pipeline needs mmcv, which publishes no wheels on PyPI (its latest release is an sdist), so it cannot be installed here without compiling against one exact PyTorch build. `train_model` still honours those problem types for a caller that brings an annotated frame.
 - Multimodal training is natively supported only through AutoGluon in this interface (the UI warns if another framework is selected).
 - If a `(category, task)` pair is missing from the map, `get_framework_options()` falls back to `["FLAML"]`.
 - A ✅ is a code path, not an installed package: the selectors only list engines the interpreter can import (`src/task_catalog.py`, `partition_frameworks()`), so the desktop installers offer FLAML until another engine is installed into the bundled runtime.
+- Which rows are more than claims: `pytest -m engine tests/test_engine_matrix.py` trains and scores every pair in this map with the engine named there, in whichever interpreter runs it. Cases whose engine is absent skip, so the run doubles as a capability report; the nightly `engine-matrix` job does it on Python 3.11 with `requirements-all.txt`.
 - Tabular Forecast runs on lag features built by `src/processor.py`; Sequential Forecast passes the raw ordering and the horizon to the engine's native time series task.
 
 ---
@@ -311,7 +317,7 @@ The sidebar also hosts the optional **DagsHub integration** panel (see [MLOps](#
 Two tabs:
 
 - **Tabular, Text & Sequential (CSV/Excel):** upload `.csv`/`.xlsx`/`.xls`, optionally check *"This file has no header row"* (columns become `col_0, col_1, …`), choose a file prefix, then **Process & Save**. The file lands in `data_lake/raw/`, is registered with DVC (`dvc init` / `dvc add` via subprocess, with MD5 fallback), and its content hash is shown.
-- **Computer Vision Data (Images/ZIP):** upload multiple PNG/JPG files or a single ZIP; images are extracted to `data_lake/images/<dataset_name>_<timestamp>/` and DVC-tracked.
+- **Computer Vision Data (Images/ZIP):** upload multiple PNG/JPG files or a single ZIP, optionally with an **annotations CSV** (`image` column naming files inside the dataset plus one 0/1 column per label). Images are extracted to `data_lake/images/<dataset_name>_<timestamp>/` and DVC-tracked; the CSV is stored in that folder as `annotations.csv`, and `load_data` turns the folder into that table instead of the one-row directory stub.
 
 Below the uploaders, a **Preview & Profiling** section shows dataset overview cards (rows, columns, missing %, memory) and tabs for preview, missing values, data types, and per-column distributions.
 
@@ -402,6 +408,7 @@ All parameters below are verified against the configuration blocks in `app.py` a
 | Presets | Selectbox | `medium_quality` | Options: `medium_quality`, `best_quality`, `high_quality`, `good_quality`, `optimize_for_deployment` |
 | cv_folds | Global split section | 0 (engine default) | From the Cross-Validation strategy |
 | task_type / data_category | Auto | From page selections | Routes Tabular vs Multimodal vs CV code paths |
+| CV target | `label` for folder data, multiselect for annotated data | folder names / 0/1 columns | Multi-Label Classification passes the label columns as a list with `problem_type="multilabel"`; the image paths in `annotations.csv` are resolved against the dataset folder |
 | multimodal text/image columns | Multiselect (Multimodal category) | Heuristic suggestions | Used by `MultiModalPredictor` |
 
 ### FLAML (`src/flaml_utils.py` → `train_flaml_model`)
@@ -699,12 +706,13 @@ pytest -q tests
 
 ### CI workflows
 
-**`.github/workflows/ci.yml`** — triggers: push to `main`/`master`, pull requests, daily schedule (`cron: 0 3 * * *`), manual dispatch. Python 3.12, pip caching.
+**`.github/workflows/ci.yml`** — triggers: push to `main`/`master`, pull requests, daily schedule (`cron: 0 3 * * *`), manual dispatch. Python 3.12 for the core gates, 3.11 for the engine matrix, pip caching.
 
 | Job | When | Steps |
 |---|---|---|
-| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 streamlit==1.58.0`) → `ruff check .` → `python -m compileall app.py run.py src tests` → `pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py` |
+| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 lightgbm==4.7.0 xgboost==3.4.0 streamlit==1.58.0`; xgboost and lightgbm are not optional, because `flaml/automl` imports xgboost at module scope and the FLAML paths would otherwise skip silently) → `ruff check .` → `python -m compileall app.py run.py src tests` → the guard tests named in the workflow |
 | `nightly-complete` | Schedule or manual dispatch | Same validation gates first, then the full `requirements.txt` install (best effort) followed by `pip-audit --strict` over it and `pytest -o addopts="" -q tests`, which **fails the nightly** whenever the stack installed. A `::warning::` records the case where the stack could not install and the suite was skipped. |
+| `engine-matrix` | Schedule or manual dispatch | Python 3.11, CPU-only torch from the PyTorch index (PyPI's CUDA wheels do not fit a runner's disk), then `pip install -r requirements-all.txt` and `pytest -m engine tests/test_engine_matrix.py`, which trains **every row of the task catalog** with the engine the catalog names. The engine cases skip when the engine is absent, so this job is the only place they actually run. |
 
 **`.github/workflows/build-electron.yml`** - packaging smoke test. Triggers: pull requests touching `electron/`, `package.json`, `package-lock.json`, `requirements.txt`, the runtime script or the workflow itself, plus manual dispatch. 3-OS matrix with Node 20: builds `runtime/`, packages **unpacked** apps with signing explicitly disabled, and asserts that `resources/runtime/<interpreter>`, `runtime-manifest.json`, `resources/app/app.py` and `resources/app/src` exist. It uploads no artifacts - a 1.2 GB payload per OS would only consume storage.
 
@@ -725,7 +733,7 @@ python -m compileall app.py run.py src tests   # syntax gate
 ```
 Multi-AutoML-Interface/
 ├── app.py                        # Streamlit application (~2,300 lines): UI, pages, config forms
-├── run.py                        # Launcher: prefers 3.11, warns on newer, binds loopback by default
+├── run.py                        # Launcher: reports the engines this interpreter lacks, binds loopback by default
 ├── src/                          # 25 modules (below)
 │   ├── __init__.py               # Package marker
 │   ├── autogluon_utils.py        # AutoGluon training (tabular/CV/multimodal), leaderboard, MLflow logging
@@ -796,7 +804,8 @@ Multi-AutoML-Interface/
 | **Electron window shows the error page** | Streamlit did not start within ~20 retries. Ensure Python + Streamlit are installed and port 8501 is free; use `npm run dev` to watch both processes. |
 | **Electron build fails** | Requires Node 18+ (CI uses 20). Delete `node_modules`/`dist` and rerun `npm install`, then `npm run build-win|mac|linux`. macOS builds use `GH_TOKEN`. |
 | **Windows PowerShell: `&&` not recognized** | PowerShell v5 does not support `&&` as a statement separator — chain commands with `;` instead (e.g. `pip install dvc; dvc init`). |
-| **PyCaret/Lale fail to import** | They need `numpy<1.27` / `scikit-learn<1.8`, which conflicts with the project's pins, not with the interpreter version. Run them in a separate environment (or `run.py` on 3.11 with a matching lockfile); the framework selector hides them when they are absent. |
+| **PyCaret/Lale/TPOT fail to import** | They need `numpy<1.27` / `scikit-learn<1.5`, which conflicts with the project's pins, and PyCaret additionally refuses to import on Python 3.12. `pip install -r requirements-all.txt` in a **Python 3.11** environment installs all seven engines; the framework selector hides whatever the current interpreter cannot import. |
+| **`OSError [WinError 1114]` loading `torch/lib/c10.dll`** | scikit-learn <=1.4 wheels map `sklearn/.libs/vcomp140.dll`, and torch's OpenMP runtime cannot initialise after it. `app.py` preloads torch before anything imports scikit-learn; a REPL or script that imports scikit-learn first has to do the same (`from src.task_catalog import preload_torch_before_sklearn; preload_torch_before_sklearn()`). |
 
 ---
 

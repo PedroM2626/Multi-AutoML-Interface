@@ -10,6 +10,40 @@ import shutil
 
 _SAFE_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+CV_IMAGE_COLUMN = "image"
+CV_ANNOTATION_FILE = "annotations.csv"
+# Columns load_data adds around an annotation table; they are never label candidates.
+CV_METADATA_COLUMNS = ("Image_Directory", "Total_Images", "Type")
+
+
+def cv_label_columns(columns):
+    """The label columns of a CV annotation table, from its column names: everything but the
+    image path and the directory metadata load_data adds."""
+    return [
+        column for column in columns
+        if column != CV_IMAGE_COLUMN and column not in CV_METADATA_COLUMNS
+    ]
+
+
+def validate_cv_annotations(frame, source=CV_ANNOTATION_FILE):
+    """Fail before training when an image annotation table cannot drive multi-label training.
+
+    AutoGluon's multilabel problem type needs one image column and one column per label, and the
+    folder layout the CV upload otherwise uses cannot express that: an image sits in a single
+    class folder.
+    """
+    if CV_IMAGE_COLUMN not in frame.columns:
+        raise ValueError(
+            f"'{source}' needs a '{CV_IMAGE_COLUMN}' column with the image file name, "
+            "relative to the dataset folder."
+        )
+    labels = cv_label_columns(frame.columns)
+    if len(labels) < 2:
+        raise ValueError(
+            f"'{source}' needs at least two label columns next to '{CV_IMAGE_COLUMN}'; found {labels}."
+        )
+    return labels
+
 
 def safe_path_component(name, fallback="dataset"):
     """
@@ -42,9 +76,15 @@ def load_data(file, no_header=False):
     filename = file if is_path else file.name
     
     if os.path.isdir(filename):
-        # For image directories, return a mock DataFrame to avoid crashing the UI
-        # AutoGluon / AutoKeras will use the path string instead of this DataFrame.
         num_files = sum(len(files) for _, _, files in os.walk(filename))
+        annotation_path = os.path.join(filename, CV_ANNOTATION_FILE)
+        if os.path.isfile(annotation_path):
+            # An annotated CV dataset is a real table: the image paths plus one column per
+            # label. AutoGluon resolves them against Image_Directory in train_model.
+            annotations = pd.read_csv(annotation_path)
+            annotations["Image_Directory"] = filename
+            return annotations
+        # Mock DataFrame so the UI can show something; the engines use the path string.
         return pd.DataFrame({"Image_Directory": [filename], "Total_Images": [num_files], "Type": ["Computer Vision Dataset"]})
 
     if is_path:
@@ -174,10 +214,13 @@ def get_data_lake_files():
     files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
     return files
 
-def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=False):
+def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=False, annotation_file=None):
     """
     Processes uploaded images (multiple files or a zip) and stores them in data_lake/images/<dataset_name>.
     Supports ZIP extraction or direct copying.
+    annotation_file, when given, is a CSV of image names plus one column per label; it is stored
+    inside the dataset folder as annotations.csv, which turns the dataset into an annotated
+    (multi-label) one.
     Returns the path to the dataset directory and a hash.
     """
     data_lake_dir = os.path.join("data_lake", "images", safe_path_component(dataset_name, fallback="image_dataset"))
@@ -202,6 +245,11 @@ def process_image_upload(uploaded_files, dataset_name="image_dataset", is_zip=Fa
             file_path = os.path.join(target_dir, f.name)
             with open(file_path, "wb") as out_f:
                 out_f.write(f.getbuffer())
+
+    if annotation_file is not None:
+        annotations = pd.read_csv(annotation_file)
+        validate_cv_annotations(annotations, source=annotation_file.name)
+        annotations.to_csv(os.path.join(target_dir, CV_ANNOTATION_FILE), index=False)
 
     # Add directory to DVC
     dvc_hash = "unknown_dir_hash"
