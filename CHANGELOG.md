@@ -43,7 +43,7 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
 ### Changed
 
-- **The catalog is 15 pairs across 6 engines.** Object Detection and Image Segmentation are no
+- **The catalog is 15 pairs across 5 engines.** Object Detection and Image Segmentation are no
   longer offered: the CV upload infers labels from the directory structure, so there is no COCO
   box or mask annotation for the engine to read, and AutoGluon's detection pipeline also needs
   mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that
@@ -53,6 +53,11 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   fails on this project's scikit-learn 1.9 with "Expected an estimator instance ... got estimator
   class instead". `src/tpot_utils.py` and its orchestrator entry stay for an environment that
   pins its own scikit-learn.
+- AutoKeras leaves the catalog too. `pip install autokeras` gives 3.0.0 against keras 3.x, whose
+  classification head rejects the single-unit output ("Received an invalid value for `units`,
+  expected a positive integer. Received: units=1"), and multi-label fails on target shape; it
+  needs a `keras<3` environment the project does not pin. Both CV rows stay available through
+  AutoGluon, which was trained end to end on synthetic images.
 - The support matrices list only engines some row can actually run, so TPOT no longer has a column
   of promises the catalog does not keep, and the docs stop counting the Hugging Face Hub as an
   eighth engine.

@@ -89,26 +89,23 @@ def run_autokeras_experiment(train_data: pd.DataFrame, target: str, run_name: st
         # Estimate max trials based on time_limit pseudo translation (1 trial ~ 100s for small data)
         max_trials = max(1, time_limit // 100)
         
-        # Use tf.data.Dataset directly to avoid loading entire dataset into RAM
-        use_dataset_directly = hasattr(train_ds, 'element_spec')
-        
-        if use_dataset_directly:
-            x_train, y_train = train_ds, None  # AutoKeras accepts tf.data.Dataset
-            x_val, y_val = val_ds, None
-        else:
-            def dataset_to_numpy(ds):
-                x_all, y_all = [], []
-                for x, y in ds:
-                    x_all.append(x.numpy())
-                    y_all.append(y.numpy())
-                if not x_all: return None, None
-                return np.concatenate(x_all, axis=0), np.concatenate(y_all, axis=0)
-            
-            x_train, y_train = dataset_to_numpy(train_ds)
-            x_val, y_val = None, None
-            if val_ds:
-                x_val, y_val = dataset_to_numpy(val_ds)
-            
+        # AutoKeras 3 only fits numpy arrays: passing the tf.data.Dataset raised
+        # "Expected x to be a numpy array, got [_PrefetchDataset]" from its own input check,
+        # so the batches are materialised here (image tensors are ~200 KB each at 256x256).
+        def dataset_to_numpy(ds):
+            x_all, y_all = [], []
+            for x, y in ds:
+                x_all.append(x.numpy())
+                y_all.append(y.numpy())
+            if not x_all:
+                return None, None
+            return np.concatenate(x_all, axis=0), np.concatenate(y_all, axis=0)
+
+        x_train, y_train = dataset_to_numpy(train_ds)
+        x_val, y_val = dataset_to_numpy(val_ds)
+        if x_train is None or y_train is None:
+            raise ValueError("No images found in the training directory.")
+
         if task_type == "Computer Vision - Image Classification":
             clf = ak.ImageClassifier(overwrite=True, max_trials=max_trials, directory=model_path)
         elif task_type == "Computer Vision - Multi-Label Classification":
@@ -117,16 +114,13 @@ def run_autokeras_experiment(train_data: pd.DataFrame, target: str, run_name: st
             # We don't natively support bounding boxes or segmentation masks right now without specific parser
             raise NotImplementedError(f"AutoKeras task '{task_type}' requires labels not inherently present in the directory structure or is unsupported by AutoKeras basic API.")
 
-        if use_dataset_directly:
-            clf.fit(x_train, validation_data=x_val, epochs=5)
-        else:
-            clf.fit(x_train, y_train, validation_data=(x_val, y_val) if x_val is not None else None, epochs=5)
+        clf.fit(x_train, y_train, validation_data=(x_val, y_val) if x_val is not None else None, epochs=5)
             
         if stop_event and stop_event.is_set():
             raise StopIteration("Training cancelled by user")
 
         qlog("Evaluating best model...")
-        loss, accuracy = clf.evaluate(val_ds)
+        loss, accuracy = clf.evaluate(x_val, y_val)
         mlflow.log_metric("val_loss", loss)
         mlflow.log_metric("val_accuracy", accuracy)
 

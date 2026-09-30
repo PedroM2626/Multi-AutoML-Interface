@@ -40,13 +40,13 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 
 | Engine | Integration module | Strengths in this project |
 |---|---|---|
-| AutoGluon | `src/autogluon_utils.py` | Tabular, Text, Computer Vision classification, Multimodal; detection/segmentation only for a caller that supplies an annotated frame |
+| AutoGluon | `src/autogluon_utils.py` | The engine behind every Text, Multimodal and Computer Vision row; detection/segmentation only for a caller that supplies an annotated frame |
 | FLAML | `src/flaml_utils.py` | Cost-effective hyperparameter search; classification, regression, forecast, ranking |
 | H2O AutoML | `src/h2o_utils.py` | Distributed-style Java cluster training with native leaderboards (requires Java) |
 | TPOT | `src/tpot_utils.py` | Genetic-algorithm pipeline search; exports the best pipeline as a `.py` file to `tpot_models/`. Integrated but not in the task catalog - see the optional-dependency table |
 | PyCaret | `src/pycaret_utils.py` | Broadest task coverage: anomaly detection, clustering, time series |
 | Lale | `src/lale_utils.py` | Hyperopt-based pipeline composition over scikit-learn operators |
-| AutoKeras | `src/autokeras_utils.py` | Neural architecture search for image classification / multi-label CV tasks |
+| AutoKeras | `src/autokeras_utils.py` | Neural architecture search for image tasks. Integrated but not in the task catalog - see the optional-dependency table |
 | Hugging Face Hub | `src/huggingface_utils.py` | Publish and pull models on the Hub; not a training backend |
 
 ### The 5 data categories
@@ -218,7 +218,7 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | TPOT | `pip install "tpot==0.12.2" "scikit-learn<1.5"` in its own environment | Neither public release runs on this project's pins: tpot 1.1.0 raises `TypeError` from its own `fit` template, tpot 0.12.2 raises `Expected an estimator instance ... got estimator class instead` from scikit-learn 1.9. Both also need `setuptools<81` (stopit imports `pkg_resources`) |
 | PyCaret | `pip install pycaret` | Requires Python 3.11 |
 | Lale | `pip install lale` | Requires Python 3.11 |
-| AutoKeras | `pip install autokeras` | Requires TensorFlow |
+| AutoKeras | `pip install autokeras tensorflow "keras<3"` in its own environment | Two problems on today's defaults: autokeras 3.0.0 does not depend on TensorFlow at all, and against keras 3 its classification head dies with "Received an invalid value for `units`, expected a positive integer. Received: units=1". It needs the keras 2 line, which this project does not pin |
 | SHAP (XAI) | in `requirements.txt` (every platform except Intel macOS) | Tabular explanations; `shap` needs `numba`, whose Intel-macOS cap conflicts with the numpy pin, so XAI is skipped there |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
 | DVC | `pip install dvc` | Data-lake versioning (falls back to MD5 hashing when absent) |
@@ -242,43 +242,43 @@ Legend: ✅ supported · — not supported
 
 ### Tabular
 
-| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|
-| Classification | ✅ | ✅ | ✅ | ✅ | ✅ | —
-| Regression | ✅ | ✅ | ✅ | ✅ | ✅ | —
-| Multi-Label Classification | ✅ | — | — | — | — | —
-| Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | —
-| Anomaly Detection | — | — | — | ✅ | — | —
-| Clustering | — | — | — | ✅ | — | —
-| Forecast | ✅ | ✅ | — | ✅ | — | —
-| Ranking | — | ✅ | — | — | — | —
+| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|
+| Classification | ✅ | ✅ | ✅ | ✅ | ✅
+| Regression | ✅ | ✅ | ✅ | ✅ | ✅
+| Multi-Label Classification | ✅ | — | — | — | —
+| Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅
+| Anomaly Detection | — | — | — | ✅ | —
+| Clustering | — | — | — | ✅ | —
+| Forecast | ✅ | ✅ | — | ✅ | —
+| Ranking | — | ✅ | — | — | —
 
 ### Sequential
 
-| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|
-| Forecast | — | ✅ | — | ✅ | — | —
+| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|
+| Forecast | — | ✅ | — | ✅ | —
 
 ### Text
 
-| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|
-| Classification | ✅ | — | — | — | — | —
-| Regression | ✅ | — | — | — | — | —
+| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|
+| Classification | ✅ | — | — | — | —
+| Regression | ✅ | — | — | — | —
 
 ### Computer Vision
 
-| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|
-| Image Classification | ✅ | — | — | — | — | ✅
-| Multi-Label Classification | ✅ | — | — | — | — | ✅
+| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|
+| Image Classification | ✅ | — | — | — | —
+| Multi-Label Classification | ✅ | — | — | — | —
 
 ### Multimodal
 
-| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|
-| Classification | ✅ | — | — | — | — | —
-| Regression | ✅ | — | — | — | — | —
+| Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|
+| Classification | ✅ | — | — | — | —
+| Regression | ✅ | — | — | — | —
 
 Notes:
 

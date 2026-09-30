@@ -67,11 +67,17 @@ TASK_FRAMEWORK_MAP = {
     # encodes a free-text column rather than featurizing it.
     ("Text", "Classification"): ["AutoGluon"],
     ("Text", "Regression"): ["AutoGluon"],
-    ("Computer Vision", "Image Classification"): ["AutoGluon", "AutoKeras"],
-    ("Computer Vision", "Multi-Label Classification"): ["AutoGluon", "AutoKeras"],
+    ("Computer Vision", "Image Classification"): ["AutoGluon"],
+    ("Computer Vision", "Multi-Label Classification"): ["AutoGluon"],
     ("Multimodal", "Classification"): ["AutoGluon"],
     ("Multimodal", "Regression"): ["AutoGluon"],
 }
+
+# AutoKeras is not offered either: `pip install autokeras` resolves to autokeras 3.0.0 against
+# keras 3.x, and its classification head then fails before training - "Received an invalid value
+# for `units`, expected a positive integer. Received: units=1" for image classification and a
+# target-shape error for multi-label. It needs a keras<3 / tensorflow<2.16 environment, which the
+# project does not pin. src/autokeras_utils.py stays for that environment.
 
 # TPOT is not offered: tpot 1.1.0 raises TypeError from its own template ("TPOTEstimator
 # .__init__() got an unexpected keyword argument 'scoring'") and tpot 0.12.2 only runs against

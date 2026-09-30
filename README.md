@@ -46,7 +46,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **TPOT** - Genetic-algorithm pipeline optimization
 - **PyCaret** - End-to-end low-code ML platform
 - **Lale** (IBM) - Scikit-Learn compatible topology search with Hyperopt
-- **AutoKeras** - AutoML for deep learning based on Keras
+- **AutoKeras** - AutoML for deep learning based on Keras (integrated; not offered with the current Keras release)
 - **Hugging Face Hub** - Push trained models to the Hub and pull them back (not a training backend)
 
 ### 📊 **Integrated MLOps & Dashboard:**
@@ -81,7 +81,7 @@ Note: The Hugging Face Spaces entry above links to a demo deployment provided fo
                                                 ▼
                      ┌─────────────────────────────────────────┐
                      │               ML Engines                │
-                     │ AutoGluon • FLAML • H2O AutoML • TPOT   │
+                     │ AutoGluon • FLAML • H2O AutoML • TPOT* │
                      │ PyCaret • Lale • AutoKeras • HF Hub     │
                      └──────────────────┬──────────────────────┘
               ┌─────────────────────────┼─────────────────────────┐
@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. `requirements.txt` already covers the core stack, ONNX export and SHAP; the engines are the extra installs: `autogluon`, `h2o` (requires Java 11+), `tpot`, `pycaret`, `lale`, `autokeras`, `huggingface_hub` (Hub push/pull), `dvc` (data versioning) — e.g. `pip install autogluon pycaret`.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. `requirements.txt` already covers the core stack, ONNX export and SHAP; the engines are the extra installs: `autogluon` (or `autogluon.tabular` / `autogluon.multimodal` on their own), `h2o` (requires Java 11+), `pycaret`, `lale`, `autokeras` **plus** `tensorflow`, `huggingface_hub` (Hub push/pull), `dvc` (data versioning) — e.g. `pip install autogluon pycaret`. TPOT is integrated but no public release runs on this project's scikit-learn pin, so it is not offered.
 
 #### **Run the Application:**
 ```bash
@@ -164,23 +164,23 @@ Generated from `TASK_FRAMEWORK_MAP` in `src/task_catalog.py`.
 
 Legend: ✅ = implemented, ❌ = not implemented. A ✅ is a code path, not an installed package.
 
-| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale | AutoKeras |
-|---|---|---|---|---|---|---|---|
-| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Clustering | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Forecast | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Sequential | Forecast | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Data Category | Task Type | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
+|---|---|---|---|---|---|---|
+| Tabular | Classification | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tabular | Regression | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tabular | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Tabular | Multi-Task Classification | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Tabular | Anomaly Detection | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Tabular | Clustering | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Tabular | Forecast | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Tabular | Ranking | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Sequential | Forecast | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 Notes:
 - Text, Multimodal and Computer Vision rows run through AutoGluon's multimodal predictor, which
@@ -265,7 +265,7 @@ Signing is wired up in `.github/workflows/release.yml` and activates as soon as 
 | **TPOT** | Interpretable exported pipelines (genetic search) | Not offered in the catalog: tpot 1.x fails in its own template and tpot 0.12 needs scikit-learn < 1.5 |
 | **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Requires Python 3.11 |
 | **Lale** | sklearn-compatible topology search | Classification/regression focus |
-| **AutoKeras** | Deep-learning CV AutoML | GPU/TF stack required |
+| **AutoKeras** | Deep-learning CV AutoML | Not offered: autokeras 3.0.0 breaks against keras 3, which today's `pip install` brings |
 
 No hardcoded benchmark numbers are published: results depend strongly on dataset, budget, and hardware. Use the in-app leaderboard to compare engines on your own data.
 
