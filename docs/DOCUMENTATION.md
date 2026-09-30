@@ -169,7 +169,7 @@ The training pipeline is split across three modules:
 
 | Runtime | Python | Notes |
 |---|---|---|
-| Full local app via `run.py` | **3.11 preferred (hard requirement for PyCaret/Lale)** | PyCaret and Lale require Python 3.11 with a matching scikit-learn. `run.py` re-launches itself on a Python 3.11 interpreter (`py -3.11`, `python3.11`, or `python`) whenever the current one differs, refuses to start on an interpreter older than 3.11, and on a newer one (3.12+) starts with a warning that PyCaret/Lale may fail to import. It also binds the dev server to `127.0.0.1` unless `--server.address` or `STREAMLIT_SERVER_ADDRESS` is given, because Streamlit otherwise listens on every interface. |
+| Full local app via `run.py` | **3.11 preferred for PyCaret/Lale** | PyCaret and Lale need `numpy<1.27` and `scikit-learn<1.8`; with those relaxed they also install on 3.12, so the version is not the barrier - the project's pins are. `run.py` re-launches itself on a Python 3.11 interpreter (`py -3.11`, `python3.11`, or `python`) whenever the current one differs, refuses to start on an interpreter older than 3.11, and on a newer one (3.12+) starts with a warning that PyCaret/Lale may fail to import. It also binds the dev server to `127.0.0.1` unless `--server.address` or `STREAMLIT_SERVER_ADDRESS` is given, because Streamlit otherwise listens on every interface. |
 | Core app (without PyCaret/Lale) | 3.12 | The Streamlit app itself, CI, and the base Docker image run on Python 3.12. |
 | Docker base image | 3.12 | `Dockerfile` uses `python:3.12-slim`. |
 | CI workflows | 3.12 | `actions/setup-python` with `python-version: "3.12"`. |
@@ -216,8 +216,8 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | AutoGluon | `pip install autogluon` | Large install (PyTorch for CV/multimodal) |
 | H2O AutoML | `pip install h2o` | **Java 11+** (JRE/JDK) must be on PATH |
 | TPOT | `pip install "tpot==0.12.2" "scikit-learn<1.5"` in its own environment | Neither public release runs on this project's pins: tpot 1.1.0 raises `TypeError` from its own `fit` template, tpot 0.12.2 raises `Expected an estimator instance ... got estimator class instead` from scikit-learn 1.9. Both also need `setuptools<81` (stopit imports `pkg_resources`) |
-| PyCaret | `pip install pycaret` | Requires Python 3.11 |
-| Lale | `pip install lale` | Requires Python 3.11 |
+| PyCaret | `pip install pycaret` in its own environment | Needs `numpy<1.27`, `pandas<2.2`, `matplotlib<3.8` - not the project's pins |
+| Lale | `pip install lale` in its own environment | Needs `scikit-learn<1.8`; the project pins 1.9 |
 | AutoKeras | `pip install autokeras tensorflow "keras<3"` in its own environment | Two problems on today's defaults: autokeras 3.0.0 does not depend on TensorFlow at all, and against keras 3 its classification head dies with "Received an invalid value for `units`, expected a positive integer. Received: units=1". It needs the keras 2 line, which this project does not pin |
 | SHAP (XAI) | in `requirements.txt` (every platform except Intel macOS) | Tabular explanations; `shap` needs `numba`, whose Intel-macOS cap conflicts with the numpy pin, so XAI is skipped there |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
@@ -450,7 +450,7 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 
 ### PyCaret (`src/pycaret_utils.py` → `run_pycaret_experiment`)
 
-> Requires Python 3.11.
+> Needs its own environment: `numpy<1.27`, `pandas<2.2`, `scipy<=1.11.4`, `matplotlib<3.8`, which the project's pins do not allow.
 
 > **One experiment at a time.** PyCaret's functional API keeps a process-global experiment, so in
 > this multi-session process `run_pycaret_experiment` queues behind a lock instead of running two
@@ -468,7 +468,7 @@ Outputs: best pipeline exported as `tpot_models/best_pipeline_<run_name>.py` plu
 
 ### Lale (`src/lale_utils.py` → `run_lale_experiment`)
 
-> Requires Python 3.11.
+> Needs `scikit-learn<1.8`, so its own environment - it runs on Python 3.12 (verified with 1.7.2).
 
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
@@ -796,7 +796,7 @@ Multi-AutoML-Interface/
 | **Electron window shows the error page** | Streamlit did not start within ~20 retries. Ensure Python + Streamlit are installed and port 8501 is free; use `npm run dev` to watch both processes. |
 | **Electron build fails** | Requires Node 18+ (CI uses 20). Delete `node_modules`/`dist` and rerun `npm install`, then `npm run build-win|mac|linux`. macOS builds use `GH_TOKEN`. |
 | **Windows PowerShell: `&&` not recognized** | PowerShell v5 does not support `&&` as a statement separator — chain commands with `;` instead (e.g. `pip install dvc; dvc init`). |
-| **Python 3.12 + PyCaret/Lale errors** | PyCaret and Lale require Python 3.11. Launch with `python run.py` / `py -3.11 -m streamlit run app.py` (run.py re-launches itself on the right interpreter automatically). |
+| **PyCaret/Lale fail to import** | They need `numpy<1.27` / `scikit-learn<1.8`, which conflicts with the project's pins, not with the interpreter version. Run them in a separate environment (or `run.py` on 3.11 with a matching lockfile); the framework selector hides them when they are absent. |
 
 ---
 

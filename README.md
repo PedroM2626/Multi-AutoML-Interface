@@ -101,7 +101,7 @@ Note: FastAPI is not the application backend — the app is a Streamlit applicat
 ## 🚀 **Quick Start**
 
 ### 📋 **Prerequisites:**
-- **Python 3.11** — target interpreter for the full framework stack (PyCaret and Lale require 3.11; `run.py` re-launches on 3.11 when it finds it, warns and continues on a newer interpreter). The CI/Docker core path uses Python 3.12 for the lightweight stack.
+- **Python 3.11 or 3.12** — the desktop runtime and the CI/Docker core path use 3.12. PyCaret and Lale are the reason a Python 3.11 interpreter is suggested: they need `numpy<1.27` and `scikit-learn<1.8`, which the project's own pins (numpy 2.5 / scikit-learn 1.9) do not allow - both do resolve on 3.12 once those are relaxed. `run.py` re-launches on 3.11 when it finds one.
 - **Node.js 18+** (for the Electron desktop app; CI builds with Node 20)
 - **Java 11+** (only for H2O AutoML)
 - **Git**
@@ -262,7 +262,7 @@ Signing is wired up in `.github/workflows/release.yml` and activates as soon as 
 | **FLAML** | Very fast, economical search; lightweight | Smaller model zoo |
 | **H2O AutoML** | Mature enterprise tabular AutoML | Requires Java; JVM memory overhead |
 | **TPOT** | Interpretable exported pipelines (genetic search) | Not offered in the catalog: tpot 1.x fails in its own template and tpot 0.12 needs scikit-learn < 1.5 |
-| **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Requires Python 3.11 |
+| **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Needs `numpy<1.27`/`pandas<2.2`/`matplotlib<3.8`, so it lives in its own environment |
 | **Lale** | sklearn-compatible topology search | Classification/regression focus |
 | **AutoKeras** | Deep-learning CV AutoML | Not offered: autokeras 3.0.0 breaks against keras 3, which today's `pip install` brings |
 
@@ -273,7 +273,7 @@ No hardcoded benchmark numbers are published: results depend strongly on dataset
 ## 🔧 **Troubleshooting**
 
 - **"Java not found" (H2O)**: set `JAVA_HOME` to a Java 11+ installation (e.g. `set JAVA_HOME="C:\Program Files\Java\jdk-11"` on Windows, `export JAVA_HOME=/usr/lib/jvm/java-11-openjdk` on Linux).
-- **"Python 3.11 not found" (run.py)**: PyCaret and Lale require Python 3.11. Install it and retry, or run `py -3.11 -m streamlit run app.py` directly. On a newer interpreter `run.py` starts with a warning and those two frameworks may fail to import.
+- **"Python 3.11 not found" (run.py)**: run.py prefers 3.11 because PyCaret and Lale need `numpy<1.27` and `scikit-learn<1.8`. Install 3.11 and retry, or start on the interpreter you have - `run.py` warns and continues, and those two engines will not import while the project's own numpy/sklearn pins are in effect.
 - **DagsHub panel says tokens are disabled**: the app is reachable from outside the machine, so per-user tokens would be shared by every session. Use one service account in the environment, or bind loopback with `--server.address=127.0.0.1`.
 - **"Loading error: ... unpickles the artifact"**: every framework restores models with pickle/joblib, so loading by Run ID needs the "I trust the artifacts of this run" box ticked. Only tick it for runs you trained yourself.
 - **"Port already in use"**: start on another port — `streamlit run app.py --server.port 8502`.
