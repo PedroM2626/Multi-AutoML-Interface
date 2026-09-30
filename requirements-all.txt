@@ -2,6 +2,8 @@
 #    uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt
 # Every engine of the task catalog in one interpreter, for Python 3.11 only. See
 # requirements-all.in for why, and do not install this into the desktop runtime.
+# Compiled on Windows: pywin32 is pinned without a marker and the Linux torch here would be the
+# CUDA build, so regenerate per platform before installing this file elsewhere.
 absl-py==2.5.0
     # via tensorboard
 accelerate==1.15.0

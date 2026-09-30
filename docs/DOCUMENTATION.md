@@ -182,7 +182,7 @@ The training pipeline is split across three modules:
 |---|---|
 | `requirements.txt` | **Shipped core stack**: Streamlit, pandas, numpy, scikit-learn, MLflow, FLAML, xgboost, matplotlib, FastAPI/Uvicorn, nbformat, pytest, plus the ONNX/SHAP set the Experiments page needs. Deliberately excludes the heavy engines: `pip-audit -r requirements.txt` reports no known vulnerabilities, and the installers stay a few hundred MB. |
 | `requirements-all.in` | The intent behind the all-engine set: the seven catalog engines plus the app, with the pins that are load-bearing (`setuptools<81` for TPOT's `pkg_resources`). |
-| `requirements-all.txt` | **Every engine in one interpreter**, compiled for Python 3.11 with `uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt` (284 packages, torch, ray, transformers). Verified by `tests/test_engine_matrix.py`, which trains every catalog row. It cannot be made CVE-clean: scikit-learn 1.4.2 (CVE-2024-5206, fixed only in 1.5.0 that PyCaret forbids), setuptools 80.x (CVE-2026-59890, fixed only in 83.0.0 that TPOT forbids), h2o 3.46.0.12 and nltk 3.10.3 (no fixed release). That is why it is not what the installers ship. |
+| `requirements-all.txt` | **Every engine in one interpreter**, compiled for Python 3.11 with `uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt` (284 packages, torch, ray, transformers). It is the **Windows** lock and there is no portable one for this set: `pywin32` is pinned without a marker, and PyPI's Linux `torch` is the CUDA build. Regenerate per platform before installing it elsewhere, adding `--extra-index-url https://download.pytorch.org/whl/cpu` on Linux/macOS - the nightly `engine-matrix` job installs from `requirements-all.in` for exactly that reason. Verified by `tests/test_engine_matrix.py`, which trains and scores every catalog row. It cannot be made CVE-clean: scikit-learn 1.4.2 (CVE-2024-5206, fixed only in 1.5.0 that PyCaret forbids), setuptools 80.x (CVE-2026-59890, fixed only in 83.0.0 that TPOT's and AutoGluon's `pkg_resources` imports forbid), h2o 3.46.0.12 and nltk 3.10.3 (no fixed release). That is why it is not what the installers ship. |
 | `requirements-dev.txt` | Developer quality gates: `ruff==0.15.20`, `pytest==9.1.1`. |
 | `requirements-compiled.txt` | Stale PyCaret-era lock, generated locally and not committed (`.gitignore` excludes `*.txt*`). History, not truth - regenerate from `requirements.txt` before relying on it. |
 
@@ -365,7 +365,7 @@ Input modes:
 #### Step 7 — Explain (XAI)
 
 - **Tabular (SHAP):** for single-target tabular classification/regression, *🧠 Explain Prediction (SHAP)* builds background data from the training set (max 100 samples) and renders a waterfall/summary plot. Requires the optional `shap` package.
-- **Computer Vision:** *👁️ Explain AI Decision (Saliency Map)* computes a model-agnostic **occlusion saliency map** (sliding 30×30 black window, step 15) highlighting the image regions most important for the prediction.
+- **Computer Vision:** *👁️ Explain AI Decision (Saliency Map)* computes a model-agnostic **occlusion saliency map** (sliding 30×30 black window, step 15) highlighting the image regions most important for the prediction. It reads `predict_proba` when the model has it, so a multi-label image run - one predictor per label behind `MultiLabelAutoGluonPredictor`, which only exposes `predict` - reports that no explanation is available instead of failing.
 
 #### Step 8 — Export
 

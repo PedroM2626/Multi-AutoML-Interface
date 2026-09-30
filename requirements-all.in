@@ -4,8 +4,11 @@
 # "Pycaret only supports python 3.9, 3.10, 3.11" while importing on 3.12, and its
 # scikit-learn 1.4.2 pin drags numpy/pandas/matplotlib back with it.
 #
-# Regenerate the committed lock after editing this file:
+# Regenerate the lock after editing this file, and do it per platform - this engine set has no
+# single portable lock (pywin32 is Windows-only, and PyPI's Linux torch is the CUDA build):
 #   uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt
+# On Linux or macOS add --extra-index-url https://download.pytorch.org/whl/cpu so the CPU wheels
+# are chosen instead of the multi-gigabyte CUDA ones.
 #
 # The shipped desktop runtime does not use this file. It installs requirements.txt, which keeps
 # the current numpy/pandas/scikit-learn pins; adding this stack to the installer would trade

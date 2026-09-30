@@ -30,7 +30,10 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   longer ships, while CVE-2026-59890 is only fixed in 83.0.0. AutoGluon's tabular learner also
   opens a pandas option that only exists from 2.2, which PyCaret's `pandas<2.2` pin forbids - so
   no single interpreter runs the whole catalog, and `tests/test_engine_matrix.py` records that
-  pair as an expected failure rather than hiding it.
+  pair as an expected failure rather than hiding it. `requirements-all.txt` is the Windows lock -
+  this set has no portable one, because `pywin32` carries no marker and PyPI's Linux torch is the
+  CUDA build - so the nightly job installs from `requirements-all.in` with the CPU index, and each
+  platform regenerates its own lock.
 - **Computer Vision Multi-Label Classification is offered again, with an input that can express
   it.** The CV upload now also takes an annotations CSV - an `image` column naming files inside the
   dataset plus one 0/1 column per label - stores it as `annotations.csv` in the dataset folder, and
