@@ -263,3 +263,18 @@ def test_legacy_tpot_api_still_receives_its_own_kwargs(monkeypatch):
 
     assert built.received["generations"] == 4
     assert built.received["config_dict"] == "TPOT light"
+
+
+@pytest.mark.parametrize("values,expected", [
+    ([0, 1, 0, 1], "classification"),
+    ([0.0, 1.0, 2.0], "classification"),
+    ([0.5, 1.5, 2.5], "regression"),
+    ([0, 1, None], "classification"),
+    (["a", "b", "a"], "classification"),
+])
+def test_problem_type_reads_the_whole_column(monkeypatch, values, expected):
+    """The old test looped `all(y % 1 == 0 for val in ...)`, which boolean-casts a Series on
+    every step, so every TPOT row died before the estimator was even built."""
+    module = _load_tpot_utils_with_stub(monkeypatch, _TpotOneApiEstimator)
+
+    assert module.detect_problem_type(pd.Series(values)) == expected

@@ -32,11 +32,14 @@ logger = logging.getLogger(__name__)
 def detect_problem_type(y):
     """Detect if problem is classification or regression"""
     if pd.api.types.is_numeric_dtype(y):
-        unique_values = y.nunique()
-        if unique_values <= 20 and all(y % 1 == 0 for val in y.dropna()):
-            return 'classification'
-        else:
+        values = y.dropna()
+        if values.empty:
             return 'regression'
+        # (y % 1 == 0) is a Series; the whole column has to be checked, not one row per
+        # iteration, which is what made every TPOT run die here with "truth value of a
+        # Series is ambiguous".
+        is_integer_valued = bool((values % 1 == 0).all())
+        return 'classification' if values.nunique() <= 20 and is_integer_valued else 'regression'
     else:
         return 'classification'
 
