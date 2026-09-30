@@ -178,13 +178,22 @@ function main() {
     }
 
     console.log('Installing the pinned core stack into the bundled interpreter...');
-    // uv only refuses installs into a tree that is still inside its own managed directory;
-    // this copy has left it, so uv is safe to use and several times faster than pip here.
-    uv(['pip', 'install', '--system', '--python', path.join(OUT_DIR, interpreter), '-r', REQUIREMENTS]);
+    // With the interpreter's own pip, not `uv pip install --system`: uv changed what it accepts
+    // as a system Python between releases and now answers "No system Python installation found
+    // for path runtime/bin/python3" for this copied tree on Linux and macOS (Windows still
+    // passed), so a payload that must be identical on three platforms cannot depend on the
+    // build tool's discovery rules. uv is still what fetches the standalone CPython above.
+    const interpreterExe = path.join(OUT_DIR, interpreter);
+    try {
+        run(interpreterExe, ['-m', 'pip', '--version']);
+    } catch {
+        run(interpreterExe, ['-m', 'ensurepip', '--upgrade', '--default-pip']);
+    }
+    run(interpreterExe, ['-m', 'pip', 'install', '--quiet', '--no-input', '-r', REQUIREMENTS]);
 
-    bundleLibomp(path.join(OUT_DIR, interpreter));
+    bundleLibomp(interpreterExe);
 
-    const probe = run(path.join(OUT_DIR, interpreter), [
+    const probe = run(interpreterExe, [
         '-c',
         'import sys; import streamlit, mlflow, flaml, pandas, numpy, sklearn; print(sys.version.split()[0])',
     ]);
