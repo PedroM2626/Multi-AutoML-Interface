@@ -87,6 +87,16 @@ FRAMEWORK_IMPORTS = {
     "TPOT": "tpot",
 }
 
+# Some rows need an optional extra of an engine that is already installed: `autogluon.tabular`
+# resolves and imports without `autogluon.multimodal`, so a vision or text run died on
+# "No module named 'autogluon.multimodal'" even though the framework looked available.
+FRAMEWORK_CATEGORY_MODULES = {
+    ("AutoGluon", "Tabular"): "autogluon.tabular",
+    ("AutoGluon", "Computer Vision"): "autogluon.multimodal",
+    ("AutoGluon", "Text"): "autogluon.multimodal",
+    ("AutoGluon", "Multimodal"): "autogluon.multimodal",
+}
+
 _availability_cache: dict[str, bool] = {}
 _availability_lock = threading.Lock()
 
@@ -99,18 +109,9 @@ def get_framework_options(data_category: str, task_type: str) -> list[str]:
     return list(TASK_FRAMEWORK_MAP.get((data_category, task_type), ["FLAML"]))
 
 
-def framework_available(framework: str) -> bool:
-    """Return True when the engine behind a catalog label can be imported.
-
-    Only positive results are cached: find_spec on a package that exists is the expensive
-    one, and an interpreter can gain an engine while the app serves several sessions, so a
-    negative answer has to be re-checked on the next rerun.
-    """
-    module_name = FRAMEWORK_IMPORTS.get(framework)
-    if module_name is None:
-        return False
+def _module_available(module_name: str) -> bool:
     with _availability_lock:
-        if _availability_cache.get(framework):
+        if _availability_cache.get(module_name):
             return True
     try:
         found = importlib.util.find_spec(module_name) is not None
@@ -118,16 +119,33 @@ def framework_available(framework: str) -> bool:
         found = False
     if found:
         with _availability_lock:
-            _availability_cache[framework] = True
+            _availability_cache[module_name] = True
     return found
 
 
-def partition_frameworks(frameworks: Iterable[str]) -> tuple[list[str], list[str]]:
+def framework_import_name(framework: str, data_category: str | None = None) -> str | None:
+    return FRAMEWORK_CATEGORY_MODULES.get((framework, data_category)) or FRAMEWORK_IMPORTS.get(framework)
+
+
+def framework_available(framework: str, data_category: str | None = None) -> bool:
+    """Return True when the module behind a catalog label can be imported.
+
+    Only positive results are cached: find_spec on a package that exists is the expensive
+    one, and an interpreter can gain an engine while the app serves several sessions, so a
+    negative answer has to be re-checked on the next rerun.
+    """
+    module_name = framework_import_name(framework, data_category)
+    if module_name is None:
+        return False
+    return _module_available(module_name)
+
+
+def partition_frameworks(frameworks: Iterable[str], data_category: str | None = None) -> tuple[list[str], list[str]]:
     """Split catalog options into (installed, missing) preserving catalog order."""
     available: list[str] = []
     missing: list[str] = []
     for framework in frameworks:
-        (available if framework_available(framework) else missing).append(framework)
+        (available if framework_available(framework, data_category) else missing).append(framework)
     return available, missing
 
 

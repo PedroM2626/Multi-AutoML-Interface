@@ -94,7 +94,7 @@ def test_computer_vision_task_types_match_the_engine_branches():
 def engine_present(monkeypatch):
     """The orchestrator refuses to import a module for an engine that is not installed; tests
     that replace the engine module wholesale have to say it is present."""
-    monkeypatch.setattr("src.task_catalog.framework_available", lambda framework: True)
+    monkeypatch.setattr("src.task_catalog.framework_available", lambda *args, **kwargs: True)
 
 
 def test_ui_metadata_is_not_forwarded_to_engine_functions(engine_present, monkeypatch, tmp_path):

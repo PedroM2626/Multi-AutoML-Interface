@@ -64,11 +64,35 @@ def test_the_orchestrator_refuses_an_engine_that_is_not_installed(monkeypatch):
     """The failure used to surface as "No module named 'autogluon'" from a worker thread."""
     from src.orchestrator import UniversalAutoMLOrchestrator
 
-    monkeypatch.setattr("src.task_catalog.framework_available", lambda framework: False)
+    monkeypatch.setattr("src.task_catalog.framework_available", lambda *args, **kwargs: False)
     orchestrator = UniversalAutoMLOrchestrator("AutoGluon", {"train_data": None})
 
     with pytest.raises(ModuleNotFoundError, match=r"pip install autogluon"):
         orchestrator.run_synchronously()
+
+
+def test_rows_needing_an_engine_extra_check_that_extra(monkeypatch):
+    """autogluon.tabular imports fine without autogluon.multimodal, which is what the vision,
+    text and multimodal rows actually need."""
+    installed = {"autogluon", "autogluon.tabular"}
+    monkeypatch.setattr(
+        "src.task_catalog.importlib.util.find_spec",
+        lambda name: object() if name in installed else None,
+    )
+    assert partition_frameworks(["AutoGluon"], "Tabular") == (["AutoGluon"], [])
+    assert partition_frameworks(["AutoGluon"], "Computer Vision") == ([], ["AutoGluon"])
+    assert partition_frameworks(["AutoGluon"], "Text") == ([], ["AutoGluon"])
+
+
+def test_every_extra_mapping_names_a_real_row():
+    from src.task_catalog import FRAMEWORK_CATEGORY_MODULES, TASK_FRAMEWORK_MAP
+
+    for framework, category in FRAMEWORK_CATEGORY_MODULES:
+        offered = {
+            task for (cat, task), engines in TASK_FRAMEWORK_MAP.items()
+            if cat == category and framework in engines
+        }
+        assert offered, f"{framework} / {category} maps an extra but offers no row"
 
 
 def test_the_ui_filters_both_framework_selectors():

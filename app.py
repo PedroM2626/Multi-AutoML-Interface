@@ -1242,7 +1242,7 @@ elif menu == "Training":
         st.session_state['task_type'] = task_type
 
         available_frameworks = get_framework_options(data_category, task_type)
-        installed_frameworks, missing_frameworks = partition_frameworks(available_frameworks)
+        installed_frameworks, missing_frameworks = partition_frameworks(available_frameworks, data_category)
         framework = None
         if not installed_frameworks:
             st.error(

@@ -38,7 +38,8 @@ class UniversalAutoMLOrchestrator:
 
         # A missing engine used to surface as "No module named 'autogluon'" from inside a
         # background thread, far from the selector that offered it.
-        if self.framework in FRAMEWORK_IMPORTS and not framework_available(self.framework):
+        data_category = self.config.get("data_category")
+        if self.framework in FRAMEWORK_IMPORTS and not framework_available(self.framework, data_category):
             raise ModuleNotFoundError(
                 f"{self.framework} is not installed in this interpreter. "
                 f"Install it with: pip install {install_hint([self.framework])}"
