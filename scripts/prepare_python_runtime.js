@@ -113,7 +113,7 @@ function ensureBundledInterpreter(base, sourceDir) {
         }
     };
 
-    if (!IS_WINDOWS) materializeBinLinks(base, sourceDir);
+    if (!IS_WINDOWS) materializeLinks(base, sourceDir, ['bin', 'lib']);
     if (usable()) return target;
 
     for (const dir of [path.join(base, 'bin'), path.join(sourceDir, 'bin')]) {
@@ -137,24 +137,36 @@ function ensureBundledInterpreter(base, sourceDir) {
     );
 }
 
-function materializeBinLinks(base, sourceDir) {
-    const binDir = path.join(base, 'bin');
-    if (!fs.existsSync(binDir)) return;
-    for (const name of fs.readdirSync(binDir)) {
-        const full = path.join(binDir, name);
-        if (!fs.lstatSync(full, { throwIfNoEntry: false })?.isSymbolicLink()) continue;
-        const link = fs.readlinkSync(full);
-        const candidates = [
-            path.resolve(path.dirname(full), link),
-            link.startsWith(base) ? path.join(sourceDir, path.relative(base, link)) : null,
-            path.join(sourceDir, 'bin', name),
-        ].filter(Boolean);
-        const real = candidates.find((c) => fs.statSync(c, { throwIfNoEntry: false })?.isFile());
-        if (!real) continue;
-        fs.rmSync(full, { force: true });
-        fs.copyFileSync(real, full);
-        fs.chmodSync(full, 0o755);
-        console.log(`Materialized bin/${name} from ${real}.`);
+function materializeLinks(base, sourceDir, subdirs) {
+    /**
+     * Replace symlinks in the copied tree with real copies of what they point at.
+
+     * python-build-standalone ships bin/python3 -> bin/python3.12 and
+     * lib/libpython3.12.so -> lib/libpython3.12.so.1.0, and some of those links are absolute into
+     * the staging directory. Copied as links, they resolve while staging still exists and turn
+     * into ENOENT the moment it is deleted - which is how the release build died on Linux and
+     * macOS (spawn of runtime/bin/python3, then stat of runtime/lib/libpython3.12.so) while
+     * Windows, whose tree has no links, passed.
+     */
+    for (const sub of subdirs) {
+        const dir = path.join(base, sub);
+        if (!fs.existsSync(dir)) continue;
+        for (const name of fs.readdirSync(dir)) {
+            const full = path.join(dir, name);
+            if (!fs.lstatSync(full, { throwIfNoEntry: false })?.isSymbolicLink()) continue;
+            const link = fs.readlinkSync(full);
+            const candidates = [
+                path.resolve(path.dirname(full), link),
+                link.startsWith(base) ? path.join(sourceDir, path.relative(base, link)) : null,
+                path.join(sourceDir, sub, name),
+            ].filter(Boolean);
+            const real = candidates.find((c) => fs.statSync(c, { throwIfNoEntry: false })?.isFile());
+            if (!real) continue;
+            fs.rmSync(full, { force: true });
+            fs.copyFileSync(real, full);
+            fs.chmodSync(full, 0o755);
+            console.log(`Materialized ${sub}/${name} from ${real}.`);
+        }
     }
 }
 
@@ -289,7 +301,7 @@ function main() {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
             const full = path.join(dir, entry.name);
             if (entry.isDirectory()) walk(full);
-            else bytes += fs.statSync(full).size;
+            else bytes += fs.statSync(full, { throwIfNoEntry: false })?.size ?? fs.lstatSync(full).size;
         }
     };
     walk(OUT_DIR);
