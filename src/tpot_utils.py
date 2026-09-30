@@ -1,4 +1,5 @@
 import os
+import inspect
 import pandas as pd
 import numpy as np
 import mlflow
@@ -160,6 +161,33 @@ def prepare_data_for_tpot(df, target_column, test_data=None, test_size=0.2, rand
     
     return X_train, X_test, y_train, y_test, problem_type, label_encoder
 
+def _tpot_estimator(cls, **requested):
+    """Build the estimator with whichever API the installed TPOT version exposes.
+
+    tpot 1.x dropped scoring, generations, population_size, verbosity and config_dict from the
+    estimator signature - the search is bounded by the time budget instead - and passing them
+    raises TypeError once the search builds its inner estimator, which is after the UI has
+    already reported the run as started.
+    """
+    import inspect
+
+    parameters = inspect.signature(cls.__init__).parameters
+    accepted = {name for name in parameters if name != "self"}
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+        return cls(**requested)
+
+    kwargs = {name: value for name, value in requested.items() if name in accepted}
+    if "verbose" in accepted and "verbosity" not in accepted:
+        kwargs["verbose"] = 1 if requested.get("verbosity") else 0
+    dropped = sorted(set(requested) - set(kwargs))
+    if dropped:
+        logger.warning(
+            "This TPOT version does not accept %s; the search runs on TPOT's own defaults and "
+            "is bounded by max_time_mins", ", ".join(dropped),
+        )
+    return cls(**kwargs)
+
+
 def train_tpot_model(df, target_column, run_name, 
                      valid_data=None, test_data=None,
                      generations=5, population_size=20, cv=5, 
@@ -243,32 +271,22 @@ def train_tpot_model(df, target_column, run_name,
             logger.info(f"Starting TPOT training for run: {run_name}")
             
             # Choose TPOT class based on problem type
-            if problem_type == 'classification':
-                tpot = TPOTClassifier(
-                    generations=generations,
-                    population_size=population_size,
-                    cv=cv,
-                    scoring=scoring,
-                    max_time_mins=max_time_mins,
-                    max_eval_time_mins=max_eval_time_mins,
-                    random_state=random_state,
-                    verbosity=verbosity,
-                    n_jobs=n_jobs,
-                    config_dict=config_dict
-                )
-            else:
-                tpot = TPOTRegressor(
-                    generations=generations,
-                    population_size=population_size,
-                    cv=cv,
-                    scoring=scoring,
-                    max_time_mins=max_time_mins,
-                    max_eval_time_mins=max_eval_time_mins,
-                    random_state=random_state,
-                    verbosity=verbosity,
-                    n_jobs=n_jobs,
-                    config_dict=config_dict
-                )
+            search_kwargs = dict(
+                generations=generations,
+                population_size=population_size,
+                cv=cv,
+                scoring=scoring,
+                max_time_mins=max_time_mins,
+                max_eval_time_mins=max_eval_time_mins,
+                random_state=random_state,
+                verbosity=verbosity,
+                n_jobs=n_jobs,
+                config_dict=config_dict,
+            )
+            tpot = _tpot_estimator(
+                TPOTClassifier if problem_type == "classification" else TPOTRegressor,
+                **search_kwargs
+            )
             
             # Log parameters
             mlflow.log_param("problem_type", problem_type)
@@ -301,7 +319,8 @@ def train_tpot_model(df, target_column, run_name,
                 
                 # Try with simpler configuration
                 logger.info("Trying with simpler configuration...")
-                tpot = TPOTClassifier(
+                tpot = _tpot_estimator(
+                    TPOTClassifier,
                     generations=1,
                     population_size=5,
                     cv=2,

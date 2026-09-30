@@ -200,3 +200,66 @@ def test_feature_pipeline_contract(monkeypatch):
     assert text_cols == ["text_col"]
     assert "cat_col" in cat_cols
     assert "num_col1" in num_cols and "num_col2" in num_cols
+
+
+class _TpotOneApiEstimator:
+    """Stand-in for tpot 1.x, whose estimator signature dropped the 0.11 knobs."""
+
+    def __init__(self, *, cv=None, max_time_mins=None, max_eval_time_mins=None,
+                 random_state=None, verbose=None, n_jobs=None):
+        self.received = {
+            "cv": cv, "max_time_mins": max_time_mins, "max_eval_time_mins": max_eval_time_mins,
+            "random_state": random_state, "verbose": verbose, "n_jobs": n_jobs,
+        }
+
+
+def _load_tpot_utils_with_stub(monkeypatch, estimator):
+    import importlib.util
+
+    stub = types.ModuleType("tpot")
+    stub.TPOTClassifier = estimator
+    stub.TPOTRegressor = estimator
+    monkeypatch.setitem(sys.modules, "tpot", stub)
+
+    spec = importlib.util.spec_from_file_location("tpot_utils_under_test", "src/tpot_utils.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_estimator_kwargs_follow_the_installed_tpot_api(monkeypatch, caplog):
+    """The UI sends generations/population_size/scoring/verbosity/config_dict, which tpot 1.x
+    rejects deep inside the search - after the run was already reported as started."""
+    module = _load_tpot_utils_with_stub(monkeypatch, _TpotOneApiEstimator)
+
+    built = module._tpot_estimator(
+        _TpotOneApiEstimator, generations=5, population_size=20, cv=3, scoring="f1",
+        max_time_mins=2, max_eval_time_mins=1, random_state=7, verbosity=2, n_jobs=1,
+        config_dict="TPOT sparse",
+    )
+
+    assert built.received == {
+        "cv": 3, "max_time_mins": 2, "max_eval_time_mins": 1,
+        "random_state": 7, "verbose": 1, "n_jobs": 1,
+    }
+    assert "scoring" in caplog.text and "generations" in caplog.text
+
+
+def test_legacy_tpot_api_still_receives_its_own_kwargs(monkeypatch):
+    class _TpotLegacyEstimator:
+        def __init__(self, *, generations=None, population_size=None, cv=None, scoring=None,
+                     max_time_mins=None, max_eval_time_mins=None, random_state=None,
+                     verbosity=None, n_jobs=None, config_dict=None):
+            self.received = locals()
+            self.received.pop("self", None)
+
+    module = _load_tpot_utils_with_stub(monkeypatch, _TpotLegacyEstimator)
+
+    built = module._tpot_estimator(
+        _TpotLegacyEstimator, generations=4, population_size=8, cv=2, scoring="f1",
+        max_time_mins=1, max_eval_time_mins=1, random_state=0, verbosity=1, n_jobs=1,
+        config_dict="TPOT light",
+    )
+
+    assert built.received["generations"] == 4
+    assert built.received["config_dict"] == "TPOT light"
