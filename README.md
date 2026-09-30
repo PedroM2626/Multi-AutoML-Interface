@@ -178,7 +178,6 @@ Legend: ✅ = implemented, ❌ = not implemented. A ✅ is a code path, not an i
 | Text | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Text | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Computer Vision | Image Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Computer Vision | Multi-Label Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Multimodal | Classification | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Multimodal | Regression | ✅ | ❌ | ❌ | ❌ | ❌ |
 

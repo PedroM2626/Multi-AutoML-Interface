@@ -41,7 +41,6 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
     # marked as text. TabularPredictor would treat a free-text column as one categorical feature.
     is_multimodal_task = data_category in ("Multimodal", "Text")
     is_segmentation = task_type == "Computer Vision - Image Segmentation"
-    is_multilabel = task_type == "Computer Vision - Multi-Label Classification"
     is_tabular_multilabel = data_category == "Tabular" and task_type in ["Multi-Label Classification", "Multi-Task Classification"]
     target_columns = target if isinstance(target, list) else [target]
 
@@ -216,10 +215,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                 if cv_folds > 0 or presets in ["best_quality", "high_quality"]:
                     fit_args["use_bag_holdout"] = True
                 
-            if is_multilabel:
-                fit_args["problem_type"] = "multiclass"
-                mlflow.log_param("is_multilabel", True)
-                
+
             # Streaming updates thread
             _ag_training_done = threading.Event()
             def _push_ag_telemetry():

@@ -33,14 +33,14 @@ TASK_OPTIONS_BY_CATEGORY = {
         "Classification",
         "Regression",
     ],
-    # Only the two folder-labelled tasks are offered. Object Detection and Image Segmentation
+    # Only folder-labelled image classification is offered: an image sits in one class folder, so
+# there is no multi-hot target for a multi-label run either. Object Detection and Image Segmentation
     # were removed: the CV upload infers labels from the directory structure, so there is no
     # COCO box or mask annotation for the engine to read, and AutoGluon's detection pipeline
     # additionally needs mmcv with PyTorch <=2.1. The problem types stay in autogluon_utils for
     # callers that do bring an annotated dataframe.
     "Computer Vision": [
         "Image Classification",
-        "Multi-Label Classification",
     ],
     "Multimodal": ["Classification", "Regression"],
 }
@@ -68,7 +68,6 @@ TASK_FRAMEWORK_MAP = {
     ("Text", "Classification"): ["AutoGluon"],
     ("Text", "Regression"): ["AutoGluon"],
     ("Computer Vision", "Image Classification"): ["AutoGluon"],
-    ("Computer Vision", "Multi-Label Classification"): ["AutoGluon"],
     ("Multimodal", "Classification"): ["AutoGluon"],
     ("Multimodal", "Regression"): ["AutoGluon"],
 }

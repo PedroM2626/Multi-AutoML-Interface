@@ -43,7 +43,7 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
 ### Changed
 
-- **The catalog is 15 pairs across 5 engines.** Object Detection and Image Segmentation are no
+- **The catalog is 14 pairs across 5 engines.** Object Detection and Image Segmentation are no
   longer offered: the CV upload infers labels from the directory structure, so there is no COCO
   box or mask annotation for the engine to read, and AutoGluon's detection pipeline also needs
   mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that
@@ -53,6 +53,10 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   fails on this project's scikit-learn 1.9 with "Expected an estimator instance ... got estimator
   class instead". `src/tpot_utils.py` and its orchestrator entry stay for an environment that
   pins its own scikit-learn.
+- Computer Vision offers Image Classification only. Multi-Label was removed with the same
+  argument as detection: an image lives in exactly one class folder, so there is no multi-hot
+  target to learn, and AutoGluon was quietly getting a plain multi-class problem while the UI
+  said multi-label.
 - AutoKeras leaves the catalog too. `pip install autokeras` gives 3.0.0 against keras 3.x, whose
   classification head rejects the single-unit output ("Received an invalid value for `units`,
   expected a positive integer. Received: units=1"), and multi-label fails on target shape; it

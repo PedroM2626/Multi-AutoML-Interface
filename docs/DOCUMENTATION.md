@@ -271,7 +271,6 @@ Legend: ✅ supported · — not supported
 | Task | AutoGluon | FLAML | H2O AutoML | PyCaret | Lale |
 |---|---|---|---|---|---|
 | Image Classification | ✅ | — | — | — | —
-| Multi-Label Classification | ✅ | — | — | — | —
 
 ### Multimodal
 
@@ -282,7 +281,7 @@ Legend: ✅ supported · — not supported
 
 Notes:
 
-- Object Detection and Image Segmentation are not offered as tasks: the CV upload labels images by folder, so there are no COCO boxes or masks, and AutoGluon's detection pipeline needs mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that brings an annotated frame.
+- Only folder-labelled image classification is offered for Computer Vision: an image sits in one class folder, so there is no multi-hot target for multi-label and no boxes or masks for detection and segmentation; AutoGluon's detection pipeline also needs mmcv with PyTorch <=2.1. `train_model` still honours those problem types for a caller that brings an annotated frame.
 - Multimodal training is natively supported only through AutoGluon in this interface (the UI warns if another framework is selected).
 - If a `(category, task)` pair is missing from the map, `get_framework_options()` falls back to `["FLAML"]`.
 - A ✅ is a code path, not an installed package: the selectors only list engines the interpreter can import (`src/task_catalog.py`, `partition_frameworks()`), so the desktop installers offer FLAML until another engine is installed into the bundled runtime.
