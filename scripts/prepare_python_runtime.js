@@ -93,31 +93,32 @@ function interpreterPath(base) {
 
 function ensureBundledInterpreter(base, sourceDir) {
     /**
-     * Return a bundled interpreter that can actually be spawned, repairing the unix launcher name.
+     * Return a bundled interpreter that can actually be spawned after the staging tree is gone.
 
-     * On Linux and macOS bin/python3 arrives as a symlink to bin/python3.12, and the copy keeps
-     * it a link: fs.existsSync says yes, existsSync-then-rmSync leaves it pointing into the
-     * staging directory that this function's caller is about to delete, and the next spawn
-     * answers ENOENT. Windows is unaffected because python.exe is a plain file, which is why the
-     * release build failed on two platforms and passed on the third. So ask the binary whether it
-     * runs, and if it does not, put a real copy of the versioned executable at that path - from
-     * the copied tree first, then from the source tree while it still exists.
+     * On Linux and macOS bin/python3 is a symlink, and copying the tree keeps it a link pointing
+     * *outside* runtime/ - into the staging directory this function's caller deletes seconds
+     * later. existsSync and even `python3 --version` say yes while that directory still exists,
+     * and then the first real spawn answers ENOENT, which is why the release build passed on
+     * Windows (python.exe is a plain file) and died on the other two platforms. So replace every
+     * link under bin/ with a copy of what it points at, and verify the interpreter can reach its
+     * own standard library before the source tree disappears.
      */
     const target = interpreterPath(base);
     const usable = () => {
         try {
-            run(target, ['--version']);
+            run(target, ['-c', 'import sys, ensurepip; print(sys.version.split()[0])']);
             return true;
         } catch {
             return false;
         }
     };
+
+    if (!IS_WINDOWS) materializeBinLinks(base, sourceDir);
     if (usable()) return target;
 
-    const binDirs = [path.join(base, 'bin'), path.join(sourceDir, 'bin')].filter((dir) => fs.existsSync(dir));
-    for (const dir of binDirs) {
-        const names = fs.readdirSync(dir).filter((name) => /^python3\.\d+$/.test(name)).sort().reverse();
-        for (const name of names) {
+    for (const dir of [path.join(base, 'bin'), path.join(sourceDir, 'bin')]) {
+        if (!fs.existsSync(dir)) continue;
+        for (const name of fs.readdirSync(dir).filter((n) => /^python3\.\d+$/.test(n)).sort().reverse()) {
             const candidate = path.join(dir, name);
             if (!fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) continue;
             fs.mkdirSync(path.join(base, 'bin'), { recursive: true });
@@ -134,6 +135,27 @@ function ensureBundledInterpreter(base, sourceDir) {
         `no usable interpreter after copying into ${path.join(base, 'bin')}; found: ` +
         `${(fs.existsSync(path.join(base, 'bin')) && fs.readdirSync(path.join(base, 'bin')).join(', ')) || 'nothing'}`,
     );
+}
+
+function materializeBinLinks(base, sourceDir) {
+    const binDir = path.join(base, 'bin');
+    if (!fs.existsSync(binDir)) return;
+    for (const name of fs.readdirSync(binDir)) {
+        const full = path.join(binDir, name);
+        if (!fs.lstatSync(full, { throwIfNoEntry: false })?.isSymbolicLink()) continue;
+        const link = fs.readlinkSync(full);
+        const candidates = [
+            path.resolve(path.dirname(full), link),
+            link.startsWith(base) ? path.join(sourceDir, path.relative(base, link)) : null,
+            path.join(sourceDir, 'bin', name),
+        ].filter(Boolean);
+        const real = candidates.find((c) => fs.statSync(c, { throwIfNoEntry: false })?.isFile());
+        if (!real) continue;
+        fs.rmSync(full, { force: true });
+        fs.copyFileSync(real, full);
+        fs.chmodSync(full, 0o755);
+        console.log(`Materialized bin/${name} from ${real}.`);
+    }
 }
 
 function findExternallyManagedMarkers(root) {
