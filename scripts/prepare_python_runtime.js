@@ -91,6 +91,40 @@ function interpreterPath(base) {
     return path.join(base, IS_WINDOWS ? 'python.exe' : path.join('bin', 'python3'));
 }
 
+function ensureBundledInterpreter(base, sourceDir) {
+    /**
+     * Return the interpreter path inside the copied tree, repairing the unix launcher name.
+
+     * python-build-standalone puts bin/python3 behind a symlink to bin/python3.12, and this build
+     * has broken on that copy twice: uv was handed a runtime/bin/python3 that no longer resolved
+     * ("No system Python installation found for path runtime/bin/python3"), then the same path
+     * answered ENOENT from spawn, while Windows - where the interpreter is a plain python.exe -
+     * kept passing. So verify the file and, when only the versioned binary survived (or nothing
+     * did), take it from the source tree while that is still on disk.
+     */
+    const target = interpreterPath(base);
+    if (fs.existsSync(target)) return target;
+
+    const places = [path.join(base, 'bin'), path.join(sourceDir, 'bin')].filter((dir) => fs.existsSync(dir));
+    for (const dir of places) {
+        for (const name of fs.readdirSync(dir).sort().reverse()) {
+            if (name === 'python3' || !/^python3\.\d+$/.test(name)) continue;
+            const candidate = path.join(dir, name);
+            if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
+                const copied = path.join(base, 'bin', 'python3');
+                fs.mkdirSync(path.dirname(copied), { recursive: true });
+                fs.copyFileSync(candidate, copied);
+                console.log(`Recreated bin/python3 from ${candidate}.`);
+                return copied;
+            }
+        }
+    }
+    throw new Error(
+        `no interpreter survived the copy into ${path.join(base, 'bin')}; ` +
+        `found there: ${(fs.existsSync(path.join(base, 'bin')) ? fs.readdirSync(path.join(base, 'bin')) : []).join(', ') || 'nothing'}`,
+    );
+}
+
 function findExternallyManagedMarkers(root) {
     const found = [];
     const walk = (dir, depth) => {
@@ -165,9 +199,11 @@ function main() {
     // directory, and copying the link left runtime/bin/python3 pointing back at the
     // managed tree - uv then reported "externally managed" for a path outside runtime/.
     fs.cpSync(installed, OUT_DIR, { recursive: true, force: true, dereference: true });
-    fs.rmSync(stage, { recursive: true, force: true });
-    const interpreter = path.relative(OUT_DIR, interpreterPath(OUT_DIR));
+    // Repaired while `installed` is still on disk: the copy can leave bin/python3 dangling, and
+    // the source tree is the only place left to get a real binary from.
+    const interpreter = path.relative(OUT_DIR, ensureBundledInterpreter(OUT_DIR, installed));
     console.log(`Interpreter: ${interpreter}`);
+    fs.rmSync(stage, { recursive: true, force: true });
 
     // python-build-standalone ships a PEP 668 marker so system package managers leave it
     // alone. This tree is private to the app and nothing else writes to it, so pip is the
