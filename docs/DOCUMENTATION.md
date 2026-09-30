@@ -1,6 +1,6 @@
 # Multi-AutoML Interface — Complete Documentation
 
-> Unified AutoML workbench built on Streamlit: train, compare, explain, and deploy models across 8 AutoML engines with full MLOps (MLflow + DVC), explainability (SHAP / saliency), and one-click deployment targets.
+> Unified AutoML workbench built on Streamlit: train, compare, explain, and deploy models across 7 AutoML engines with full MLOps (MLflow + DVC), explainability (SHAP / saliency), and one-click deployment targets.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 
 | Area | What you get |
 |---|---|
-| AutoML engines | 8 engines behind a universal orchestrator (see below) |
+| AutoML engines | 7 engines behind a universal orchestrator (see below) |
 | Data management | DVC-versioned local Data Lake (`data_lake/raw`, `data_lake/images`) with content hashing and graceful fallback when DVC is not installed |
 | Experiment tracking | MLflow local file store (`mlruns/`) by default, optional remote server via `MLFLOW_TRACKING_URI`, Model Registry, auto-healing of corrupted stores, TTL cache |
 | Concurrency | Multiple simultaneous training runs in background daemon threads with per-run log isolation, live telemetry, and graceful cancellation |
@@ -36,7 +36,7 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 | Serving | Generated FastAPI + Docker deployment packages (`deploy_<run_id>/`) |
 | Distribution | Docker Compose, standalone Dockerfile, CV-specific Dockerfiles, Electron desktop app, Render, GitHub Actions CI |
 
-### The 8 AutoML engines
+### The 7 AutoML engines (and the Hub integration)
 
 | Engine | Integration module | Strengths in this project |
 |---|---|---|

@@ -53,7 +53,7 @@ The Multi-AutoML Interface is a web/desktop application that simplifies the use 
 - **Explainable AI (XAI)**: SHAP for tabular data and Saliency Maps (Occlusion) for Computer Vision.
 - **Auto-EDA & Data Health**: missing-value and dtype checks in-app; full `ydata-profiling` reports need a separate environment because they require `numpy<2.4`.
 - **Live Experiments Dashboard**: monitor concurrent training runs with real-time logs and metrics (Streamlit Fragments).
-- **Multi-Concurrent Training**: launch all 8 engines simultaneously via background training workers, with graceful cancellation.
+- **Multi-Concurrent Training**: launch every installed engine simultaneously via background training workers, with graceful cancellation.
 - **Complete MLflow tracking**: metrics, parameters, and artifacts in a local `mlruns/` store.
 - **Automatic Code & Notebook Generation**: Python consumption snippets and reproducible notebooks per run.
 - **One-Click API Deployment**: generate a complete FastAPI + Docker package for any model (`src/code_gen_utils.py`).
