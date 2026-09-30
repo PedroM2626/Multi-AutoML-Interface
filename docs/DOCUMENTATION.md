@@ -46,7 +46,7 @@ Multi-AutoML Interface is a single Streamlit application (`app.py`) that unifies
 | TPOT | `src/tpot_utils.py` | Genetic-algorithm pipeline search; exports the best pipeline as a `.py` file to `tpot_models/`. Integrated but not in the task catalog - see the optional-dependency table |
 | PyCaret | `src/pycaret_utils.py` | Broadest task coverage: anomaly detection, clustering, time series |
 | Lale | `src/lale_utils.py` | Hyperopt-based pipeline composition over scikit-learn operators |
-| AutoKeras | `src/autokeras_utils.py` | Neural architecture search for image tasks. Integrated but not in the task catalog - see the optional-dependency table |
+| AutoKeras | `src/autokeras_utils.py` | Neural architecture search for image tasks. Integrated but not in the task catalog: no autokeras release works against keras 3 - see the optional-dependency table |
 | Hugging Face Hub | `src/huggingface_utils.py` | Publish and pull models on the Hub; not a training backend |
 
 ### The 5 data categories
@@ -218,7 +218,7 @@ All heavy engines are **optional**. They are imported lazily inside the engine m
 | TPOT | `pip install "tpot==0.12.2" "scikit-learn<1.5"` in its own environment | Neither public release runs on this project's pins: tpot 1.1.0 raises `TypeError` from its own `fit` template, tpot 0.12.2 raises `Expected an estimator instance ... got estimator class instead` from scikit-learn 1.9. Both also need `setuptools<81` (stopit imports `pkg_resources`) |
 | PyCaret | `pip install pycaret` in its own environment | Needs `numpy<1.27`, `pandas<2.2`, `matplotlib<3.8` - not the project's pins |
 | Lale | `pip install lale` in its own environment | Needs `scikit-learn<1.8`; the project pins 1.9 |
-| AutoKeras | `pip install autokeras tensorflow "keras<3"` in its own environment | Two problems on today's defaults: autokeras 3.0.0 does not depend on TensorFlow at all, and against keras 3 its classification head dies with "Received an invalid value for `units`, expected a positive integer. Received: units=1". It needs the keras 2 line, which this project does not pin |
+| AutoKeras | - | Not installable in a working combination: 3.0.0 (its last release) requires `keras>=3.0.0` per PyPI metadata, and against keras 3 its head dies with "Received an invalid value for `units`, expected a positive integer. Received: units=1". It also does not depend on TensorFlow, so `pip install autokeras` alone leaves `import tensorflow` missing |
 | SHAP (XAI) | in `requirements.txt` (every platform except Intel macOS) | Tabular explanations; `shap` needs `numba`, whose Intel-macOS cap conflicts with the numpy pin, so XAI is skipped there |
 | Auto-EDA | `pip install ydata-profiling streamlit-pandas-profiling` **(in a separate environment)** | Powers the Data Exploration report. `ydata-profiling` 4.17-4.18 requires `numpy<2.4` while this project pins `numpy==2.5.0`, so installing it into the app environment fails to resolve. |
 | DVC | `pip install dvc` | Data-lake versioning (falls back to MD5 hashing when absent) |

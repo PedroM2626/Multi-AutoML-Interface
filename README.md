@@ -264,7 +264,7 @@ Signing is wired up in `.github/workflows/release.yml` and activates as soon as 
 | **TPOT** | Interpretable exported pipelines (genetic search) | Not offered in the catalog: tpot 1.x fails in its own template and tpot 0.12 needs scikit-learn < 1.5 |
 | **PyCaret** | Widest task surface in this project (anomaly, clustering, time series) | Needs `numpy<1.27`/`pandas<2.2`/`matplotlib<3.8`, so it lives in its own environment |
 | **Lale** | sklearn-compatible topology search | Classification/regression focus |
-| **AutoKeras** | Deep-learning CV AutoML | Not offered: autokeras 3.0.0 breaks against keras 3, which today's `pip install` brings |
+| **AutoKeras** | Deep-learning CV AutoML | Not offered: 3.0.0 is its last release, it *requires* keras>=3 (PyPI metadata) and its head fails against keras 3 - no pin rescues it |
 
 No hardcoded benchmark numbers are published: results depend strongly on dataset, budget, and hardware. Use the in-app leaderboard to compare engines on your own data.
 
