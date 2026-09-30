@@ -111,6 +111,9 @@ yarl==1.24.2
 zipp==4.1.0
 xgboost==3.4.0
 nbformat==5.11.0
+# tpot 1.1.0 -> stopit -> pkg_resources, which setuptools>=81 no longer ships. Without this
+# line `import tpot` dies with ModuleNotFoundError on any modern interpreter.
+setuptools==80.9.0
 # ONNX export and SHAP explanations: bundled so the Experiments page works in the desktop app.
 onnx==1.23.1
 onnxruntime==1.30.0
