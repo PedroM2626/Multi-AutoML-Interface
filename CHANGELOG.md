@@ -70,13 +70,18 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   parent's `__main__` - the Streamlit CLI inside this app - and blocks in
   `multiprocessing.reduction.dump`. `max_opt_time` is worse still: it answers a timeout with
   `sys.exit(0)` in the search thread. The Lale budget now bounds `max_evals` only.
-- **The packaging pipeline could no longer build.** Two tools had been left unpinned and moved
-  under us: `npm audit` now lists twelve high-severity advisories against the axios that
-  `wait-on` pulls (1.18.0 -> 1.20.0 via `npm audit fix`), which failed the Node gate, and a newer
-  uv than the `uv==0.11.25` in `requirements.txt` refuses the copied interpreter
-  (`No system Python installation found for path runtime/bin/python3`) - the v5.5.0 build passed
-  on Windows and died on Linux and macOS until the workflows read the pinned version from the
-  lock. The packaging workflows also moved to Node 22, which `@electron/get` 5.1.0 declares.
+- **The packaging pipeline could no longer build the runtime.** Three separate things: `npm audit`
+  now lists twelve high-severity advisories against the axios that `wait-on` pulls (1.18.0 ->
+  1.20.0 with `npm audit fix`); the workflows pinned Node 20 while `@electron/get` 5.1.0 declares
+  `>= 22.12`; and the copied tree lost its interpreter - `fs.cpSync` leaves `bin/python3` and
+  `lib/libpython3.12.so` as symlinks, some absolute into the staging directory the script then
+  deletes, so `existsSync` and even a version probe succeed and the next spawn answers ENOENT.
+  Windows kept passing because `python.exe` is a plain file, which made the first diagnosis
+  (a newer uv refusing `pip install --system` on the copied tree, so the payload now goes in with
+  the bundled interpreter's own pip, and the workflows read `uv==` from `requirements.txt`) look
+  right until the same ENOENT came back from `ensurepip`. Links under `bin/` and `lib/` are
+  materialized now, the interpreter is verified before staging is removed, and the
+  uncompressed-size report can no longer fail a release.
 - **The shipped lock carried advisories again.** urllib3 2.7.0 is now flagged by CVE-2026-97687,
   -97688 and -97689 (fixed in 2.8.0), and the `setuptools<81` line added for TPOT's `stopit`
   import brought CVE-2026-59890 into every installer even though TPOT is not part of this stack.
