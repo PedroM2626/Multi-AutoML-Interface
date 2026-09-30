@@ -8,6 +8,74 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
+## 5.5.0 - 2026-09-30
+
+### Added
+
+- **`requirements-all.txt`: every catalog engine in one interpreter.** Compiled for **Python 3.11**
+  from `requirements-all.in` with
+  `uv pip compile requirements-all.in --python-version 3.11 -o requirements-all.txt` (284 packages:
+  FLAML, AutoGluon tabular + multimodal, PyCaret, Lale, TPOT, H2O, SHAP, ONNX, MLflow, Streamlit).
+  3.11 is not a preference - `pycaret 3.3.2` raises `RuntimeError: Pycaret only supports python
+  3.9, 3.10, 3.11` while importing on 3.12, and its pins drag numpy/pandas/scipy/matplotlib/
+  scikit-learn back with it. `tests/test_engine_matrix.py` now trains **and scores** every row of
+  the task catalog with the engine that row names, skipping whatever the interpreter lacks; the
+  nightly `engine-matrix` job runs it on a 3.11 runner with CPU-only torch.
+- **`RUNTIME_REQUIREMENTS` in `scripts/prepare_python_runtime.js`**, so a local build can bundle a
+  different lock. The released installers keep `requirements.txt`: measured, the core stack is
+  872 MB of site-packages and the all-engine stack is about 1.7 GB (torch alone is 465 MB), and
+  GitHub caps a release asset at 2 GiB. The all-engine lock also cannot be made CVE-clean: PyCaret
+  pins scikit-learn 1.4.2 (CVE-2024-5206 is only fixed in 1.5.0), and both TPOT (`stopit`) and
+  `autogluon.multimodal` (`data.templates`) import `pkg_resources`, which setuptools >= 81 no
+  longer ships, while CVE-2026-59890 is only fixed in 83.0.0. AutoGluon's tabular learner also
+  opens a pandas option that only exists from 2.2, which PyCaret's `pandas<2.2` pin forbids - so
+  no single interpreter runs the whole catalog, and `tests/test_engine_matrix.py` records that
+  pair as an expected failure rather than hiding it.
+- **Computer Vision Multi-Label Classification is offered again, with an input that can express
+  it.** The CV upload now also takes an annotations CSV - an `image` column naming files inside the
+  dataset plus one 0/1 column per label - stores it as `annotations.csv` in the dataset folder, and
+  `load_data` returns that table instead of the one-row directory stub. `train_model` resolves the
+  image paths and fits one `MultiModalPredictor` per label column behind the existing
+  `MultiLabelAutoGluonPredictor` wrapper - asking the predictor for `problem_type="multilabel"`
+  asserts inside `fit()`, and its error lists every type it does support. Folder names
+  hold exactly one class per image, so the row now says so instead of training a single-label model
+  behind a multi-label label.
+
+### Fixed
+
+- **The first prediction after an AutoGluon training failed.** `train_model` copies the model into
+  the MLflow run and then deletes `models/<run_name>/` to save disk, but returned the predictor it
+  had just fitted - an object that reads `models/<run_name>/models/*/model.pkl` from exactly that
+  folder. The app keeps it in session state, so scoring the next row raised
+  `FileNotFoundError: ... LightGBMXT/model.pkl` even though the run had succeeded. After the
+  cleanup the run's artifact is now reloaded and that object is what the session gets, which also
+  exercises the MLflow load path on every AutoGluon run. Found by
+  `tests/test_engine_matrix.py`, which predicts with the returned predictor.
+- **AutoGluon's tabular rows in the all-engine interpreter now say what is wrong.** Its learner
+  opens `pd.option_context("future.no_silent_downcasting")`, a key that only exists from pandas 2.2,
+  and PyCaret's pin holds pandas below it: the run used to die with a bare `OptionError` after the
+  data had already been processed. `train_model` refuses it up front and names both the engine's
+  need and the pin that blocks it.
+- **Every AutoGluon vision, text and multimodal run could crash the interpreter that also had
+  PyCaret.** scikit-learn <=1.4 wheels vendor `sklearn/.libs/vcomp140.dll` and map it from
+  `sklearn/_distributor_init.py`; after that, torch's `c10.dll` fails its DllMain with
+  `OSError [WinError 1114]` and the process dies. `preload_torch_before_sklearn()`
+  (`src/task_catalog.py`) runs at the top of `app.py` and in `tests/conftest.py`, and only when
+  that DLL is actually vendored, so a modern interpreter pays nothing for it.
+- **A Lale run hung forever with the CPU idle.** `max_eval_time` makes Lale's hyperopt spawn one
+  `multiprocessing.Process` per trial through the Windows spawn start method, which re-imports the
+  parent's `__main__` - the Streamlit CLI inside this app - and blocks in
+  `multiprocessing.reduction.dump`. `max_opt_time` is worse still: it answers a timeout with
+  `sys.exit(0)` in the search thread. The Lale budget now bounds `max_evals` only.
+- **The shipped lock carried advisories again.** urllib3 2.7.0 is now flagged by CVE-2026-97687,
+  -97688 and -97689 (fixed in 2.8.0), and the `setuptools<81` line added for TPOT's `stopit`
+  import brought CVE-2026-59890 into every installer even though TPOT is not part of this stack.
+  Both moved up; `pip-audit -r requirements.txt` reports no known vulnerabilities.
+- **`run.py` moved the app onto an interpreter that had none of its dependencies.** It re-launched
+  itself on any Python 3.11 it could find, while the shipped stack is 3.12 - so the app died on
+  import errors instead of starting. It now starts on the current interpreter and prints which
+  catalog engines that interpreter cannot import, with the command that adds them.
+
 ## 5.4.0 - 2026-09-30
 
 ### Fixed
