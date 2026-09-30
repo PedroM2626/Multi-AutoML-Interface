@@ -42,7 +42,7 @@ class UniversalAutoMLOrchestrator:
         if self.framework in FRAMEWORK_IMPORTS and not framework_available(self.framework, data_category):
             raise ModuleNotFoundError(
                 f"{self.framework} is not installed in this interpreter. "
-                f"Install it with: pip install {install_hint([self.framework])}"
+                f"Install it with: pip install {install_hint([self.framework], data_category)}"
             )
         module = importlib.import_module(self.module_path)
         train_fn = getattr(module, self.func_name)

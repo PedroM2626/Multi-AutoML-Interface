@@ -58,6 +58,9 @@ def test_positive_answers_are_cached_and_negatives_are_reprobed(monkeypatch):
 
 def test_install_hint_names_the_packages():
     assert install_hint(["H2O AutoML", "AutoGluon"]) == "autogluon h2o"
+    # The vision row needs the extra, and telling the user to install the base package would
+    # leave them with the same crash.
+    assert install_hint(["AutoGluon"], "Computer Vision") == "autogluon.multimodal"
 
 
 def test_the_orchestrator_refuses_an_engine_that_is_not_installed(monkeypatch):

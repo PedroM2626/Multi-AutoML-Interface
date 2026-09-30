@@ -1249,13 +1249,13 @@ elif menu == "Training":
                 f"None of the engines that implement **{task_type}** for {data_category} data is "
                 f"installed in this interpreter: {', '.join(available_frameworks)}. "
                 "Install one of them, then reload this page:\n\n"
-                f"`pip install {install_hint(available_frameworks)}`"
+                f"`pip install {install_hint(available_frameworks, data_category)}`"
             )
         else:
             if missing_frameworks:
                 st.caption(
                     f"Not installed, so not offered: {', '.join(missing_frameworks)} — "
-                    f"`pip install {install_hint(missing_frameworks)}`."
+                    f"`pip install {install_hint(missing_frameworks, data_category)}`."
                 )
             previous_framework = st.session_state.get('framework', installed_frameworks[0])
             framework = st.selectbox(

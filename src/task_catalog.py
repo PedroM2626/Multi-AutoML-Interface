@@ -149,9 +149,13 @@ def partition_frameworks(frameworks: Iterable[str], data_category: str | None = 
     return available, missing
 
 
-def install_hint(frameworks: Iterable[str]) -> str:
-    """pip requirement line for the given catalog labels, for the 'how do I get this' note."""
-    names = sorted({FRAMEWORK_IMPORTS[f] for f in frameworks if f in FRAMEWORK_IMPORTS})
+def install_hint(frameworks: Iterable[str], data_category: str | None = None) -> str:
+    """pip requirement line for the given catalog labels, for the 'how do I get this' note.
+
+    Uses the module the row actually imports, so a vision row asks for `autogluon.multimodal`
+    rather than the umbrella that would not have been enough.
+    """
+    names = sorted({framework_import_name(f, data_category) for f in frameworks} - {None})
     return " ".join(names)
 
 
