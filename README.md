@@ -122,13 +122,13 @@ source venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs the core stack (Streamlit, MLflow, FLAML, LightGBM, XGBoost, scikit-learn, ONNX export and SHAP) and is what the desktop installers bundle. `pip-audit -r requirements.txt` reports no known vulnerabilities on it.
+`requirements.txt` installs the core stack (Streamlit, MLflow, FLAML, **AutoGluon tabular**, LightGBM, XGBoost, scikit-learn, ONNX export and SHAP) and is what the desktop installers bundle. `pip-audit -r requirements.txt` reports no known vulnerabilities on it.
 
 To train with **every** engine the catalog offers - AutoGluon (tabular, text, multimodal, vision), PyCaret, Lale, TPOT and H2O next to FLAML - create the environment on **Python 3.11** and install `requirements-all.txt`, the compiled lock for that set. It cannot be made CVE-clean (PyCaret pins scikit-learn 1.4.2, TPOT pins setuptools <81), and it adds about 1.7 GB of packages, which is why it is not what the installers ship.
 
 #### **Optional framework backends:**
 
-The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. Beyond the core stack the engines are `autogluon.tabular` + `autogluon.multimodal` (the latter needs `jsonschema<4.24` and `setuptools<81` - its `data.templates` imports `pkg_resources`, which setuptools 81 dropped - and it pulls torch), `h2o` (requires Java 11+), `pycaret` (Python 3.11 only), `lale`, `tpot` (scikit-learn <1.5) and `huggingface_hub` (Hub push/pull), `dvc` (data versioning). `requirements-all.txt` installs them together on 3.11. AutoKeras is not offered: its last release requires `keras>=3.0.0`, under which its own heads fail.
+The heavy AutoML frameworks are **lazy-imported** and degrade gracefully when not installed — the app runs with any subset, and the framework selector only lists what is importable. `autogluon.tabular` is in `requirements.txt`; the rest are extra engines: `autogluon.multimodal` for the Text/Computer Vision/Multimodal rows (it needs `jsonschema<4.24` and `setuptools<82` - its `data.templates` imports `pkg_resources`, which setuptools 82 no longer ships - and it pulls torch, which is why it is not in a CVE-clean, size-bounded installer), `h2o` (requires Java 11+), `pycaret` (Python 3.11 only), `lale`, `tpot` (scikit-learn <1.5) and `huggingface_hub` (Hub push/pull), `dvc` (data versioning). `requirements-all.txt` installs them together on 3.11. AutoKeras is not offered: its last release requires `keras>=3.0.0`, under which its own heads fail.
 
 #### **Run the Application:**
 ```bash
@@ -193,7 +193,7 @@ Notes:
   mmcv publishes no wheels on PyPI, so it cannot be installed without compiling it against one
   exact PyTorch build. The CV upload also has no box or mask annotation format to read.
 - Tabular Anomaly Detection and Clustering run through PyCaret's unsupervised modules (no target column required).
-- A row is a code path, not a guarantee that the engine is on your machine: the selectors list only the engines the interpreter can import, so a desktop install offers FLAML until you `pip install` the others into the bundled runtime.
+- A row is a code path, not a guarantee that the engine is on your machine: the selectors list only the engines the interpreter can import, so a desktop install offers FLAML and AutoGluon's tabular rows until you `pip install` the others into the bundled runtime.
 - Tabular Forecast trains on lag features the app builds; Sequential Forecast hands the raw ordering to the engine's own time series path, which is why AutoGluon is not offered there.
 - Text runs through AutoGluon's multimodal predictor with the columns you mark as text. Hugging Face is Hub upload/download only, not a training backend.
 - For framework-native capabilities beyond this matrix, see [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
@@ -253,7 +253,7 @@ git push && git tag -a v5.0.1 -m "v5.0.1" && git push origin v5.0.1
 
 Each installer bundles a standalone CPython 3.12 with everything in `requirements.txt` already installed, so **you do not need Python on the target machine**. Platforms: Windows x64 (NSIS), macOS **Apple Silicon only** (the bundled interpreter is built for the runner's architecture, so there is no Intel Mac image — Intel Macs run the source/Docker path), and Linux x64 (AppImage). Run, model and data-lake files are written to a per-user workspace (Windows: `%APPDATA%\multi-automl-desktop\workspace`).
 
-The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost, LightGBM, plus ONNX export and SHAP) so the desktop installers run those features out of the box, and offer FLAML until you install any extra engine into it. H2O additionally requires Java 11+.
+The heavy AutoML backends (AutoGluon multimodal, PyCaret, TPOT, Lale, H2O, AutoKeras) stay optional and lazy-imported; the bundled runtime contains the core stack (Streamlit, MLflow, FLAML, **AutoGluon tabular**, scikit-learn, XGBoost, LightGBM, plus ONNX export and SHAP) so the desktop installers run those features out of the box, and offer those two engines until you install any extra one into it. H2O additionally requires Java 11+.
 
 Signing is wired up in `.github/workflows/release.yml` and activates as soon as the signing secrets exist (see *Code signing* in `docs/DOCUMENTATION.md`); while they are absent, the release notes state that the builds are unsigned.
 

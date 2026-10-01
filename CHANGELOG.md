@@ -41,6 +41,24 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
 ### Added
 
+- **`autogluon.tabular` ships in the desktop runtime and the Docker image.** `requirements.txt`
+  gains `autogluon.tabular/core/features/common==1.6.3` plus the six packages its closure needs
+  (`boto3`, `botocore`, `s3transfer`, `jmespath`, `networkx`, `psutil`). Measured on a fresh
+  Python 3.12 install of the new lock: **16 packages added and no pin moved** - AutoGluon's own
+  caps (`numpy<2.6`, `scipy<1.19`, `pandas<2.4`, `scikit-learn<1.10`, `Pillow<13`) are already
+  satisfied by what the project pins - 41 MB of extra site-packages, `pip-audit -r
+  requirements.txt --strict` still exits 0, `tests/test_engine_matrix.py` passes the five Tabular
+  rows there, and the six Text/Vision/Multimodal rows skip.
+- **AutoGluon multimodal stays out, and the reason is now measured rather than assumed.**
+  `autogluon/multimodal/data/templates.py` does `import pkg_resources` at module scope (no
+  `try`, no lazy branch: with setuptools 84, `import autogluon.multimodal` raises
+  `ModuleNotFoundError: No module named 'pkg_resources'`), and `pkg_resources` is shipped by
+  setuptools only through **81.0.0** - it is gone from 82.0.0, which is still inside the range
+  GHSA-h35f-9h28-mq5c / PYSEC-2026-3447 flag, fixed only in 83.0.0. `pip install
+  autogluon.multimodal` into the shipped closure resolves `setuptools` down to 81.0.0 (dry-run
+  output: `- setuptools==84.0.0 / + setuptools==81.0.0`) and adds torch, transformers, ray and
+  scikit-image, about 1.7 GB. So the installer keeps the audit gate clean and the catalog keeps
+  hiding those rows until the engine is really importable.
 - **`tests/test_h2o_cluster_lifecycle.py`** - 16 tests against a fake `h2o` module, so the whole
   lifecycle is covered without Java: one cluster per nested operation, release when the body
   raises, release when the cluster never started, exclusivity across threads (a waiting operation

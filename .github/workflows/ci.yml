@@ -103,8 +103,9 @@ jobs:
         run: echo "::warning::requirements.txt failed to install, so the full suite was not run. The nightly gate is limited to the quick gates above."
 
   # Every catalog row trained by the engine it claims, in one interpreter that has all seven
-  # engines. This is the only gate that proves the catalog is a promise and not a list: the quick
-  # gates can only check dispatch contracts, because requirements.txt ships FLAML alone.
+  # engines. This is the only gate that proves the catalog is a promise and not a list: the stack
+  # requirements.txt installs (FLAML + AutoGluon tabular) covers its own rows in the full suite
+  # above, but PyCaret, Lale, TPOT, H2O and AutoGluon multimodal only exist here.
   engine-matrix:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

@@ -112,7 +112,7 @@ zipp==4.1.0
 xgboost==3.4.0
 nbformat==5.11.0
 # setuptools is pinned to the version the audit gate clears. An older line here held it below 81
-# because tpot's stopit imports pkg_resources, which 81 dropped - but TPOT is not in this stack
+# because tpot's stopit imports pkg_resources, which 82 dropped - but TPOT is not in this stack
 # (it needs scikit-learn <1.5, see requirements-all.in), and the older pin carried
 # CVE-2026-59890 into every installer.
 setuptools==84.0.0
@@ -131,3 +131,21 @@ shap==0.52.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
 numba==0.67.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
 llvmlite==0.49.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
 slicer==0.0.8 ; sys_platform != "darwin" or platform_machine != "x86_64"
+# AutoGluon tabular ships in the desktop runtime. Its 1.6.3 closure fits every pin above without
+# moving one (numpy<2.6, scipy<1.19, pandas<2.4, scikit-learn<1.10, Pillow<13 are all already
+# satisfied), costs 41 MB of site-packages, and clears `pip-audit -r requirements.txt --strict`.
+# autogluon.multimodal is deliberately absent: its data/templates.py imports pkg_resources at
+# module scope, and installing it resolves setuptools down to 81.0.0 - the last version that ships
+# that module and the range GHSA-h35f-9h28-mq5c / PYSEC-2026-3447 flags (fixed only in 83.0.0).
+# Text and Computer Vision rows stay an optional install, and the catalog hides them until
+# autogluon.multimodal actually imports.
+autogluon.tabular==1.6.3
+autogluon.core==1.6.3
+autogluon.features==1.6.3
+autogluon.common==1.6.3
+boto3==1.43.106
+botocore==1.43.106
+s3transfer==0.19.2
+jmespath==1.1.0
+networkx==3.7
+psutil==7.2.2
