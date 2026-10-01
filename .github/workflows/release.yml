@@ -285,13 +285,14 @@ jobs:
             echo '| macOS | `~/Library/Application Support/multi-automl-desktop/workspace/` |'
             echo '| Linux | `~/.config/multi-automl-desktop/workspace/` |'
             echo
-            echo 'The heavy AutoML backends (AutoGluon, PyCaret, TPOT, Lale, H2O, AutoKeras)'
-            echo 'stay optional and are lazy-imported; the bundled runtime'
-            echo 'contains the core stack (Streamlit, MLflow, FLAML, scikit-learn, XGBoost,'
-            echo 'LightGBM, ONNX export with skl2onnx, SHAP explanations), so those features work'
-            echo 'in the desktop app out of the box. The heavy engines stay optional: the'
-            echo 'installers offer FLAML until you install whichever'
-            echo 'engines you need into it. H2O additionally requires Java 11+.'
+            echo 'The heavy AutoML backends (AutoGluon multimodal, PyCaret, TPOT, Lale, H2O,'
+            echo 'AutoKeras) stay optional and are lazy-imported; the bundled runtime'
+            echo 'contains the core stack (Streamlit, MLflow, FLAML, AutoGluon tabular,'
+            echo 'scikit-learn, XGBoost, LightGBM, ONNX export with skl2onnx, SHAP explanations),'
+            echo 'so those features work in the desktop app out of the box. The framework'
+            echo 'selector only lists engines this interpreter can import, so the installers offer'
+            echo 'FLAML and the AutoGluon tabular rows until you install whichever extra engine'
+            echo 'you need into it. H2O additionally requires Java 11+.'
             echo
             WINDOWS_SIGNED="no"; MACOS_SIGNED="no"
             if grep -qs '^windows-latest authenticode-certificate$' \
