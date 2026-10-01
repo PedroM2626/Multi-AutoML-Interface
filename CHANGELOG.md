@@ -8,7 +8,7 @@ Release tags are `vMAJOR.MINOR.PATCH` and must match `version` in `package.json`
 pushing such a tag runs the `Release Desktop App` workflow, which builds the
 Windows/macOS/Linux installers and attaches them to the GitHub Release.
 
-## [Unreleased]
+## 5.6.0 - 2026-10-01
 
 ### Fixed
 
