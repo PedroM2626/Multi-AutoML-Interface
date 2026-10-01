@@ -244,6 +244,20 @@ def infer_multimodal_columns(df, target_column: str, sample_size: int = 25) -> t
     return text_columns, image_columns
 
 
+def label_run_plan(data_category: str | None, target) -> tuple[list, bool]:
+    """Split a target selection into (target per run, ran-in-parallel?).
+
+    Tabular multi-label and multi-task runs launch one experiment per column, because each engine
+    call fits a single column. Computer Vision multi-label must not be split: one AutoGluon run
+    fits a predictor per label and returns a single multi-label predictor, so a run carrying one
+    label column is no longer the multi-label problem the engine expects to be handed.
+    """
+    columns = target if isinstance(target, list) else [target]
+    if len(columns) < 2 or data_category == "Computer Vision":
+        return [target], False
+    return columns, True
+
+
 def unique_preserving_order(values: Iterable[str]) -> list[str]:
     seen = set()
     ordered_values: list[str] = []

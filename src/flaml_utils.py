@@ -6,7 +6,6 @@ import mlflow
 import shutil
 import logging
 from flaml import AutoML
-import matplotlib.pyplot as plt
 import time
 from src.mlflow_utils import safe_set_experiment
 from src.onnx_utils import export_to_onnx
@@ -23,6 +22,31 @@ _LEARNER_PACKAGES = {"lgbm": "lightgbm", "catboost": "catboost", "xgboost": "xgb
 # "BaseForest.fit() got an unexpected keyword argument 'callbacks'", and "auto" mixes
 # both kinds, so live telemetry is limited to searches that use boosting learners only.
 _CALLBACK_LEARNERS = ("lgbm", "xgboost", "catboost")
+
+# flaml.tune keeps its trial runner in a module global (_runner in flaml/tune/tune.py), so two
+# searches in one process overwrite each other's runner and the first dies with
+# "'NoneType' object has no attribute 'stop_trial'" - routine here, because one server process
+# serves several sessions. Same treatment as PyCaret's experiment lock below.
+_EXPERIMENT_LOCK = threading.Lock()
+_LOCK_POLL_SECONDS = 5
+
+
+def _apply_evaluation_settings(settings, cv_folds, X_val, y_val):
+    """Give FLAML an evaluation scheme it accepts.
+
+    A custom validation frame and eval_method="cv" cannot be combined: fit() raises
+    "AssertionError: eval_method must be 'auto' or 'holdout' for custom validation data", and the
+    UI's split section hands over a validation frame whenever Simple Holdout is on.
+    """
+    if X_val is not None:
+        settings["eval_method"] = "holdout"
+        settings["X_val"] = X_val
+        settings["y_val"] = y_val
+        settings.pop("n_splits", None)
+    elif cv_folds > 0:
+        settings["eval_method"] = "cv"
+        settings["n_splits"] = cv_folds
+    return settings
 
 
 def _supports_callbacks(estimator_list) -> bool:
@@ -131,7 +155,31 @@ def _ranking_layout(train_data: pd.DataFrame, valid_data, target_column, group_c
     return train_sorted, None, extra
 
 
-def train_flaml_model(train_data: pd.DataFrame, target, run_name: str, 
+def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
+                      valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
+                      time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
+                      estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
+                      n_jobs: int = 1,
+                      time_col: str = None, period: int = None, group_col: str = None,
+                      stop_event=None, telemetry_queue=None):
+    """Wait for the search slot, then train; see _EXPERIMENT_LOCK. A queued run can still be
+    cancelled, which is why the acquire is polled instead of blocking."""
+    while not _EXPERIMENT_LOCK.acquire(timeout=_LOCK_POLL_SECONDS):
+        if stop_event is not None and stop_event.is_set():
+            raise StopIteration("Experiment cancelled while waiting for the FLAML slot.")
+    try:
+        return _train_flaml_model(
+            train_data=train_data, target=target, run_name=run_name, valid_data=valid_data,
+            test_data=test_data, time_budget=time_budget, task=task, metric=metric,
+            estimator_list=estimator_list, seed=seed, cv_folds=cv_folds, n_jobs=n_jobs,
+            time_col=time_col, period=period, group_col=group_col, stop_event=stop_event,
+            telemetry_queue=telemetry_queue,
+        )
+    finally:
+        _EXPERIMENT_LOCK.release()
+
+
+def _train_flaml_model(train_data: pd.DataFrame, target, run_name: str, 
                       valid_data: pd.DataFrame = None, test_data: pd.DataFrame = None,
                        time_budget: int = 60, task: str = 'classification', metric: str = 'auto',
                        estimator_list: list = 'auto', seed: int = 42, cv_folds: int = 0,
@@ -225,12 +273,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
                 }
                 if per_target_time_budget is not None:
                     local_settings["time_budget"] = per_target_time_budget
-                if cv_folds > 0:
-                    local_settings["eval_method"] = "cv"
-                    local_settings["n_splits"] = cv_folds
-                if X_val is not None:
-                    local_settings["X_val"] = X_val
-                    local_settings["y_val"] = y_v
+                _apply_evaluation_settings(local_settings, cv_folds, X_val, y_v)
                 
                 # Telemetry callback
                 if telemetry_queue and _supports_callbacks(estimator_list):
@@ -297,12 +340,7 @@ def train_flaml_model(train_data: pd.DataFrame, target, run_name: str,
             if time_budget is not None:
                 settings["time_budget"] = time_budget
             settings.update(task_settings)
-            if cv_folds > 0:
-                settings["eval_method"] = "cv"
-                settings["n_splits"] = cv_folds
-            if X_val is not None:
-                settings["X_val"] = X_val
-                settings["y_val"] = y_val
+            _apply_evaluation_settings(settings, cv_folds, X_val, y_val)
                 
             if telemetry_queue and _supports_callbacks(estimator_list):
                 def _telemetry_callback(callback_env):

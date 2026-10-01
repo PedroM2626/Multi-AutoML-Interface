@@ -14,6 +14,7 @@ from src.task_catalog import (
     get_task_options,
     infer_multimodal_columns,
     install_hint,
+    label_run_plan,
     partition_frameworks,
     preload_torch_before_sklearn,
 )
@@ -97,6 +98,15 @@ def _compute_overview_stats(df: pd.DataFrame):
     return missing, memory
 
 # ── Cached matplotlib figures ─────────────────────────────────────────────────
+import matplotlib as _mpl
+
+# Streamlit renders these figures to a buffer for st.pyplot, and this process is a server: the
+# default Tk backend creates its image objects outside the main loop and the interpreter dies in
+# teardown ("Tcl_AsyncDelete: async handler deleted by the wrong thread"), which the desktop build
+# hits because training runs in worker threads.
+_mpl.use("Agg")
+
+
 @st.cache_data(show_spinner=False)
 def _make_missing_fig(miss_series: pd.Series):
     import matplotlib.pyplot as _plt
@@ -1831,11 +1841,11 @@ elif menu == "Training":
                 valid_df = valid_df_to_train
                 test_df = test_df_to_train
 
-            # Support multi-task loop for all frameworks
-            target_cols = target if isinstance(target, list) else [target]
-            is_multi = len(target_cols) > 1
-            
-            targets_to_run = target_cols if is_multi else [target]
+            # Support multi-task loop for all frameworks. Computer Vision multi-label is the
+            # exception label_run_plan encodes: one run fits a predictor per label and returns a
+            # single multi-label predictor, so splitting it hands each engine one label column -
+            # no longer the problem autogluon_utils.train_model expects.
+            targets_to_run, is_multi = label_run_plan(data_category, target)
 
             # The vision engines branch on the prefixed form ("Computer Vision - Object
             # Detection", autogluon_utils.py:39-42 / autokeras_utils.py:112-117) while the
@@ -2033,7 +2043,10 @@ elif menu == "Experiments":
                             st.session_state["predictor"]  = entry.result["predictor"]
                             st.session_state["model_type"] = entry.result.get("type", "unknown")
                             st.session_state["run_id"]     = entry.result.get("run_id")
-                            st.success("Model loaded! Switch to the Prediction tab.")
+                            # The dashboard is a 5-second fragment and the Prediction section below
+                            # it is not, so a fragment-only rerun leaves "Active model: ..." unseen
+                            # until the user touches something else.
+                            st.rerun(scope="app")
                 with h_col5:
                     if entry.status == "completed" and run_id:
                         try:
@@ -2135,21 +2148,34 @@ elif menu == "Experiments":
 
                     if fw_type == "autogluon" and predictor:
                         try:
-                            lb = predictor.leaderboard(silent=True)
-                            st.markdown("**🏆 Model Leaderboard**")
-                            st.dataframe(lb, use_container_width=True)
-                            # Bar chart of top models
-                            import matplotlib.pyplot as _plt2
-                            top = lb.head(min(10, len(lb)))
-                            val_col = "score_val" if "score_val" in top.columns else top.select_dtypes("number").columns[0]
-                            _fig_lb = _make_leaderboard_bar(
-                                tuple(top["model"].tolist()),
-                                tuple(top[val_col].tolist()),
-                                val_col, "Top Models by Score", "#58a6ff"
-                            )
-                            st.pyplot(_fig_lb, use_container_width=True)
-                            best_model = lb.iloc[0]["model"] if "model" in lb.columns else "N/A"
-                            st.success(f"✅ Best model: **{best_model}**")
+                            if hasattr(predictor, "leaderboard"):
+                                lb = predictor.leaderboard(silent=True)
+                                st.markdown("**🏆 Model Leaderboard**")
+                                st.dataframe(lb, use_container_width=True)
+                                # Bar chart of top models
+                                import matplotlib.pyplot as _plt2
+                                top = lb.head(min(10, len(lb)))
+                                val_col = "score_val" if "score_val" in top.columns else top.select_dtypes("number").columns[0]
+                                _fig_lb = _make_leaderboard_bar(
+                                    tuple(top["model"].tolist()),
+                                    tuple(top[val_col].tolist()),
+                                    val_col, "Top Models by Score", "#58a6ff"
+                                )
+                                st.pyplot(_fig_lb, use_container_width=True)
+                                best_model = lb.iloc[0]["model"] if "model" in lb.columns else "N/A"
+                                st.success(f"✅ Best model: **{best_model}**")
+                            else:
+                                # Text, Vision and multi-label runs hold a predictor that scores with
+                                # evaluate() and has no leaderboard of its own; the run logged what it
+                                # measured, so show that rather than failing the whole inspector.
+                                from src.autogluon_utils import read_run_leaderboard
+                                lb = read_run_leaderboard(run_id)
+                                st.markdown("**🏆 Model scores**")
+                                st.dataframe(lb, use_container_width=True)
+                                if "label" in lb.columns:
+                                    st.caption(
+                                        "One predictor per label column, trained together in this run."
+                                    )
                         except Exception as lb_err:
                             st.warning(f"Could not render leaderboard: {lb_err}")
 

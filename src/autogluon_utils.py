@@ -32,7 +32,8 @@ def _pandas_lacks_the_downcasting_option() -> bool:
 
 
 class MultiLabelAutoGluonPredictor:
-    """Simple multi-target wrapper around one TabularPredictor per target."""
+    """One predictor per target column - TabularPredictor for tabular rows, MultiModalPredictor
+    for annotated images. It exposes predict(); there is no combined leaderboard."""
 
     def __init__(self, predictors_by_target: Dict[str, object]):
         self.predictors_by_target = predictors_by_target
@@ -42,6 +43,30 @@ class MultiLabelAutoGluonPredictor:
         for target_name, predictor in self.predictors_by_target.items():
             predictions[target_name] = predictor.predict(data)
         return pd.DataFrame(predictions, index=data.index)
+
+
+def _evaluate_with_single_class_fallback(predictor, eval_data, label_column):
+    """predictor.evaluate(), plus what to do when the holdout holds one class.
+
+    MultiModalPredictor.evaluate computes ROC AUC among its metrics and roc_auc is undefined when
+    the labels hold a single class - routine for a random 10% holdout of a small dataset. The
+    ValueError arrives after the model is already fitted and saved, so the run keeps its result
+    and scores accuracy, which is defined either way.
+    """
+    try:
+        return predictor.evaluate(eval_data)
+    except ValueError as eval_err:
+        logger.warning(
+            "evaluate() is not defined for this holdout (%s); scoring accuracy instead.", eval_err
+        )
+    try:
+        from sklearn.metrics import accuracy_score
+
+        features = eval_data.drop(columns=[label_column], errors="ignore")
+        return {"accuracy": accuracy_score(eval_data[label_column], predictor.predict(features))}
+    except Exception as fallback_err:
+        logger.warning("Accuracy fallback failed too (%s); this run logs no score.", fallback_err)
+        return {}
 
 
 def train_model(train_data: pd.DataFrame, target, run_name: str,
@@ -286,7 +311,7 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
                     test_subset if test_subset is not None
                     else (valid_subset if valid_subset is not None else train_subset)
                 )
-                scores = predictor_single.evaluate(eval_subset)
+                scores = _evaluate_with_single_class_fallback(predictor_single, eval_subset, target_name)
                 if not isinstance(scores, dict):
                     scores = {"score": scores}
                 numeric = {}
@@ -368,7 +393,9 @@ def train_model(train_data: pd.DataFrame, target, run_name: str,
             # MultiModalPredictor trains a single model and exposes evaluate(), not
             # leaderboard(); asking for the leaderboard raised AttributeError after the training
             # had already finished, which threw away the run's whole result.
-            scores = predictor.evaluate(eval_data)
+            scores = _evaluate_with_single_class_fallback(
+                predictor, eval_data, target_columns[0]
+            )
             if not isinstance(scores, dict):
                 scores = {"score": scores}
             numeric_scores = {}
@@ -521,3 +548,18 @@ def load_model_from_mlflow(run_id: str):
 
 def get_leaderboard(predictor):
     return predictor.leaderboard(silent=True)
+
+
+def read_run_leaderboard(run_id: str):
+    """The score table the run logged - the only ranking a multimodal predictor has.
+
+    MultiModalPredictor and MultiLabelAutoGluonPredictor expose evaluate(), not leaderboard(), so
+    asking the engine for a ranking raises AttributeError after a successful run. train_model wrote
+    what it did measure into leaderboard.csv (one row per label for multi-label, one row of scores
+    otherwise), and reading that file needs no model in memory.
+    """
+    local = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="leaderboard.csv")
+    frame = pd.read_csv(local)
+    if frame.empty:
+        raise ValueError("The run's leaderboard.csv holds no rows.")
+    return frame

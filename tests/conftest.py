@@ -4,6 +4,14 @@ import tempfile
 import os
 import shutil
 
+import matplotlib
+
+# The suite drives engines that fit inside worker threads and renders the app through AppTest; with
+# the default Tk backend a figure created off the main thread survives into interpreter teardown
+# and kills the whole session ("Tcl_AsyncDelete: async handler deleted by the wrong thread"). Agg
+# is what a server process should use anyway - it has no display to draw on.
+matplotlib.use("Agg")
+
 from src.task_catalog import preload_torch_before_sklearn
 
 # conftest is imported before any test module, so this reproduces app.py's import order for the

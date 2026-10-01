@@ -4,7 +4,38 @@ from src.task_catalog import (
     get_framework_options,
     get_task_options,
     infer_multimodal_columns,
+    label_run_plan,
 )
+
+
+def test_computer_vision_multi_label_stays_one_experiment():
+    """The bug this pins: the UI used to fan every multi-label selection out per column.
+
+    A Computer Vision run with one label column is not a multi-label problem, so the engine
+    refused it and every CV multi-label run from the interface failed twice - once per label -
+    while the tabular fan-out is what the tabular engines actually want.
+    """
+    targets, is_multi = label_run_plan("Computer Vision", ["red", "circle"])
+    assert is_multi is False
+    assert targets == [["red", "circle"]]
+
+    targets, is_multi = label_run_plan("Tabular", ["red", "circle"])
+    assert is_multi is True
+    assert targets == ["red", "circle"]
+
+    targets, is_multi = label_run_plan("Tabular", "target")
+    assert (targets, is_multi) == (["target"], False)
+
+
+def test_the_ui_asks_the_catalog_how_to_split_a_multi_label_selection():
+    """app.py used to loop the label columns itself, so a Computer Vision multi-label run became
+    one run per label and every such run failed. The decision lives in label_run_plan; if the UI
+    re-implements it, this test says so."""
+    from pathlib import Path
+
+    source = Path("app.py").read_text(encoding="utf-8")
+    assert "label_run_plan(data_category, target)" in source
+    assert "is_multi = len(target_cols)" not in source
 
 
 def test_tabular_catalog_includes_expected_tasks_and_frameworks():

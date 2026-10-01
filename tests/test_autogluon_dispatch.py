@@ -126,6 +126,61 @@ def test_cv_multilabel_trains_one_predictor_per_label_column(monkeypatch, tmp_pa
     assert run_id
 
 
+def test_the_inspector_reads_the_scores_a_multimodal_run_logged(tmp_path, monkeypatch):
+    """MultiModalPredictor has evaluate(), not leaderboard(); the run's leaderboard.csv is what
+    the Inspector has to show, and reading it must not need the model in memory."""
+    import types
+
+    csv = tmp_path / "leaderboard.csv"
+    csv.write_text("label,accuracy\nred,0.6\ncircle,0.75\n")
+    monkeypatch.setattr(
+        autogluon_utils,
+        "mlflow",
+        types.SimpleNamespace(
+            artifacts=types.SimpleNamespace(
+                download_artifacts=lambda run_id, artifact_path: str(csv)
+            )
+        ),
+    )
+
+    frame = autogluon_utils.read_run_leaderboard("run_1")
+    assert list(frame["label"]) == ["red", "circle"]
+    assert frame["accuracy"].tolist() == [0.6, 0.75]
+
+
+def test_a_single_class_holdout_does_not_lose_a_trained_model():
+    """The UI crash this pins: a 10% random test split of a small image dataset can hold one
+    class, and MultiModalPredictor.evaluate computes ROC AUC - defined only for two classes."""
+    frame = pd.DataFrame({"image": ["a.png", "b.png", "c.png"], "red": [1, 1, 1]})
+
+    class OnlyOneClass:
+        def evaluate(self, data):
+            raise ValueError("Only one class present in y_true. ROC AUC score is not defined.")
+
+        def predict(self, data):
+            return pd.Series([1, 1, 1])
+
+    scores = autogluon_utils._evaluate_with_single_class_fallback(OnlyOneClass(), frame, "red")
+    assert scores == {"accuracy": 1.0}
+
+    class Fine:
+        def evaluate(self, data):
+            return {"accuracy": 0.5, "roc_auc": 0.7}
+
+    assert Fine().evaluate(frame) == autogluon_utils._evaluate_with_single_class_fallback(
+        Fine(), frame, "red"
+    )
+
+    class NothingWorks:
+        def evaluate(self, data):
+            raise ValueError("Only one class present in y_true.")
+
+        def predict(self, data):
+            raise RuntimeError("no features left to predict")
+
+    assert autogluon_utils._evaluate_with_single_class_fallback(NothingWorks(), frame, "red") == {}
+
+
 def test_tabular_rows_are_refused_when_pandas_is_too_old_for_autogluon(monkeypatch):
     """In the all-engine interpreter pandas is pinned below 2.2 by PyCaret, and AutoGluon's tabular
     fit dies inside preprocessing with a bare OptionError. Say what is wrong before the fit."""

@@ -39,9 +39,47 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   if the training path stops using it), which also means opening that expander costs no JVM. A run
   that trained no model says so instead of showing an empty table.
 
-### Added
+### Fixed
 
-- **`autogluon.tabular` ships in the desktop runtime and the Docker image.** `requirements.txt`
+- **Two FLAML runs in one process used to kill each other.** `flaml/tune/tune.py` keeps its trial
+  runner in a module global (`_runner`, line 45), so a second search replaced the first one's
+  runner and the first died with `AttributeError: 'NoneType' object has no attribute 'stop_trial'`.
+  Reproduced with the current code: three fits started in threads straight against
+  `_train_flaml_model` -> one failed with exactly the message the UI had shown; the same three
+  through `train_flaml_model`, which now queues behind `_EXPERIMENT_LOCK` the way PyCaret does, all
+  finished. A run queued behind another can still be cancelled (`StopIteration`), and two runs
+  started from the page now both complete.
+- **FLAML could not train with a validation holdout and cross-validation together** - which is what
+  the split section produces: `fit` answered `AssertionError: eval_method must be 'auto' or
+  'holdout' for custom validation data`. `_apply_evaluation_settings` now chooses `holdout` when a
+  validation frame arrived and `cv` only when it did not, in both the single-target and the
+  multi-target branches. A run started from the interface with *Cross-Validation* selected finished
+  in 2m 20s where the same form had failed in five seconds.
+- **Computer Vision Multi-Label Classification could not be trained from the interface at all.**
+  Driving the real UI (upload a ZIP + `annotations.csv`, pick the row, train, predict) found three
+  faults behind the engine-level tests, all of them in the path between the page and the engine:
+  - `app.py` split every multi-label selection into one experiment per column. For Tabular that is
+    what the engines want; for Computer Vision it handed `train_model` a *single* label column, so
+    the run died on its own "needs at least two label columns" guard and the page showed two
+    failures for one dataset. The decision now lives in `label_run_plan()`
+    (`src/task_catalog.py`), which keeps the tabular fan-out and gives the CV row one run - and the
+    test that mirrors it also checks that `app.py` still calls it.
+  - After both predictors were fitted and saved, the reporting step called
+    `MultiModalPredictor.evaluate()`, which computes ROC AUC - undefined when the holdout holds
+    one class, which a random 10% split of a small dataset does routinely. The whole run was lost
+    over a metric. `_evaluate_with_single_class_fallback()` now scores accuracy in that case and
+    says so in the log; the live run recorded `circle_roc_auc = 1.0` and `red_accuracy = 0.6`
+    instead of failing.
+  - The Pipeline Inspector asked the predictor for a `leaderboard()`. `MultiLabelAutoGluonPredictor`
+    and `MultiModalPredictor` have `evaluate()`, not a leaderboard, so a completed run's Inspector
+    showed `AttributeError`. It now reads the `leaderboard.csv` the run logged
+    (`read_run_leaderboard`), the same source the metrics came from.
+- **The Prediction section did not appear after clicking 🔮 Predict.** The button lives inside the
+  5-second dashboard fragment and only sets `session_state`; the section below it is outside the
+  fragment, so it re-rendered only on the next unrelated interaction (switching pages made
+  "Active model: autogluon" and the batch uploader appear). Loading the model now reruns the app.
+
+### Added `requirements.txt`
   gains `autogluon.tabular/core/features/common==1.6.3` plus the six packages its closure needs
   (`boto3`, `botocore`, `s3transfer`, `jmespath`, `networkx`, `psutil`). Measured on a fresh
   Python 3.12 install of the new lock: **16 packages added and no pin moved** - AutoGluon's own
@@ -67,6 +105,20 @@ Windows/macOS/Linux installers and attaches them to the GitHub Release.
   cluster goes away. `h2o_cluster` is a class rather than `@contextmanager` because PEP 479 turns a
   `StopIteration` raised in a generator body into `RuntimeError`, which `training_worker` would
   stop recognising as a cancellation - the test for that is what found it.
+
+- **No figure code may load a GUI backend any more.** `app.py` sets `matplotlib.use("Agg")` before
+  its figure helpers, `tests/conftest.py` does the same for the suite, and the dead
+  `import matplotlib.pyplot` in `src/flaml_utils.py` is gone. With the default Tk backend, an
+  engine fitting in a worker thread left a Tk image object that died outside the main loop and took
+  the interpreter with it: `pytest tests` in the 3.11 all-engine interpreter aborted at teardown
+  with `Tcl_AsyncDelete: async handler deleted by the wrong thread` and printed no summary. The
+  pair that reproduced it (`test_flaml_task_paths.py` + `test_streamlit_gui.py`) now exits 0.
+
+### Added
+
+- **`tests/test_flaml_task_paths.py`** covers all three: a real fit with a validation frame and
+  `cv_folds=3`, three searches started together asserting that at most one is inside the engine at
+  a time, and a queued run cancelled by `stop_event`.
 
 ## 5.5.0 - 2026-09-30
 

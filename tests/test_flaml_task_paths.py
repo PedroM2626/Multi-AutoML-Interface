@@ -6,6 +6,8 @@ contiguous query blocks. These run the real engine, so they skip when FLAML or L
 absent instead of reporting a green suite.
 """
 import importlib.util
+import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -101,3 +103,103 @@ def test_ranking_rejects_a_non_integer_target():
             time_budget=2, task="rank", estimator_list=["lgbm"], seed=0, n_jobs=1,
             group_col="query",
         )
+
+
+def _classification_frame(rows=180):
+    rng = np.random.default_rng(3)
+    frame = pd.DataFrame({
+        "x0": rng.normal(size=rows),
+        "x1": rng.normal(size=rows),
+        "x2": rng.integers(0, 3, rows),
+    })
+    frame["y"] = (frame["x0"] + frame["x1"] + 0.4 * frame["x2"] > 0.8).astype(int)
+    return frame
+
+
+def test_a_validation_holdout_does_not_break_a_cross_validated_search():
+    """The UI's split section hands FLAML a validation frame *and* cv_folds, and fit() answered
+    "eval_method must be 'auto' or 'holdout' for custom validation data". The holdout wins."""
+    frame = _classification_frame()
+    train, holdout = frame.iloc[:-30], frame.iloc[-30:]
+
+    model, run_id = train_flaml_model(
+        train_data=train, target="y", run_name="test_holdout_with_cv", valid_data=holdout,
+        time_budget=6, task="classification", metric="accuracy", estimator_list=["lgbm"],
+        seed=0, n_jobs=1, cv_folds=3,
+    )
+
+    assert run_id
+    assert len(model.predict(train.drop(columns=["y"]))) == len(train)
+
+
+def test_two_flaml_searches_do_not_share_one_process(monkeypatch):
+    """flaml.tune keeps its trial runner in a module global, so overlapping searches in one
+    server process kill the earlier one with "'NoneType' object has no attribute 'stop_trial'"."""
+    from src import flaml_utils
+
+    live = []
+    peak = []
+
+    def fake_fit(**kwargs):
+        live.append(kwargs["run_name"])
+        peak.append(len(live))
+        time.sleep(0.3)
+        live.pop()
+        return object(), "run_" + kwargs["run_name"]
+
+    monkeypatch.setattr(flaml_utils, "_train_flaml_model", fake_fit)
+
+    threads = [
+        threading.Thread(target=flaml_utils.train_flaml_model,
+                         kwargs={"train_data": None, "target": "y", "run_name": f"r{i}"})
+        for i in range(3)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads)
+    assert max(peak) == 1
+
+
+def test_a_run_queued_behind_the_search_can_be_cancelled(monkeypatch):
+    from src import flaml_utils
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_fit(**kwargs):
+        started.set()
+        release.wait(timeout=10)
+        return object(), "run_busy"
+
+    monkeypatch.setattr(flaml_utils, "_train_flaml_model", slow_fit)
+    monkeypatch.setattr(flaml_utils, "_LOCK_POLL_SECONDS", 0.05)
+
+    holder = threading.Thread(
+        target=flaml_utils.train_flaml_model,
+        kwargs={"train_data": None, "target": "y", "run_name": "holder"},
+    )
+    holder.start()
+    assert started.wait(timeout=5)
+
+    stop_event = threading.Event()
+    stop_event.set()
+    errors = []
+
+    def waiter():
+        try:
+            flaml_utils.train_flaml_model(
+                train_data=None, target="y", run_name="queued", stop_event=stop_event
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    thread.join(timeout=10)
+    release.set()
+    holder.join(timeout=10)
+
+    assert errors and isinstance(errors[0], StopIteration)

@@ -414,6 +414,18 @@ All parameters below are verified against the configuration blocks in `app.py` a
 
 ### FLAML (`src/flaml_utils.py` → `train_flaml_model`)
 
+> **One search at a time.** `flaml.tune` keeps its trial runner in a module global (`_runner` in
+> `flaml/tune/tune.py`), so two searches in one process overwrite each other's runner and the
+> earlier run dies with `'NoneType' object has no attribute 'stop_trial'`. `train_flaml_model`
+> therefore queues behind `_EXPERIMENT_LOCK` - the same treatment PyCaret's global experiment gets -
+> and a queued run can still be cancelled.
+
+> **A validation holdout replaces cross-validation, it does not combine with it.** FLAML's `fit`
+> answers `AssertionError: eval_method must be 'auto' or 'holdout' for custom validation data` when
+> `X_val` arrives together with `eval_method="cv"`, and the split section hands over a validation
+> frame whenever *Simple Holdout* is on. `_apply_evaluation_settings` picks `holdout` when there is
+> a validation frame and `cv` only when there is not.
+
 | Parameter | UI control | Default / Range | Notes |
 |---|---|---|---|
 | Time budget | *Enable Time Limit* + slider | 60 s, range 30–3600; disabled ⇒ `None` | Seconds |
@@ -689,6 +701,7 @@ One Streamlit process serves several users, so anything process-global needs car
 | Shared MLflow client | `safe_set_experiment` honours `MLFLOW_TRACKING_URI` and only falls back to the local `mlruns/` store when it is unset. A shared deployment should point every session at one server/database store. |
 | Per-user credentials | The DagsHub panel accepts a personal token only when the server is bound to loopback. Otherwise credentials would land in `os.environ`, which every other session inherits, so a single service account has to come from the container environment. |
 | Model loading | Every framework restores models through pickle/joblib (CWE-502): loading by Run ID requires the explicit trust confirmation, and a run id may not contain characters that form a path. |
+| Engine globals | Three engines keep process-wide state and each gets an exclusive slot: PyCaret's functional API (`_EXPERIMENT_LOCK` in `src/pycaret_utils.py`), FLAML's module-global trial runner in `flaml.tune` (`_EXPERIMENT_LOCK` in `src/flaml_utils.py`), and H2O's single client connection, whose cluster is started on a free port and shut down per operation (`h2o_cluster()` in `src/h2o_utils.py`). A run waiting for its slot can still be cancelled. |
 | Filesystem writes | Run names, dataset names and file prefixes are reduced to a single safe path component; destructive cleanup asserts it stays inside `models/`; ZIP members that would extract outside the target directory are rejected. |
 | Remaining gaps | `mlruns/`, `models/`, the data lake and the FLAML/H2O scratch files all live in one working directory shared by every session - sanitised names keep them from colliding, but there is no per-user sandbox, quota, or authentication inside the app. Installers are unsigned. Containers still run as root (a non-root user would break the `./data_lake` and `./mlruns` bind mounts unless the host directories match the container uid). |
 
