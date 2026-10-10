@@ -46,12 +46,15 @@ lightgbm==4.7.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 kiwisolver==1.5.0
-Mako==1.3.12
+# 1.4.3 matches requirements-all.txt and clears CVE-2026-102991 (GHSA-5639-2j2p-m4mx), which the
+# OSV feed carries for every Mako < 1.4.2. pip-audit's default service (pypi) does not list it yet,
+# so the nightly gate stayed green on 1.3.12; alembic places no cap on Mako.
+Mako==1.4.3
 MarkupSafe==3.0.3
 matplotlib==3.11.0
 mlflow==3.16.1
 mlflow-tracing==3.16.1
-multidict==6.7.1
+multidict==6.9.1
 narwhals==2.22.1
 numpy==2.5.0
 opentelemetry-api==1.43.0
@@ -106,7 +109,9 @@ waitress==3.0.2
 watchdog==6.0.0
 wcwidth==0.8.1
 websockets==16.0
-Werkzeug==3.1.8
+# 6.9.1 / 3.1.9 are the floors the audit gate needs: CVE-2026-104874 (multidict >=6.7.0) and
+# CVE-2026-102598 (werkzeug). aiohttp wants multidict<7.0 and Flask wants werkzeug>=3.1.0, both hold.
+Werkzeug==3.1.9
 yarl==1.24.2
 zipp==4.1.0
 xgboost==3.4.0
