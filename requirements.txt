@@ -1,5 +1,5 @@
 aiohappyeyeballs==2.6.2
-aiohttp==3.14.3
+aiohttp==3.14.4
 aiosignal==1.4.0
 alembic==1.18.5
 altair==6.2.2
@@ -112,7 +112,7 @@ websockets==16.0
 # 6.9.1 / 3.1.9 are the floors the audit gate needs: CVE-2026-104874 (multidict >=6.7.0) and
 # CVE-2026-102598 (werkzeug). aiohttp wants multidict<7.0 and Flask wants werkzeug>=3.1.0, both hold.
 Werkzeug==3.1.9
-yarl==1.24.2
+yarl==1.25.1
 zipp==4.1.0
 xgboost==3.4.0
 nbformat==5.11.0
