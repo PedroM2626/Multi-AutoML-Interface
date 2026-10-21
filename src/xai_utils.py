@@ -84,6 +84,16 @@ def generate_shap_explanation(model, X_train: pd.DataFrame, X_valid: pd.DataFram
         plt.close(fig)
         return None
 
+# The only Pillow decode in the app. Its argument is not trusted: app.py reads it straight out of
+# a `image`/`image_path` column of a CSV the user uploaded (no extension filter on those two
+# branches), and the image uploader extracts ZIP members with whatever extension they had. Pillow
+# 12.3.0 carries eight advisories that only fire when a TIFF, GIF, PPM, PDF or EPS is opened, and
+# Streamlit's `pillow<13` cap makes the 13.0.0 fix unreachable, so this path decodes the formats
+# the CV data actually uses and refuses the rest. The CV *training* path is untouched - it hands
+# paths to the framework, which does its own reading.
+SALIENCY_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg')
+
+
 def generate_cv_saliency_map(model, image_path: str, target_size=(224, 224), step=15, window_size=30):
     """
     Universal Occlusion Saliency Map for Black-Box CV Models (AutoGluon/AutoKeras).
@@ -91,6 +101,14 @@ def generate_cv_saliency_map(model, image_path: str, target_size=(224, 224), ste
     we slide a black box ('occlusion') across the image and measure the confidence drop.
     The regions that drop the confidence the most are the most salient (important) for the prediction.
     """
+    if not str(image_path).lower().endswith(SALIENCY_IMAGE_EXTENSIONS):
+        warnings.warn(
+            "Saliency maps only read "
+            + ", ".join(SALIENCY_IMAGE_EXTENSIONS)
+            + f"; {image_path} was not opened."
+        )
+        return None
+
     try:
         from PIL import Image
         import cv2
