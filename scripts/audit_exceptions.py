@@ -10,6 +10,7 @@ delete the entry it made obsolete.
 Usage: python scripts/audit_exceptions.py requirements.txt
 Prints the --ignore-vuln flags for that lock on stdout, diagnostics on stderr.
 """
+import argparse
 import json
 import re
 import sys
@@ -51,10 +52,15 @@ def load_entries(path=EXCEPTIONS):
     return entries
 
 
-def flags_for(lock_path, entries=None):
-    """The --ignore-vuln arguments for one lock, or a Stale exception explaining the refusal."""
+def flags_for(lock_path, entries=None, lock_name=None):
+    """The --ignore-vuln arguments for one lock, or a Stale exception explaining the refusal.
+
+    `lock_name` names the lock the rows should be matched against when the file being audited is a
+    filtered copy of it - the engine lock is audited without its Windows-only pins on a Linux
+    runner, and the rows still describe the lock the user installs.
+    """
     entries = load_entries() if entries is None else entries
-    lock = Path(lock_path).name
+    lock = lock_name or Path(lock_path).name
     pins = pinned_versions(lock_path)
     flags, applied = [], []
     for entry in entries:
@@ -79,11 +85,13 @@ class Stale(RuntimeError):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(__doc__, file=sys.stderr)
-        sys.exit(2)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("lock", help="the requirements file being audited")
+    parser.add_argument("--as", dest="lock_name",
+                        help="name of the lock the rows apply to, when auditing a filtered copy")
+    args = parser.parse_args()
     try:
-        print(" ".join(flags_for(sys.argv[1])))
+        print(" ".join(flags_for(args.lock, lock_name=args.lock_name)))
     except (Stale, ValueError, OSError, json.JSONDecodeError) as error:
         print(f"audit_exceptions: {error}", file=sys.stderr)
         sys.exit(1)

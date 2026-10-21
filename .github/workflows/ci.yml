@@ -108,11 +108,18 @@ jobs:
       - name: All-engine lock vulnerability gate
         run: |
           # requirements-all.txt is the lock the docs hand out for the full engine set, so the
-          # environment users build by hand is audited too. --no-deps because it is a Windows/3.11
-          # uv compile: resolving it on a Linux runner picks torch's CUDA build and audits a graph
-          # nobody installs. The pins in the file are what ships.
-          all_flags="$(python scripts/audit_exceptions.py requirements-all.txt)"
-          pip-audit -r requirements-all.txt --strict --no-deps $all_flags
+          # environment users build by hand is audited too. Two adjustments, both because the runner
+          # is not that lock's platform:
+          # - pywin32 is pinned without a marker and publishes win32/win_amd64/win_arm64 wheels only,
+          #   and pip-audit enumerates a lock by dry-run installing it, so that one line aborts the
+          #   whole audit on Linux (it did, on the first run of this step). It is the only such pin -
+          #   every release distribution of all 286 pins was checked - and it carries no advisory, so
+          #   dropping it loses nothing auditable.
+          # - --no-deps because resolving the file here would pick torch's CUDA build and audit a
+          #   graph nobody installs. Every remaining pin is audited exactly as shipped.
+          grep -v '^pywin32==' requirements-all.txt > requirements-all-audited.txt
+          all_flags="$(python scripts/audit_exceptions.py requirements-all-audited.txt --as requirements-all.txt)"
+          pip-audit -r requirements-all-audited.txt --strict --no-deps $all_flags
 
       - name: Full suite (authoritative when the stack installed)
         if: steps.stack.outcome == 'success'

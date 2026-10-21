@@ -8,6 +8,7 @@ implement both, and these tests are the negative controls for them - a check tha
 not a check.
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -111,3 +112,32 @@ def test_the_exceptions_file_is_machine_readable():
     data = json.loads(Path(".github/vuln-exceptions.json").read_text(encoding="utf-8"))
     assert isinstance(data["exceptions"], list) and data["exceptions"]
     assert isinstance(data["_comment"], list)
+
+
+def test_a_filtered_copy_still_matches_the_lock_it_came_from(tmp_path):
+    """The nightly audits requirements-all.txt minus pywin32 (no Linux distribution exists, and
+    pip-audit enumerates a lock by dry-run installing it). The rows describe the lock the user
+    installs, so --as has to keep them matching - otherwise the audit loses its tolerances and goes
+    red on packages that cannot be fixed here."""
+    text = "\n".join(line for line in Path("requirements-all.txt").read_text(encoding="utf-8").splitlines()
+                     if not line.startswith("pywin32=="))
+    copy = _write_lock(tmp_path, "requirements-all-audited.txt", text)
+    # A name no row claims silently earns no tolerance at all, which is how the step would go red on
+    # the four pins it is not allowed to move. --as is what keeps the copy honest.
+    assert flags_for(copy) == []
+    filtered = flags_for(copy, lock_name="requirements-all.txt")
+    whole = flags_for("requirements-all.txt")
+    assert filtered == whole and len(filtered) == 28
+
+
+def test_pywin32_is_the_only_pin_the_runner_cannot_install():
+    """The drop list in the workflow is one line long, and that is a measured claim: no pin in this
+    lock carries an environment marker to make itself platform-scoped, and pywin32 publishes
+    win32/win_amd64/win_arm64 wheels only. If a second such pin appears the step needs it, not a
+    guess."""
+    lines = Path("requirements-all.txt").read_text(encoding="utf-8").splitlines()
+    pinned = [line for line in lines if re.match(r"^[A-Za-z0-9._-]+==", line)]
+    assert [line for line in pinned if ";" in line] == []
+    assert [line for line in pinned if line.startswith("pywin32==")] == ["pywin32==312"]
+    assert len(pinned) == len(pinned_versions("requirements-all.txt"))
+

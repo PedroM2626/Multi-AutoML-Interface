@@ -17,6 +17,7 @@ package is exposed with no fix release to move to, or the rewrite does not resol
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -27,9 +28,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_exceptions import normalize, pinned_versions  # noqa: E402
 
+# Per lock: the pip-audit arguments, and the pins to strip before auditing. pip-audit enumerates a
+# requirements file by dry-run installing it, so a lock compiled for another platform has to lose the
+# lines that platform alone serves - the same adjustment the nightly's all-engine step makes.
 LOCKS = {
-    "requirements.txt": [],                    # audited with resolution, like the gate
-    "requirements-all.txt": ["--no-deps"],     # a Windows/3.11 compile; audit the pins as shipped
+    "requirements.txt": ([], ()),
+    "requirements-all.txt": (["--no-deps"], ("pywin32",)),
 }
 NOTHING, BUMPED, EXPOSED = 0, 10, 1
 
@@ -62,6 +66,19 @@ def audit(lock, extra_args):
                 "fix_versions": vulnerability.get("fix_versions") or [],
             })
     return records
+
+
+def audible_copy(lock, drop):
+    """A temp copy without the pins that only another platform serves, for pip-audit to enumerate."""
+    if not drop:
+        return lock
+    skip = tuple(f"{name}==" for name in drop)
+    lines = [line for line in Path(lock).read_text(encoding="utf-8").splitlines()
+             if not line.strip().startswith(skip)]
+    handle, name = tempfile.mkstemp(prefix=Path(lock).stem + "-", suffix=".txt")
+    os.close(handle)
+    Path(name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return name
 
 
 def tolerated_ids(lock):
@@ -220,11 +237,16 @@ def main():
     args = parser.parse_args()
 
     plan, exposed, notes = [], [], []
-    for lock, extra in LOCKS.items():
+    for lock, (extra, drop) in LOCKS.items():
         if not Path(lock).is_file():
             continue
         pins = pinned_versions(lock)
-        actionable, unfixable = select(audit(lock, extra), tolerated_ids(lock))
+        audible = audible_copy(lock, drop)
+        try:
+            actionable, unfixable = select(audit(audible, extra), tolerated_ids(lock))
+        finally:
+            if audible != lock:
+                Path(audible).unlink(missing_ok=True)
         exposed += [{**item, "lock": lock} for item in unfixable]
 
         if not actionable:
