@@ -49,7 +49,8 @@ jobs:
             tests/test_task_dispatch.py tests/test_task_catalog.py \
             tests/test_engine_availability.py tests/test_doc_matrix_sync.py \
             tests/test_data_utils_guard.py tests/test_flaml_task_paths.py \
-            tests/test_pycaret_task_paths.py tests/test_onnx_xai.py
+            tests/test_pycaret_task_paths.py tests/test_onnx_xai.py \
+            tests/test_pillow_decode_surface.py tests/test_vuln_exceptions.py
 
   nightly-complete:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -82,7 +83,8 @@ jobs:
           pytest -o addopts="" -q tests/test_regression_flows.py tests/test_streamlit_gui.py \
             tests/test_task_dispatch.py tests/test_task_catalog.py tests/test_engine_availability.py \
             tests/test_doc_matrix_sync.py tests/test_data_utils_guard.py tests/test_flaml_task_paths.py \
-            tests/test_pycaret_task_paths.py tests/test_onnx_xai.py
+            tests/test_pycaret_task_paths.py tests/test_onnx_xai.py \
+            tests/test_pillow_decode_surface.py tests/test_vuln_exceptions.py
 
       - name: Optional integration stack install
         id: stack
@@ -92,17 +94,25 @@ jobs:
       - name: Dependency vulnerability gate
         run: |
           python -m pip install pip-audit==2.10.1
-          # pillow stays at 12.3.0, the newest Streamlit allows: every Streamlit release up to
-          # 1.66.0 caps `pillow<13`, and these eight fix only in 13.0.0. Both id spaces are listed
-          # because pip-audit prints whichever the PyPI record surfaces, and an id that matches
-          # nothing is unused without failing. When Streamlit lifts the cap: raise the pin, empty
-          # this list, and the gate goes red again on anything still exposed.
-          pillow="GHSA-p4wg-p73j-c528 CVE-2026-112895 GHSA-65qm-jvmh-6pqg CVE-2026-112400
-                  GHSA-58r4-6rv3-gfh8 CVE-2026-112397 GHSA-pchr-8j38-3x4p CVE-2026-112896
-                  GHSA-q45j-58j2-45rg CVE-2026-112897 GHSA-462x-pgg6-55fp CVE-2026-112395
-                  GHSA-c6hw-5grf-ff96 CVE-2026-112404 GHSA-vx6w-vv9f-6gvg CVE-2026-112899"
-          ignore=(); for id in $pillow; do ignore+=(--ignore-vuln "$id"); done
-          pip-audit -r requirements.txt --strict "${ignore[@]}"
+          # Tolerated advisories are rows in .github/vuln-exceptions.json, each carrying the cap that
+          # forces it. audit_exceptions.py refuses to emit flags for a row whose pin has moved, so an
+          # exception cannot outlive the reason it was written for. Both id spaces are in each row
+          # because pip-audit prints whichever the PyPI record surfaces, and an id matching nothing
+          # is dropped silently.
+          core_flags="$(python scripts/audit_exceptions.py requirements.txt)"
+          pip-audit -r requirements.txt --strict $core_flags
+          # pillow<13 is Streamlit's cap, not ours. The day it lifts this fails until the pin moves
+          # and the pillow row is deleted.
+          python scripts/pillow_cap_check.py requirements.txt
+
+      - name: All-engine lock vulnerability gate
+        run: |
+          # requirements-all.txt is the lock the docs hand out for the full engine set, so the
+          # environment users build by hand is audited too. --no-deps because it is a Windows/3.11
+          # uv compile: resolving it on a Linux runner picks torch's CUDA build and audits a graph
+          # nobody installs. The pins in the file are what ships.
+          all_flags="$(python scripts/audit_exceptions.py requirements-all.txt)"
+          pip-audit -r requirements-all.txt --strict --no-deps $all_flags
 
       - name: Full suite (authoritative when the stack installed)
         if: steps.stack.outcome == 'success'

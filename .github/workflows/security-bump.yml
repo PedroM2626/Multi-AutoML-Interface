@@ -1,0 +1,124 @@
+name: security-bump
+
+# The nightly audit gate goes red whenever an advisory lands on a pinned package, and the repair is
+# mechanical: move the pin to the fix release, carry whatever that release itself demands, prove the
+# lock still resolves, and drop the exception row the bump makes obsolete. This job does that and
+# opens a pull request; a human still merges it.
+
+on:
+  schedule:
+    # Monday and Thursday, after the 03:00 nightly audit, so both read the same vulnerability feed.
+    - cron: "30 3 * * 1,4"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only - do not branch, push or open a pull request"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install the audit tooling
+        # The same baseline the nightly installs before it runs pip-audit, because validating a
+        # rewritten lock means resolving it in the interpreter the stack actually lands in.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --force-reinstall numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 lightgbm==4.7.0 xgboost==3.4.0 streamlit==1.58.0
+          python -m pip install pip-audit==2.10.1
+
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          python scripts/security_bump.py --json > plan.json
+          code=$?
+          set -e
+          if [ ! -s plan.json ]; then
+            echo "security_bump produced no plan (exit $code); see the log above" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          python - <<'PY' | tee plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+
+          plan = json.load(open("plan.json", encoding="utf-8"))
+          for entry in plan["plan"]:
+              moved = ", ".join(f"{name} {entry['from'][name]} -> {version}"
+                                for name, version in entry["bumps"].items())
+              state = "resolves" if entry["resolves"] else f"does NOT resolve: {entry['detail']}"
+              print(f"{entry['lock']}: {moved} [{state}]")
+          for note in plan["notes"]:
+              print(f"note: {note}")
+          for item in plan["exposed"]:
+              print(f"no fix published: {item['lock']} {item['package']} {item['version']} {item['id']}")
+          actionable = [entry for entry in plan["plan"] if entry["resolves"]]
+          print(f"actionable: {bool(actionable)}")
+          PY
+          grep -q "^actionable: True$" plan.txt && echo "actionable=true" >> "$GITHUB_OUTPUT" || true
+
+      - name: Apply and open a pull request
+        if: steps.plan.outputs.actionable == 'true' && inputs.dry_run == false
+        run: |
+          branch="security/bump-$(date -u +%Y-%m-%d)"
+          if [ -n "$(gh pr list --state open --json headRefName --jq '.[].headRefName' | grep -x "$branch" || true)" ]; then
+            echo "an open bump PR already exists on $branch; leaving it alone"
+            exit 0
+          fi
+          # --apply re-audits and writes: the commit must describe the state this run actually
+          # produced, not a plan that a fresh advisory could have overtaken between the two steps.
+          python scripts/security_bump.py --apply --json > applied.json
+          python - <<'PY' > body.md
+          import json
+
+          applied = json.load(open("applied.json", encoding="utf-8"))
+          lines = ["Automated dependency bump from the `security-bump` workflow.", "",
+                   "`scripts/security_bump.py` walked each non-tolerated advisory to its published",
+                   "fix release, carried the dependencies those releases demand, and re-resolved",
+                   "both locks before writing anything.", "", "## Bumps", ""]
+          for entry in applied["plan"]:
+              lines.append(f"- `{entry['lock']}`: " + ", ".join(
+                  f"`{name}` {entry['from'][name]} -> {version}" for name, version in entry["bumps"].items()))
+          for note in applied["notes"]:
+              lines.append(f"- note: {note}")
+          for item in applied["exposed"]:
+              lines.append(f"- still exposed, no fix published: `{item['lock']}` "
+                           f"`{item['package']} {item['version']}` {item['id']}")
+          lines += ["", "Exception rows this bump made obsolete are removed from",
+                    "`.github/vuln-exceptions.json`; `scripts/audit_exceptions.py` would stop the",
+                    "gate otherwise. The nightly checks run on this branch: `pip-audit --strict`",
+                    "over both locks, the stale-row refusal, and `scripts/pillow_cap_check.py`.", ""]
+          print("\n".join(lines))
+          PY
+          git checkout -b "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements.txt requirements-all.txt .github/vuln-exceptions.json
+          git commit -m "fix(deps): move the pins the audit flagged to their fix releases" -m "$(head -c 1900 body.md)"
+          git push -u origin "$branch"
+          gh pr create --title "fix(deps): automated security bump $(date -u +%Y-%m-%d)" \
+            --body-file body.md --label dependencies
+
+      - name: Report a plan that cannot be applied
+        if: steps.plan.outputs.actionable != 'true'
+        run: |
+          {
+            echo "Nothing to open. Either every advisory is already tolerated by"
+            echo "`.github/vuln-exceptions.json`, or no fix release exists yet - the exposed rows are"
+            echo "listed in the Plan step summary."
+          } >> "$GITHUB_STEP_SUMMARY"

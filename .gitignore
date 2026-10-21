@@ -39,6 +39,9 @@ models/
 *.json
 !package.json
 !package-lock.json
+# The `*.json` above is about dataset and model artifacts; this one is gate configuration that the
+# audit steps read, and a missing file there stops the nightly.
+!.github/vuln-exceptions.json
 *.jpg
 *.png
 *.jpeg
