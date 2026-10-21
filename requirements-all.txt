@@ -87,7 +87,7 @@ cachetools==7.2.0
     #   streamlit
 category-encoders==2.7.0
     # via pycaret
-certifi==2026.7.22
+certifi==2026.10.19
     # via
     #   httpcore
     #   httpx

@@ -122,9 +122,9 @@ source venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs the core stack (Streamlit, MLflow, FLAML, **AutoGluon tabular**, LightGBM, XGBoost, scikit-learn, ONNX export and SHAP) and is what the desktop installers bundle. `pip-audit -r requirements.txt` reports no known vulnerabilities on it.
+`requirements.txt` installs the core stack (Streamlit, MLflow, FLAML, **AutoGluon tabular**, LightGBM, XGBoost, scikit-learn, ONNX export and SHAP) and is what the desktop installers bundle. `pip-audit -r requirements.txt --strict` exits 0 on it. The only exceptions it carries are pillow's eight advisories, which fix only in 13.0.0 while every Streamlit release caps `pillow<13`; they are listed by id in the nightly workflow, so the gate stays red for anything else.
 
-To train with **every** engine the catalog offers - AutoGluon (tabular, text, multimodal, vision), PyCaret, Lale, TPOT and H2O next to FLAML - create the environment on **Python 3.11** and install `requirements-all.txt`, the compiled lock for that set. It cannot be made CVE-clean (PyCaret pins scikit-learn 1.4.2, TPOT pins setuptools <81), and it adds about 1.7 GB of packages, which is why it is not what the installers ship.
+To train with **every** engine the catalog offers - AutoGluon (tabular, text, multimodal, vision), PyCaret, Lale, TPOT and H2O next to FLAML - create the environment on **Python 3.11** and install `requirements-all.txt`, the compiled lock for that set. It cannot be made CVE-clean (PyCaret pins scikit-learn 1.4.2, TPOT pins setuptools <81, and Streamlit caps `pillow<13`), and it adds about 1.7 GB of packages, which is why it is not what the installers ship.
 
 #### **Optional framework backends:**
 

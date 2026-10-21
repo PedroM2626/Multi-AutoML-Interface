@@ -92,7 +92,17 @@ jobs:
       - name: Dependency vulnerability gate
         run: |
           python -m pip install pip-audit==2.10.1
-          pip-audit -r requirements.txt --strict
+          # pillow stays at 12.3.0, the newest Streamlit allows: every Streamlit release up to
+          # 1.66.0 caps `pillow<13`, and these eight fix only in 13.0.0. Both id spaces are listed
+          # because pip-audit prints whichever the PyPI record surfaces, and an id that matches
+          # nothing is unused without failing. When Streamlit lifts the cap: raise the pin, empty
+          # this list, and the gate goes red again on anything still exposed.
+          pillow="GHSA-p4wg-p73j-c528 CVE-2026-112895 GHSA-65qm-jvmh-6pqg CVE-2026-112400
+                  GHSA-58r4-6rv3-gfh8 CVE-2026-112397 GHSA-pchr-8j38-3x4p CVE-2026-112896
+                  GHSA-q45j-58j2-45rg CVE-2026-112897 GHSA-462x-pgg6-55fp CVE-2026-112395
+                  GHSA-c6hw-5grf-ff96 CVE-2026-112404 GHSA-vx6w-vv9f-6gvg CVE-2026-112899"
+          ignore=(); for id in $pillow; do ignore+=(--ignore-vuln "$id"); done
+          pip-audit -r requirements.txt --strict "${ignore[@]}"
 
       - name: Full suite (authoritative when the stack installed)
         if: steps.stack.outcome == 'success'
