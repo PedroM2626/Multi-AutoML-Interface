@@ -96,10 +96,18 @@ jobs:
           python -m pip install pip-audit==2.10.1
           # Tolerated advisories are rows in .github/vuln-exceptions.json, each carrying the cap that
           # forces it. audit_exceptions.py refuses to emit flags for a row whose pin has moved, so an
-          # exception cannot outlive the reason it was written for. Both id spaces are in each row
-          # because pip-audit prints whichever the PyPI record surfaces, and an id matching nothing
-          # is dropped silently.
-          core_flags="$(python scripts/audit_exceptions.py requirements.txt)"
+          # exception cannot outlive the reason it was written for.
+          #
+          # Audited twice because pillow's row is defined by a condition, not by a list: whatever is
+          # reported for 12.3.0 is excused only while each advisory is fixed by exactly 13.0.0,
+          # the release Streamlit's `pillow<13` keeps out of reach. The first pass is the evidence
+          # that condition is still true; anything fixed elsewhere stays red, because upgrading
+          # would not have hidden it. It also means a batch of new advisories on the same blocked
+          # version does not need a human to append ids at 03:00 - 16 ids landed in one batch the
+          # night before this replaced a hand-listed set.
+          pip-audit -r requirements.txt --strict -f json -o core-report.json || true
+          test -s core-report.json || { echo "pip-audit produced no report"; exit 1; }
+          core_flags="$(python scripts/audit_exceptions.py requirements.txt --report core-report.json)"
           pip-audit -r requirements.txt --strict $core_flags
           # pillow<13 is Streamlit's cap, not ours. The day it lifts this fails until the pin moves
           # and the pillow row is deleted.
@@ -118,7 +126,9 @@ jobs:
           # - --no-deps because resolving the file here would pick torch's CUDA build and audit a
           #   graph nobody installs. Every remaining pin is audited exactly as shipped.
           grep -v '^pywin32==' requirements-all.txt > requirements-all-audited.txt
-          all_flags="$(python scripts/audit_exceptions.py requirements-all-audited.txt --as requirements-all.txt)"
+          pip-audit -r requirements-all-audited.txt --strict --no-deps -f json -o all-report.json || true
+          test -s all-report.json || { echo "pip-audit produced no report"; exit 1; }
+          all_flags="$(python scripts/audit_exceptions.py requirements-all-audited.txt --as requirements-all.txt --report all-report.json)"
           pip-audit -r requirements-all-audited.txt --strict --no-deps $all_flags
 
       - name: Full suite (authoritative when the stack installed)

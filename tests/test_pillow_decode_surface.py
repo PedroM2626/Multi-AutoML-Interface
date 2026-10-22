@@ -1,8 +1,9 @@
 """The Pillow decode surface, kept small enough to reason about.
 
 `requirements.txt` cannot hold pillow 13.0.0: Streamlit caps `pillow<13`, and the nightly audit
-gate carries eight pillow advisories as documented exceptions because of it. Five of those eight
-fire when a TIFF, GIF, PPM, PDF or EPS is *opened*, so the tolerance is only defensible while
+gate tolerates pillow's advisories as a documented exception because of it. The batch keeps growing
+(24 of them by 2026-10-22); what matters is that the ones it fires on are the five that need a TIFF,
+GIF, PPM, PDF or EPS to be *opened*, so the tolerance is only defensible while
 nothing in this repository hands an attacker-named file to Pillow. These tests guard that premise:
 they fail when someone adds a decode site, widens the formats the saliency map opens, or lets the
 image picker advertise a format whose decoder is under advisory.

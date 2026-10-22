@@ -19,7 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_exceptions import normalize, pinned_versions  # noqa: E402
 
-# The release that closes all eight pillow advisories (see the PyPI records for 12.3.0).
+# The release closing every pillow advisory reported so far; the count grows, this does not need
+# editing, because .github/vuln-exceptions.json excuses advisories by this version, not by id.
 PILLOW_FIX = (13, 0, 0)
 
 
@@ -99,7 +100,7 @@ def main(lock="requirements.txt"):
         return 1
     print(
         f"pillow_cap_check: streamlit {pins['streamlit']} caps pillow ({','.join(specifiers)}), "
-        f"so the eight tolerated advisories have no reachable fix"
+        f"so the tolerated advisories on pillow {pins['pillow']} have no reachable fix"
     )
     return 0
 

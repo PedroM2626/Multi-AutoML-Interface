@@ -4,10 +4,16 @@ The audit gate has to tolerate some advisories (pillow 13 is unreachable while S
 `pillow<13`), but a list of ignored ids rots silently: pip-audit never complains about an id that
 matches nothing, so an exception would outlive the pin it was written for and keep swallowing
 whatever advisory landed on the replacement version. This script closes that hole: it fails when a
-lock no longer pins the exact version an entry excuses, which forces whoever bumps a package to
-delete the entry it made obsolete.
+lock no longer pins the exact version an entry was written for, which forces whoever bumps a
+package to delete the entry it made obsolete.
 
-Usage: python scripts/audit_exceptions.py requirements.txt
+Rows come in two kinds. A *named* row lists advisory ids, for the case where no fix exists to talk
+about (nltk, h2o). A *cap* row names the release a third-party cap keeps out of reach and excuses
+only advisories whose fix is exactly that release - it has to be checked against a live report
+(`--report`), because the point is that nothing reported today survives the upgrade the cap blocks.
+An advisory fixed anywhere else stays red on purpose.
+
+Usage: python scripts/audit_exceptions.py requirements.txt [--report report.json]
 Prints the --ignore-vuln flags for that lock on stdout, diagnostics on stderr.
 """
 import argparse
@@ -17,8 +23,16 @@ import sys
 from pathlib import Path
 
 EXCEPTIONS = Path(__file__).resolve().parent.parent / ".github" / "vuln-exceptions.json"
-REQUIRED_FIELDS = ("package", "version", "locks", "ids", "reason", "revisit")
 ID_SHAPE = re.compile(r"^(GHSA|CVE|PYSEC|BIT)-[0-9A-Za-z-]+$")
+CAP_FIELD = "tolerate_advisories_fixing_only_at"
+
+
+class Stale(RuntimeError):
+    pass
+
+
+class NeedsReport(RuntimeError):
+    pass
 
 
 def normalize(name):
@@ -43,45 +57,98 @@ def load_entries(path=EXCEPTIONS):
     if not isinstance(entries, list):
         raise ValueError(f"{path} has no 'exceptions' list")
     for entry in entries:
-        missing = [field for field in REQUIRED_FIELDS if not entry.get(field)]
-        if missing:
-            raise ValueError(f"{entry.get('package', '?')}: missing {', '.join(missing)}")
-        for vuln_id in entry["ids"]:
+        for field in ("package", "version", "locks", "reason", "revisit"):
+            if not entry.get(field):
+                raise ValueError(f"{entry.get('package', '?')}: missing {field}")
+        ids = entry.get("ids") or []
+        if not ids and not entry.get(CAP_FIELD):
+            raise ValueError(f"{entry['package']}: a row needs ids or a {CAP_FIELD}")
+        for vuln_id in ids:
             if not ID_SHAPE.match(vuln_id):
                 raise ValueError(f"{entry['package']}: {vuln_id} is not a GHSA/CVE/PYSEC id")
     return entries
 
 
-def flags_for(lock_path, entries=None, lock_name=None):
+def rows_for(entries, lock):
+    return [entry for entry in entries if lock in entry["locks"]]
+
+
+def is_tolerated(record, entries, lock):
+    """Whether a row already explains one advisory reported for a lock."""
+    for entry in rows_for(entries, lock):
+        if normalize(entry["package"]) != record["package"]:
+            continue
+        if entry["version"] != record["version"]:
+            continue
+        if set(entry.get("ids") or []) & set([record["id"], *record["aliases"]]):
+            return True
+        if record["fix_versions"] == [entry.get(CAP_FIELD)] and entry.get(CAP_FIELD):
+            return True
+    return False
+
+
+def read_report(path):
+    """pip-audit's own JSON output, as records shaped like the ones this gate reasons about."""
+    body = json.loads(Path(path).read_text(encoding="utf-8"))
+    records = []
+    for dependency in body.get("dependencies", []):
+        for vulnerability in dependency.get("vulns", []):
+            records.append({
+                "package": normalize(dependency["name"]),
+                "version": dependency["version"],
+                "id": vulnerability["id"],
+                "aliases": vulnerability.get("aliases") or [],
+                "fix_versions": vulnerability.get("fix_versions") or [],
+            })
+    return records
+
+
+def flags_for(lock_path, entries=None, lock_name=None, records=None):
     """The --ignore-vuln arguments for one lock, or a Stale exception explaining the refusal.
 
-    `lock_name` names the lock the rows should be matched against when the file being audited is a
-    filtered copy of it - the engine lock is audited without its Windows-only pins on a Linux
-    runner, and the rows still describe the lock the user installs.
+    `lock_name` names the lock the rows apply to when the file being audited is a filtered copy of
+    it - the engine lock is audited without its Windows-only pins on a Linux runner, and the rows
+    still describe the lock the user installs.
     """
     entries = load_entries() if entries is None else entries
     lock = lock_name or Path(lock_path).name
     pins = pinned_versions(lock_path)
-    flags, applied = [], []
-    for entry in entries:
-        if lock not in entry["locks"]:
-            continue
+    flags, applied, auto = [], [], []
+    for entry in rows_for(entries, lock):
         package = normalize(entry["package"])
         if package not in pins:
-            raise Stale(f"{lock}: {entry['ids'][0]} excuses {package}, which this lock no longer lists")
+            raise Stale(f"{lock}: {entry.get('ids', [package])[0]} excuses {package}, which this lock no longer lists")
         if pins[package] != entry["version"]:
             raise Stale(
                 f"{lock}: {entry['package']} is pinned {pins[package]}, not {entry['version']} - "
                 f"the exception is stale, delete it and see what the gate now reports"
             )
-        flags += [f"--ignore-vuln={vuln_id}" for vuln_id in entry["ids"]]
-        applied.append(f"{package} {pins[package]} ({len(entry['ids'])} ids)")
-    print(f"tolerating for {lock}: {', '.join(applied) if applied else 'nothing'}", file=sys.stderr)
+        named = list(entry.get("ids") or [])
+        blocked = entry.get(CAP_FIELD)
+        counted = len(named)
+        if named:
+            flags += [f"--ignore-vuln={vuln_id}" for vuln_id in named]
+        if blocked:
+            if records is None:
+                raise NeedsReport(
+                    f"{lock}: the {entry['package']} row excuses advisories by cap, so it has to be "
+                    f"checked against the audit report - pass --report <pip-audit json>"
+                )
+            capped = [
+                record for record in records
+                if record["package"] == package and record["version"] == entry["version"]
+                and record["fix_versions"] == [blocked]
+            ]
+            for record in capped:
+                flags += [f"--ignore-vuln={vuln_id}" for vuln_id in [record["id"], *record["aliases"]]]
+            counted += len(capped)
+            auto.append(f"{entry['package']}: {len(capped)} advisories fixed only in {blocked}")
+        applied.append(f"{package} {pins[package]} ({counted} ids)")
+    summary = ", ".join(applied) if applied else "nothing"
+    if auto:
+        summary += " | by cap - " + "; ".join(auto)
+    print(f"tolerating for {lock}: {summary}", file=sys.stderr)
     return flags
-
-
-class Stale(RuntimeError):
-    pass
 
 
 if __name__ == "__main__":
@@ -89,9 +156,11 @@ if __name__ == "__main__":
     parser.add_argument("lock", help="the requirements file being audited")
     parser.add_argument("--as", dest="lock_name",
                         help="name of the lock the rows apply to, when auditing a filtered copy")
+    parser.add_argument("--report", help="pip-audit JSON report, required by cap rows")
     args = parser.parse_args()
     try:
-        print(" ".join(flags_for(args.lock, lock_name=args.lock_name)))
-    except (Stale, ValueError, OSError, json.JSONDecodeError) as error:
+        records = read_report(args.report) if args.report else None
+        print(" ".join(flags_for(args.lock, lock_name=args.lock_name, records=records)))
+    except (Stale, NeedsReport, ValueError, OSError, json.JSONDecodeError) as error:
         print(f"audit_exceptions: {error}", file=sys.stderr)
         sys.exit(1)

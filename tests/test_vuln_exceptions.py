@@ -16,7 +16,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from audit_exceptions import Stale, flags_for, load_entries, pinned_versions  # noqa: E402
+from audit_exceptions import (  # noqa: E402
+    NeedsReport,
+    Stale,
+    flags_for,
+    is_tolerated,
+    load_entries,
+    pinned_versions,
+)
 from pillow_cap_check import fix_is_blocked, main as cap_check  # noqa: E402
 
 LOCKS = ("requirements.txt", "requirements-all.txt")
@@ -41,7 +48,7 @@ def test_rows_have_a_reason_and_a_revisit_condition():
 
 
 def test_no_advisory_id_is_excused_by_two_rows():
-    ids = [vuln_id for entry in load_entries() for vuln_id in entry["ids"]]
+    ids = [vuln_id for entry in load_entries() for vuln_id in (entry.get("ids") or [])]
     assert len(ids) == len(set(ids)), sorted(set(i for i in ids if ids.count(i) > 1))
 
 
@@ -73,11 +80,52 @@ def test_dropping_a_package_refuses_the_row_to_stay(tmp_path):
         flags_for(lock)
 
 
-def test_the_flags_cover_every_id_of_a_matching_row():
-    flags = flags_for("requirements.txt")
-    pillow = next(entry for entry in load_entries() if entry["package"] == "pillow")
-    assert len(flags) == len(pillow["ids"])
-    assert all(flag.startswith("--ignore-vuln=") for flag in flags)
+def _report(tmp_path, advisories):
+    """A pip-audit JSON report with one advisory per (package, version, id, fix) tuple."""
+    dependencies = {}
+    for package, version, vuln_id, fix in advisories:
+        dependencies.setdefault((package, version), []).append(
+            {"id": vuln_id, "aliases": ["GHSA-" + vuln_id[-4:] + "-x"], "fix_versions": [fix] if fix else []})
+    body = {"dependencies": [{"name": name, "version": ver, "vulns": vulns}
+                             for (name, ver), vulns in dependencies.items()]}
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return str(path)
+
+
+def test_a_cap_row_tolerates_only_what_the_blocked_release_fixes(tmp_path):
+    """The rule that replaced a hand-listed 16 ids: excused because 13.0.0 is out of reach, so an
+    advisory fixed anywhere else is real exposure and must stay red."""
+    entries = load_entries()
+    fixed_by_cap = {"package": "pillow", "version": "12.3.0", "id": "CVE-2026-999999",
+                    "aliases": [], "fix_versions": ["13.0.0"]}
+    fixed_elsewhere = {"package": "pillow", "version": "12.3.0", "id": "CVE-2026-888888",
+                       "aliases": [], "fix_versions": ["12.4.0"]}
+    unfixed = {"package": "pillow", "version": "12.3.0", "id": "CVE-2026-777777",
+               "aliases": [], "fix_versions": []}
+    assert is_tolerated(fixed_by_cap, entries, "requirements.txt") is True
+    assert is_tolerated(fixed_elsewhere, entries, "requirements.txt") is False
+    assert is_tolerated(unfixed, entries, "requirements.txt") is False
+    assert is_tolerated({"package": "aiohttp", "version": "3.14.4", "id": "CVE-2026-123456",
+                         "aliases": [], "fix_versions": ["3.14.5"]}, entries, "requirements.txt") is False
+
+
+def test_flags_from_a_report_cover_the_cap_advisories_and_only_those(tmp_path):
+    report = _report(tmp_path, [
+        ("pillow", "12.3.0", "CVE-2026-112895", "13.0.0"),
+        ("pillow", "12.3.0", "CVE-2026-112402", "13.0.0"),
+        ("pillow", "12.3.0", "CVE-2026-111111", "12.4.0"),
+    ])
+    flags = flags_for("requirements.txt", records=__import__("audit_exceptions").read_report(report))
+    assert "--ignore-vuln=CVE-2026-112895" in flags
+    assert "--ignore-vuln=CVE-2026-112402" in flags
+    assert not any("111111" in flag for flag in flags)
+    assert len(flags) == 4  # two advisories, id plus alias each
+
+
+def test_a_cap_row_without_the_report_refuses_to_guess(tmp_path):
+    with pytest.raises(NeedsReport, match="has to be checked against the audit report"):
+        flags_for("requirements.txt")
 
 
 @pytest.mark.parametrize(
@@ -122,12 +170,23 @@ def test_a_filtered_copy_still_matches_the_lock_it_came_from(tmp_path):
     text = "\n".join(line for line in Path("requirements-all.txt").read_text(encoding="utf-8").splitlines()
                      if not line.startswith("pywin32=="))
     copy = _write_lock(tmp_path, "requirements-all-audited.txt", text)
-    # A name no row claims silently earns no tolerance at all, which is how the step would go red on
-    # the four pins it is not allowed to move. --as is what keeps the copy honest.
+    report = _report(tmp_path, [
+        ("pillow", "12.3.0", "CVE-2026-112895", "13.0.0"),
+        ("scikit-learn", "1.4.2", "PYSEC-2024-110", "1.5.0"),
+        ("setuptools", "80.10.2", "PYSEC-2026-3447", "83.0.0"),
+    ])
+    # A name no row claims earns no tolerance at all - fail closed, the second audit goes red on the
+    # pins that cannot move. --as is what keeps a filtered copy honest.
     assert flags_for(copy) == []
-    filtered = flags_for(copy, lock_name="requirements-all.txt")
-    whole = flags_for("requirements-all.txt")
-    assert filtered == whole and len(filtered) == 28
+    # The real lock name does need the report, because pillow's row is defined by a condition.
+    with pytest.raises(NeedsReport, match="pillow"):
+        flags_for("requirements-all.txt")
+    records = __import__("audit_exceptions").read_report(report)
+    filtered = flags_for(copy, lock_name="requirements-all.txt", records=records)
+    whole = flags_for("requirements-all.txt", records=records)
+    assert filtered == whole
+    # 3 cap advisories (id + alias) plus the 6 ids of the two rows with no fix published
+    assert len(filtered) == 12
 
 
 def test_pywin32_is_the_only_pin_the_runner_cannot_install():

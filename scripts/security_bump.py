@@ -26,7 +26,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from audit_exceptions import normalize, pinned_versions  # noqa: E402
+from audit_exceptions import is_tolerated, load_entries, normalize, pinned_versions  # noqa: E402
 
 # Per lock: the pip-audit arguments, and the pins to strip before auditing. pip-audit enumerates a
 # requirements file by dry-run installing it, so a lock compiled for another platform has to lose the
@@ -81,15 +81,6 @@ def audible_copy(lock, drop):
     return name
 
 
-def tolerated_ids(lock):
-    ids = set()
-    data = json.loads((Path(".github/vuln-exceptions.json")).read_text(encoding="utf-8"))
-    for entry in data["exceptions"]:
-        if lock in entry["locks"]:
-            ids.update(entry["ids"])
-    return ids
-
-
 def releases_of(package):
     """Every version PyPI serves for a package, oldest first."""
     data = fetch_json(f"https://pypi.org/pypi/{package}/json")
@@ -110,14 +101,20 @@ def lowest_at_least(versions, floor):
 
 
 def target_version(package, current, fix_versions):
-    """The smallest published release that clears every fix floor in the advisory set."""
+    """The smallest published release that clears every fix floor in the advisory set.
+
+    Each advisory names its own floor, so one release has to clear them all: the answer is the
+    highest floor, mapped up to the nearest version that exists. Taking the lowest would "fix" one
+    advisory and leave the others - virtualenv 21.14.1 has five, at 21.14.2, 21.14.4, 21.14.7 and
+    21.14.9.
+    """
     versions = releases_of(package)
     candidate = None
     for fix in fix_versions:
         pick = lowest_at_least(versions, fix)
         if pick is None:
             return None
-        if candidate is None or version_key(pick) < version_key(candidate):
+        if candidate is None or version_key(pick) > version_key(candidate):
             candidate = pick
     if candidate and version_key(candidate) < version_key(current):
         return None
@@ -195,7 +192,9 @@ def drop_exceptions_for(lock, bumps):
     for entry in data["exceptions"]:
         if normalize(entry["package"]) in bumps and lock in entry["locks"]:
             entry["locks"] = [other for other in entry["locks"] if other != lock]
-            dropped.append(f"{entry['package']} {entry['version']} ({len(entry['ids'])} ids)")
+            named = len(entry.get("ids") or [])
+            excuse = f"{named} ids" if named else f"cap at {entry['tolerate_advisories_fixing_only_at']}"
+            dropped.append(f"{entry['package']} {entry['version']} ({excuse})")
             if not entry["locks"]:
                 continue
         kept.append(entry)
@@ -206,16 +205,15 @@ def drop_exceptions_for(lock, bumps):
               file=sys.stderr)
 
 
-def select(records, keep):
+def select(records, entries, lock):
     """Split audit records into {package: fix version} to propose, and what is exposed with no fix.
 
-    `keep` is the set of ids the lock's exception rows already explain: those are the gate's settled
-    decisions, not work for this script. A record whose fix release does not exist yet is reported
-    rather than guessed at.
+    Records an exception row already explains are the gate's settled decisions, not work for this
+    script. A record whose fix release does not exist yet is reported rather than guessed at.
     """
     actionable, exposed = {}, []
     for record in records:
-        if set([record["id"], *record["aliases"]]) & keep:
+        if is_tolerated(record, entries, lock):
             continue
         if not record["fix_versions"]:
             exposed.append(record)
@@ -225,7 +223,8 @@ def select(records, keep):
             exposed.append({**record, "note": "no published release clears the fix floor"})
             continue
         current = actionable.get(record["package"])
-        if current is None or version_key(target) < version_key(current):
+        # A package with several advisories needs the release that clears all of them at once.
+        if current is None or version_key(target) > version_key(current):
             actionable[record["package"]] = target
     return actionable, exposed
 
@@ -241,9 +240,10 @@ def main():
         if not Path(lock).is_file():
             continue
         pins = pinned_versions(lock)
+        entries = load_entries()
         audible = audible_copy(lock, drop)
         try:
-            actionable, unfixable = select(audit(audible, extra), tolerated_ids(lock))
+            actionable, unfixable = select(audit(audible, extra), entries, lock)
         finally:
             if audible != lock:
                 Path(audible).unlink(missing_ok=True)

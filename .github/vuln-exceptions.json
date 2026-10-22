@@ -1,44 +1,37 @@
 {
   "_comment": [
-    "Advisories the nightly audit gate tolerates, one entry per pinned package version.",
+    "Advisories the nightly audit gate tolerates, one row per pinned package version.",
     "scripts/audit_exceptions.py turns these into --ignore-vuln flags and refuses to run if a lock",
     "no longer pins the version an entry was written for, so an entry cannot outlive the pin it",
-    "excuses. Add the ids pip-audit prints for the package (its own id plus every alias, because",
-    "which one the PyPI record surfaces varies per package). Never add an entry without a reason",
-    "that names the third-party cap or the missing fix release."
+    "excuses. Two kinds of row: `tolerate_advisories_fixing_only_at` excuses whatever the audit",
+    "reports for that version while every one of those advisories is fixed by the release a",
+    "third-party cap keeps unreachable - it needs --report, and an advisory fixed anywhere else",
+    "stays red because the upgrade would not have helped. `ids` names advisories explicitly, for",
+    "the case with no fix release at all. Never add a row without a reason naming the cap."
   ],
   "exceptions": [
     {
       "package": "pillow",
       "version": "12.3.0",
       "locks": ["requirements.txt", "requirements-all.txt"],
-      "ids": [
-        "GHSA-p4wg-p73j-c528", "CVE-2026-112895",
-        "GHSA-65qm-jvmh-6pqg", "CVE-2026-112400",
-        "GHSA-58r4-6rv3-gfh8", "CVE-2026-112397",
-        "GHSA-pchr-8j38-3x4p", "CVE-2026-112896",
-        "GHSA-q45j-58j2-45rg", "CVE-2026-112897",
-        "GHSA-462x-pgg6-55fp", "CVE-2026-112395",
-        "GHSA-c6hw-5grf-ff96", "CVE-2026-112404",
-        "GHSA-vx6w-vv9f-6gvg", "CVE-2026-112899"
-      ],
-      "reason": "All eight fix only in pillow 13.0.0, and every Streamlit release up to 1.66.0 caps pillow<13, so the lock cannot hold the fix. Five of them need a TIFF/GIF/PPM/PDF/EPS to be opened; the only decode in this repository refuses those formats (src/xai_utils.py SALIENCY_IMAGE_EXTENSIONS, guarded by tests/test_pillow_decode_surface.py).",
-      "revisit": "scripts/pillow_cap_check.py fails the nightly the moment the pinned Streamlit stops capping pillow<13; then raise the pin and delete this entry."
+      "tolerate_advisories_fixing_only_at": "13.0.0",
+      "reason": "Streamlit caps `pillow<13` in every release up to 1.66.0, so 13.0.0 - the only release fixing any advisory published for 12.3.0 (24 of them as of 2026-10-22, a batch that grew twice in one night), and itself clean - cannot be pinned while the app is a Streamlit app. Five of the advisories need a TIFF/GIF/PPM/PDF/EPS to be opened; the only decode in this repository refuses those formats (src/xai_utils.py SALIENCY_IMAGE_EXTENSIONS, guarded by tests/test_pillow_decode_surface.py).",
+      "revisit": "scripts/pillow_cap_check.py fails the nightly the moment the pinned Streamlit stops capping 13.0.0; then raise the pin and delete this row."
     },
     {
       "package": "scikit-learn",
       "version": "1.4.2",
       "locks": ["requirements-all.txt"],
-      "ids": ["GHSA-jw8x-6495-233v", "CVE-2024-5206", "PYSEC-2024-110"],
-      "reason": "Fixed in 1.5.0, which PyCaret forbids in the all-engine lock (see src/task_catalog.py on why TPOT is not offered).",
+      "tolerate_advisories_fixing_only_at": "1.5.0",
+      "reason": "The fix is 1.5.0, which PyCaret forbids in the all-engine lock; src/task_catalog.py records what 1.5 costs TPOT too. An advisory fixed in a 1.4.x patch would stay red here, and should be: that bump is available.",
       "revisit": "PyCaret dropping scikit-learn<1.5."
     },
     {
       "package": "setuptools",
       "version": "80.10.2",
       "locks": ["requirements-all.txt"],
-      "ids": ["PYSEC-2026-3447", "GHSA-h35f-9h28-mq5c", "CVE-2026-59890"],
-      "reason": "Fixed in 83.0.0, which dropped pkg_resources; TPOT and autogluon-multimodal import it (requirements-all.in pins setuptools<81 for that reason).",
+      "tolerate_advisories_fixing_only_at": "83.0.0",
+      "reason": "The fix is 83.0.0, which dropped pkg_resources that TPOT and autogluon-multimodal import - requirements-all.in pins setuptools<81 for exactly that.",
       "revisit": "The day neither engine imports pkg_resources."
     },
     {
