@@ -84,29 +84,47 @@ def audible_copy(lock, drop):
 def releases_of(package):
     """Every version PyPI serves for a package, oldest first."""
     data = fetch_json(f"https://pypi.org/pypi/{package}/json")
+    # Prerelease-shaped versions are real releases for opentelemetry-semantic-conventions (0.66b1),
+    # and filtering them out would make an exact pin there look unpublished. The suffix group is
+    # optional: making it required silently hid every plain version like 3.2.1.
     versions = [version for version, files in data["releases"].items()
-                if files and re.match(r"^\d+(\.\d+)*$", version)]
+                if files and re.match(r"^\d+(?:\.\d+)*(?:(?:[abc]|rc)\d*)?$", version)]
     return sorted(versions, key=version_key)
 
 
 def version_key(text):
-    return tuple(int(part) for part in text.split("."))
+    """A sortable key that also reads the suffixes PyPI serves: 0.66b1, 3.3.0rc1, 1.45.1."""
+    chunks = []
+    for chunk in re.split(r"[.\-_]+", text):
+        match = re.match(r"(\d+)(.*)", chunk)
+        chunks.append((int(match.group(1)), match.group(2)) if match else (0, chunk))
+    return tuple(chunks)
+
+
+def is_prerelease(version):
+    return re.search(r"(?:[abc]|rc)\d*$", version) is not None
 
 
 def lowest_at_least(versions, floor):
-    for version in versions:
-        if version_key(version) >= version_key(floor):
+    """The nearest release at or above a floor, preferring a stable one.
+
+    graphql-core's advisory lists "3.2.12, 3.3.0rc1"; the release a lock can actually carry is the
+    stable one, and picking the candidate with the higher key would pick the release candidate.
+    """
+    candidates = [version for version in versions if version_key(version) >= version_key(floor)]
+    for version in candidates:
+        if not is_prerelease(version):
             return version
-    return None
+    return candidates[0] if candidates else None
 
 
 def target_version(package, current, fix_versions):
-    """The smallest published release that clears every fix floor in the advisory set.
+    """The lowest published release clearing this advisory.
 
-    Each advisory names its own floor, so one release has to clear them all: the answer is the
-    highest floor, mapped up to the nearest version that exists. Taking the lowest would "fix" one
-    advisory and leave the others - virtualenv 21.14.1 has five, at 21.14.2, 21.14.4, 21.14.7 and
-    21.14.9.
+    One advisory's fix_versions are alternatives - "fixed in 3.2.12 or in the 3.3 line" - so the
+    answer is the smallest of the picks, not the largest. The conjunction lives in select(): when a
+    package carries several advisories, the release that has to satisfy them all is the highest of
+    these targets (virtualenv 21.14.1 names 21.14.2, 21.14.4, 21.14.7 and 21.14.9 across five).
     """
     versions = releases_of(package)
     candidate = None
@@ -114,7 +132,7 @@ def target_version(package, current, fix_versions):
         pick = lowest_at_least(versions, fix)
         if pick is None:
             return None
-        if candidate is None or version_key(pick) > version_key(candidate):
+        if candidate is None or version_key(pick) < version_key(candidate):
             candidate = pick
     if candidate and version_key(candidate) < version_key(current):
         return None
@@ -122,18 +140,27 @@ def target_version(package, current, fix_versions):
 
 
 def dependencies_of(package, version):
-    """{normalized name: floor} from the PEP 508 `>=` clauses of a release's own metadata."""
+    """What a release demands of its dependencies: {"floor": highest >=, "exact": the == pin}.
+
+    The exact pins matter as much as the floors: opentelemetry-sdk 1.45.1 requires
+    `opentelemetry-api==1.45.1` and `opentelemetry-semantic-conventions==0.66b1`, so raising one
+    member of that family without the others cannot resolve. Reading only `>=` clauses would
+    propose half a family and then report the whole plan as blocked.
+    """
     data = fetch_json(f"https://pypi.org/pypi/{package}/{version}/json")
-    floors = {}
+    wanted = {}
     for requirement in data["info"].get("requires_dist") or []:
         match = re.match(r"^\s*([A-Za-z0-9._-]+)\s*(?:\[[^\]]*\])?\s*(.*)$", requirement)
         if not match:
             continue
         name, specifier = normalize(match.group(1)), match.group(2).split(";")[0]
+        entry = wanted.setdefault(name, {"floor": None, "exact": None})
         for floor in re.findall(r">=\s*(\d+(?:\.\d+)*)", specifier):
-            if name not in floors or version_key(floor) > version_key(floors[name]):
-                floors[name] = floor
-    return floors
+            if entry["floor"] is None or version_key(floor) > version_key(entry["floor"]):
+                entry["floor"] = floor
+        for exact in re.findall(r"==\s*(\d+(?:\.\d+)*(?:[abrc]+\d+)?)", specifier):
+            entry["exact"] = exact
+    return wanted
 
 
 def with_dependent_floors(lock, pins, bumps):
@@ -143,14 +170,24 @@ def with_dependent_floors(lock, pins, bumps):
         grew = False
         for package, version in list(pending.items()):
             cache.setdefault((package, version), dependencies_of(package, version))
-            for dependency, floor in cache[(package, version)].items():
+            for dependency, demand in cache[(package, version)].items():
                 if dependency not in pins or dependency in resolved:
                     continue
-                if version_key(pins[dependency]) >= version_key(floor):
+                want = demand["exact"] or demand["floor"]
+                if want is None:
                     continue
-                moved = lowest_at_least(releases_of(dependency), floor)
+                if demand["exact"]:
+                    satisfied = pins[dependency] == demand["exact"]
+                else:
+                    satisfied = version_key(pins[dependency]) >= version_key(want)
+                if satisfied:
+                    continue
+                if demand["exact"]:
+                    moved = demand["exact"] if demand["exact"] in releases_of(dependency) else None
+                else:
+                    moved = lowest_at_least(releases_of(dependency), want)
                 if moved is None:
-                    raise RuntimeError(f"{package} {version} needs {dependency}>={floor}, not published")
+                    raise RuntimeError(f"{package} {version} needs {dependency}{'==' if demand['exact'] else '>='}{want}, not published")
                 pending[dependency] = moved
                 resolved[dependency] = moved
                 grew = True

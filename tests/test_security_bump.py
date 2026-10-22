@@ -41,21 +41,53 @@ virtualenv==21.14.1
 
 @pytest.fixture
 def pypi(monkeypatch):
-    """A stand-in for the two PyPI reads: available releases, and a release's own floors."""
+    """A stand-in for the two PyPI reads: available releases, and a release's own demands.
+
+    Demands may be written as a bare version (a `>=` floor) or as {"floor": .., "exact": ..}.
+    """
     releases = {}
     floors = {}
+
+    def normalize_demand(value):
+        if isinstance(value, dict):
+            return {"floor": value.get("floor"), "exact": value.get("exact")}
+        return {"floor": value, "exact": None}
 
     def set_releases(package, versions):
         releases[package] = versions
 
     def set_floors(package_version, mapping):
-        floors[package_version] = mapping
+        floors[package_version] = {name: normalize_demand(demand) for name, demand in mapping.items()}
 
     monkeypatch.setattr(security_bump, "releases_of", lambda package: sorted(
         releases.get(package, []), key=security_bump.version_key))
     monkeypatch.setattr(security_bump, "dependencies_of", lambda package, version: dict(
         floors.get((package, version), {})))
     return set_releases, set_floors
+
+
+def test_an_exact_pin_pulls_the_rest_of_its_family(pypi):
+    """opentelemetry-sdk 1.45.1 requires api==1.45.1 and semantic-conventions==0.66b1, so raising
+    one member alone cannot resolve - and reading only `>=` clauses would propose half a family."""
+    set_releases, set_floors = pypi
+    for name, versions in {
+        "opentelemetry-api": ["1.43.0", "1.45.1"],
+        "opentelemetry-sdk": ["1.43.0", "1.45.1"],
+        "opentelemetry-semantic-conventions": ["0.64b0", "0.66b1"],
+    }.items():
+        set_releases(name, versions)
+    set_floors(("opentelemetry-sdk", "1.45.1"), {
+        "opentelemetry-api": {"exact": "1.45.1"},
+        "opentelemetry-semantic-conventions": {"exact": "0.66b1"},
+        "typing-extensions": "4.5.0",
+    })
+    pins = {"opentelemetry-api": "1.43.0", "opentelemetry-sdk": "1.43.0",
+            "opentelemetry-semantic-conventions": "0.64b0", "typing-extensions": "4.15.0"}
+    final, added = with_dependent_floors("requirements.txt", pins, {"opentelemetry-sdk": "1.45.1"})
+    assert final["opentelemetry-api"] == "1.45.1"
+    assert final["opentelemetry-semantic-conventions"] == "0.66b1"
+    assert "typing-extensions" not in final  # the floor is already met
+    assert set(added) == {"opentelemetry-api", "opentelemetry-semantic-conventions"}
 
 
 def test_a_tolerated_advisory_is_not_proposed_as_work(pypi):
@@ -214,6 +246,41 @@ def test_an_ordinary_night_asks_pip_once(fake_resolves):
     kept, ok, _ = resolve_subset(str(lock), {"virtualenv": "21.14.9"})
     assert kept == {"virtualenv": "21.14.9"} and ok is True
     assert len(calls) == 1
+
+
+def test_a_fix_list_naming_alternatives_picks_the_stable_lower_one(pypi):
+    """`3.2.12, 3.3.0rc1` means either branch fixes it; the release a lock can carry is the stable
+    one, and graphene caps graphql-core<3.3 besides."""
+    set_releases, _ = pypi
+    set_releases("graphql-core", ["3.2.11", "3.2.12", "3.3.0rc1"])
+    actionable, _ = select(
+        [record("graphql-core", "3.2.11", "CVE-2026-75507", ["3.2.12", "3.3.0rc1"])],
+        [], "requirements.txt")
+    assert actionable == {"graphql-core": "3.2.12"}
+
+
+def test_a_prerelease_is_only_used_when_it_is_all_there_is(pypi):
+    set_releases, _ = pypi
+    set_releases("demo", ["1.0.0", "1.2.0rc1"])
+    actionable, _ = select([record("demo", "1.0.0", "CVE-2026-2", ["1.1.0"])], [], "requirements.txt")
+    assert actionable == {"demo": "1.2.0rc1"}
+
+
+def test_the_release_filter_keeps_plain_and_prerelease_versions(monkeypatch):
+    """The suffix group has to stay optional: requiring it hid 3.2.1 and made gitpython look
+    unfixable, which is a wrong answer delivered as a correct-looking one."""
+    from security_bump import releases_of
+
+    body = {"releases": {
+        "3.2.1": [{"filename": "gitpython-3.2.1-py3-none-any.whl"}],
+        "0.66b1": [{"filename": "x-0.66b1-py3-none-any.whl"}],
+        "1.12.0rc1": [{"filename": "x-1.12.0rc1-py3-none-any.whl"}],
+        "2.0.0.dev4": [],
+        "nightly-2024": [{"filename": "x-2024-py3-none-any.whl"}],
+        "3.0.0": [],
+    }}
+    monkeypatch.setattr(security_bump, "fetch_json", lambda url: body)
+    assert releases_of("anything") == ["0.66b1", "1.12.0rc1", "3.2.1"]
 
 
 def test_everything_blocked_reports_blocked_instead_of_opening_nothing(fake_resolves):
