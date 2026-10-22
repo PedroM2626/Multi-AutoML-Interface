@@ -65,7 +65,7 @@ autogluon-tabular==1.6.3
     # via -r requirements-all.in
 beautifulsoup4==4.15.0
     # via gdown
-black==26.5.1
+black==26.10.1
     # via lale
 blinker==1.9.0
     # via
@@ -225,7 +225,7 @@ gdown==6.4.1
     # via nlpaug
 gitdb==4.0.12
     # via gitpython
-gitpython==3.2.0
+gitpython==3.2.1
     # via
     #   mlflow-skinny
     #   streamlit
@@ -535,7 +535,7 @@ opendatalab==0.0.10
     # via openmim
 openmim==0.3.9
     # via autogluon-multimodal
-opentelemetry-api==1.45.0
+opentelemetry-api==1.45.1
     # via
     #   fastapi
     #   google-api-core
@@ -544,20 +544,20 @@ opentelemetry-api==1.45.0
     #   opentelemetry-exporter-prometheus
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-prometheus==0.66b0
+opentelemetry-exporter-prometheus==0.66b1
     # via ray
-opentelemetry-proto==1.45.0
+opentelemetry-proto==1.45.1
     # via
     #   mlflow-skinny
     #   mlflow-tracing
     #   ray
-opentelemetry-sdk==1.45.0
+opentelemetry-sdk==1.45.1
     # via
     #   mlflow-skinny
     #   mlflow-tracing
     #   opentelemetry-exporter-prometheus
     #   ray
-opentelemetry-semantic-conventions==0.66b0
+opentelemetry-semantic-conventions==0.66b1
     # via opentelemetry-sdk
 openxlab==0.0.11
     # via opendatalab
