@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import security_bump  # noqa: E402
 from audit_exceptions import load_entries  # noqa: E402
-from security_bump import (  # noqa: E402
+from security_bump import (
+    resolve_subset,  # noqa: E402
     drop_exceptions_for,
     rewrite,
     select,
@@ -27,6 +28,15 @@ from security_bump import (  # noqa: E402
 def record(package, version, vuln_id, fixes, aliases=()):
     return {"package": package, "version": version, "id": vuln_id,
             "aliases": list(aliases), "fix_versions": list(fixes)}
+
+
+# A lock small enough for the resolver tests, shaped like the real one where it matters: pillow is
+# capped by streamlit, virtualenv is not.
+LIGHT_LOCK = """aiohttp==3.14.4
+pillow==12.3.0
+streamlit==1.58.0
+virtualenv==21.14.1
+"""
 
 
 @pytest.fixture
@@ -170,3 +180,44 @@ def test_a_row_whose_only_lock_moved_is_removed(tmp_path, monkeypatch):
     packages = [entry["package"] for entry in data["exceptions"]]
     assert "nltk" not in packages
     assert "pillow" in packages  # still excuses requirements.txt
+
+
+@pytest.fixture
+def fake_resolves(monkeypatch, tmp_path):
+    """Stub the expensive part: a lock resolves unless the blocked pillow move is in it."""
+    calls = []
+
+    def fake(lock, text):
+        calls.append(text)
+        blocked = "pillow==13.0.0" in text
+        return (not blocked, "" if not blocked else "streamlit 1.58.0 depends on pillow<13")
+
+    monkeypatch.setattr(security_bump, "resolves", fake)
+    lock = tmp_path / "requirements.txt"
+    lock.write_text(LIGHT_LOCK, encoding="utf-8")
+    return lock, calls
+
+
+def test_a_blocked_proposal_does_not_hide_a_fixable_one(fake_resolves, tmp_path, capsys):
+    """What the 2026-10-22 schedule got wrong: pillow cannot move, virtualenv can, and the pair was
+    reported as unfixable so no pull request was opened."""
+    lock, calls = fake_resolves
+    kept, ok, detail = resolve_subset(str(lock), {"pillow": "13.0.0", "virtualenv": "21.14.9"})
+    assert kept == {"virtualenv": "21.14.9"}
+    assert ok is True
+    assert "does not resolve, testing 2 proposals apart" in capsys.readouterr().err
+
+
+def test_an_ordinary_night_asks_pip_once(fake_resolves):
+    """The full plan is tried first, so the common case costs one resolution, not n+1."""
+    lock, calls = fake_resolves
+    kept, ok, _ = resolve_subset(str(lock), {"virtualenv": "21.14.9"})
+    assert kept == {"virtualenv": "21.14.9"} and ok is True
+    assert len(calls) == 1
+
+
+def test_everything_blocked_reports_blocked_instead_of_opening_nothing(fake_resolves):
+    lock, calls = fake_resolves
+    kept, ok, detail = resolve_subset(str(lock), {"pillow": "13.0.0"})
+    assert kept == {} and ok is False
+    assert "pillow<13" in detail

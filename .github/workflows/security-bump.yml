@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Plan only - do not branch, push or open a pull request"
+        description: "Plan only - do not branch, push or open a pull request (a schedule run plans and opens; only this input blocks it)"
         type: boolean
         required: false
         default: false
@@ -62,7 +62,8 @@ jobs:
               moved = ", ".join(f"{name} {entry['from'][name]} -> {version}"
                                 for name, version in entry["bumps"].items())
               state = "resolves" if entry["resolves"] else f"does NOT resolve: {entry['detail']}"
-              print(f"{entry['lock']}: {moved} [{state}]")
+              blocked = f" (held back: {', '.join(entry['blocked'])})" if entry.get("blocked") else ""
+              print(f"{entry['lock']}: {moved or 'nothing applicable'} [{state}]{blocked}")
           for note in plan["notes"]:
               print(f"note: {note}")
           for item in plan["exposed"]:
@@ -73,7 +74,7 @@ jobs:
           grep -q "^actionable: True$" plan.txt && echo "actionable=true" >> "$GITHUB_OUTPUT" || true
 
       - name: Apply and open a pull request
-        if: steps.plan.outputs.actionable == 'true' && inputs.dry_run == false
+        if: steps.plan.outputs.actionable == 'true' && inputs.dry_run != true
         run: |
           branch="security/bump-$(date -u +%Y-%m-%d)"
           if [ -n "$(gh pr list --state open --json headRefName --jq '.[].headRefName' | grep -x "$branch" || true)" ]; then
@@ -94,6 +95,9 @@ jobs:
           for entry in applied["plan"]:
               lines.append(f"- `{entry['lock']}`: " + ", ".join(
                   f"`{name}` {entry['from'][name]} -> {version}" for name, version in entry["bumps"].items()))
+          for entry in applied["plan"]:
+              for name in entry.get("blocked") or []:
+                  lines.append(f"- held back (a cap forbids the move, see the exception rows): `{name}`")
           for note in applied["notes"]:
               lines.append(f"- note: {note}")
           for item in applied["exposed"]:

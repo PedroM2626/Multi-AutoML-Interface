@@ -170,6 +170,44 @@ def rewrite(lock, bumps):
     return text
 
 
+def resolve_subset(lock, proposals):
+    """Keep the proposals that resolve, instead of abandoning a fixable pin next to a blocked one.
+
+    The scheduled run on 2026-10-22 showed why this is needed: in the engine lock, pillow could not
+    move (Streamlit caps it) and virtualenv could (five advisories, fixes published), and the plan
+    was judged only as a pair - so it reported "does not resolve" and no pull request was opened for
+    the pin that had a fix. The whole set is tried first because that is the ordinary night; only a
+    conflict costs the extra passes, and each one drops a single proposal, so the work is bounded by
+    the size of the plan.
+
+    Returns the kept proposals, whether they resolve, and pip's own last word.
+    """
+    order = sorted(proposals)
+    detail = ""
+
+    def attempt(names):
+        nonlocal detail
+        subset = {name: proposals[name] for name in names}
+        ok, message = resolves(lock, rewrite(lock, subset))
+        detail = message or detail
+        return ok, subset
+
+    ok, subset = attempt(order)
+    if ok:
+        return subset, True, detail
+
+    print(f"{lock}: the full plan does not resolve, testing {len(order)} proposals apart", file=sys.stderr)
+    independent = [name for name in order if attempt([name])[0]]
+    remaining = list(independent)
+    while remaining:
+        ok, subset = attempt(remaining)
+        if ok:
+            return subset, True, detail
+        blocked = [name for name in remaining if name not in subset]
+        remaining.remove(blocked[-1] if blocked else remaining[-1])
+    return {}, False, detail
+
+
 def resolves(lock, text):
     """Whether pip can still resolve the rewritten lock - the same check the stack install does."""
     with tempfile.TemporaryDirectory() as directory:
@@ -256,9 +294,10 @@ def main():
             if package in added:
                 demanders = ", ".join(p for p, v in final.items() if package in dependencies_of(p, v))
                 notes.append(f"{lock}: {package} moved to {version} only because {demanders} demands it")
-        text = rewrite(lock, final)
-        ok, detail = resolves(lock, text)
-        plan.append({"lock": lock, "bumps": final, "resolves": ok, "detail": detail,
+        kept, ok, detail = resolve_subset(lock, final)
+        skipped = {name: version for name, version in final.items() if name not in kept}
+        plan.append({"lock": lock, "bumps": kept, "resolves": ok, "detail": detail,
+                     "blocked": sorted(skipped),
                      "from": {package: pins[package] for package in final}})
 
     if args.json:
