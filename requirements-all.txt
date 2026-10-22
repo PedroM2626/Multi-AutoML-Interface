@@ -1116,7 +1116,7 @@ uvicorn==0.54.0
     # via
     #   mlflow-skinny
     #   streamlit
-virtualenv==21.14.1
+virtualenv==21.14.9
     # via ray
 waitress==3.0.2
     # via mlflow
