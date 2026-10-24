@@ -589,7 +589,7 @@ The sidebar (all pages) offers an optional **DagsHub Integration** panel:
 | Service | Image / Build | Published port | Notes |
 |---|---|---|---|
 | `autogluon-ui` | Builds the project `Dockerfile` | **8501**, published on `127.0.0.1` only | Streamlit app; gets `MLFLOW_TRACKING_URI=http://mlflow-ui:5000`; mounts `data_lake/` and `mlruns/` (not the whole repository); waits for MLflow health |
-| `mlflow-ui` | `ghcr.io/mlflow/mlflow:v3.16.1` | **5000**, published on `127.0.0.1` only | `mlflow server` with `./mlruns` mounted as backend store and artifact root; version-matched to the `mlflow==3.16.1` client |
+| `mlflow-ui` | `ghcr.io/mlflow/mlflow:v3.17.2` | **5000**, published on `127.0.0.1` only | `mlflow server` with `./mlruns` mounted as backend store and artifact root; version-matched to the `mlflow==3.17.2` client |
 
 ```bash
 docker compose up --build
@@ -740,7 +740,7 @@ pytest -q tests
 
 | Job | When | Steps |
 |---|---|---|
-| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.16.1 flaml==2.6.0 lightgbm==4.7.0 xgboost==3.4.0 streamlit==1.58.0`; xgboost and lightgbm are not optional, because `flaml/automl` imports xgboost at module scope and the FLAML paths would otherwise skip silently) → `ruff check .` → `python -m compileall app.py run.py src tests` → the guard tests named in the workflow |
+| `quick-pr` | Every push/PR | Install `requirements-dev.txt` + force-reinstall runtime pins (`numpy==2.5.0 pandas==2.3.3 scikit-learn==1.9.0 mlflow==3.17.2 flaml==2.6.0 lightgbm==4.7.0 xgboost==3.4.0 streamlit==1.58.0`; xgboost and lightgbm are not optional, because `flaml/automl` imports xgboost at module scope and the FLAML paths would otherwise skip silently) → `ruff check .` → `python -m compileall app.py run.py src tests` → the guard tests named in the workflow |
 | `nightly-complete` | Schedule or manual dispatch | Same validation gates first, then the full `requirements.txt` install (best effort) followed by `pip-audit --strict` over both locks and `pytest -o addopts="" -q tests`, which **fails the nightly** whenever the stack installed. Advisories that cannot be fixed are rows in `.github/vuln-exceptions.json` - each names the package version it excuses, the ids, the cap that forces it and the condition to revisit; `scripts/audit_exceptions.py` emits the flags and **stops the gate** when a lock no longer pins the version a row was written for, so a tolerance cannot outlive its reason. `requirements-all.txt` is audited with `--no-deps` because it is a Windows/3.11 compile and resolving it here would pick torch's CUDA build. A `::warning::` records the case where the stack could not install and the suite was skipped. |
 | `engine-matrix` | Schedule or manual dispatch | Python 3.11, CPU-only torch from the PyTorch index (PyPI's CUDA wheels do not fit a runner's disk), then `pip install -r requirements-all.txt` and `pytest -m engine tests/test_engine_matrix.py`, which trains **every row of the task catalog** with the engine the catalog names. The engine cases skip when the engine is absent, so this job is the only place they actually run. |
 

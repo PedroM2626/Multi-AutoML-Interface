@@ -128,6 +128,27 @@ def test_a_cap_row_without_the_report_refuses_to_guess(tmp_path):
         flags_for("requirements.txt")
 
 
+def test_a_cap_row_can_name_several_unreachable_releases():
+    """Dropping pkg_resources blocked setuptools 83.0.0 and every release after it, so an advisory
+    fixed at 84.1.0 is as unreachable as one fixed at 83.0.0."""
+    entries = load_entries()
+    record_84 = {"package": "setuptools", "version": "80.10.2", "id": "GHSA-xmj3-9gf7-h52w",
+                 "aliases": [], "fix_versions": ["84.1.0"]}
+    record_83 = {"package": "setuptools", "version": "80.10.2", "id": "PYSEC-2026-3447",
+                 "aliases": [], "fix_versions": ["83.0.0"]}
+    assert is_tolerated(record_84, entries, "requirements-all.txt") is True
+    assert is_tolerated(record_83, entries, "requirements-all.txt") is True
+
+
+def test_a_reachable_alternative_keeps_the_advisory_red():
+    """If one branch of the fix is a release the cap does not block, upgrading could help, so the
+    exception must not swallow it."""
+    entries = load_entries()
+    record = {"package": "setuptools", "version": "80.10.2", "id": "CVE-2026-999999",
+              "aliases": [], "fix_versions": ["83.0.0", "82.7.0"]}
+    assert is_tolerated(record, entries, "requirements-all.txt") is False
+
+
 @pytest.mark.parametrize(
     ("specifier", "blocked"),
     [

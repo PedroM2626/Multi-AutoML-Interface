@@ -73,6 +73,14 @@ def rows_for(entries, lock):
     return [entry for entry in entries if lock in entry["locks"]]
 
 
+def as_versions(value):
+    """A cap row may name one blocked release or several: dropping pkg_resources blocked 83.0.0 and
+    every release after it, so a fix at 84.1.0 is just as unreachable as one at 83.0.0."""
+    if value is None:
+        return set()
+    return {value} if isinstance(value, str) else set(value)
+
+
 def is_tolerated(record, entries, lock):
     """Whether a row already explains one advisory reported for a lock."""
     for entry in rows_for(entries, lock):
@@ -82,7 +90,8 @@ def is_tolerated(record, entries, lock):
             continue
         if set(entry.get("ids") or []) & set([record["id"], *record["aliases"]]):
             return True
-        if record["fix_versions"] == [entry.get(CAP_FIELD)] and entry.get(CAP_FIELD):
+        blocked = entry.get(CAP_FIELD)
+        if blocked and record["fix_versions"] and set(record["fix_versions"]) <= as_versions(blocked):
             return True
     return False
 
@@ -134,15 +143,18 @@ def flags_for(lock_path, entries=None, lock_name=None, records=None):
                     f"{lock}: the {entry['package']} row excuses advisories by cap, so it has to be "
                     f"checked against the audit report - pass --report <pip-audit json>"
                 )
+            blocked_versions = as_versions(blocked)
             capped = [
                 record for record in records
                 if record["package"] == package and record["version"] == entry["version"]
-                and record["fix_versions"] == [blocked]
+                and record["fix_versions"]
+                and set(record["fix_versions"]) <= blocked_versions
             ]
             for record in capped:
                 flags += [f"--ignore-vuln={vuln_id}" for vuln_id in [record["id"], *record["aliases"]]]
             counted += len(capped)
-            auto.append(f"{entry['package']}: {len(capped)} advisories fixed only in {blocked}")
+            auto.append(f"{entry['package']}: {len(capped)} advisories fixed only in "
+                        f"{'/'.join(sorted(blocked_versions))}")
         applied.append(f"{package} {pins[package]} ({counted} ids)")
     summary = ", ".join(applied) if applied else "nothing"
     if auto:

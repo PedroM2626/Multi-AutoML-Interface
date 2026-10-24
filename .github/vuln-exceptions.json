@@ -13,7 +13,10 @@
     {
       "package": "pillow",
       "version": "12.3.0",
-      "locks": ["requirements.txt", "requirements-all.txt"],
+      "locks": [
+        "requirements.txt",
+        "requirements-all.txt"
+      ],
       "tolerate_advisories_fixing_only_at": "13.0.0",
       "reason": "Streamlit caps `pillow<13` in every release up to 1.66.0, so 13.0.0 - the only release fixing any advisory published for 12.3.0 (24 of them as of 2026-10-22, a batch that grew twice in one night), and itself clean - cannot be pinned while the app is a Streamlit app. Five of the advisories need a TIFF/GIF/PPM/PDF/EPS to be opened; the only decode in this repository refuses those formats (src/xai_utils.py SALIENCY_IMAGE_EXTENSIONS, guarded by tests/test_pillow_decode_surface.py).",
       "revisit": "scripts/pillow_cap_check.py fails the nightly the moment the pinned Streamlit stops capping 13.0.0; then raise the pin and delete this row."
@@ -21,7 +24,9 @@
     {
       "package": "scikit-learn",
       "version": "1.4.2",
-      "locks": ["requirements-all.txt"],
+      "locks": [
+        "requirements-all.txt"
+      ],
       "tolerate_advisories_fixing_only_at": "1.5.0",
       "reason": "The fix is 1.5.0, which PyCaret forbids in the all-engine lock; src/task_catalog.py records what 1.5 costs TPOT too. An advisory fixed in a 1.4.x patch would stay red here, and should be: that bump is available.",
       "revisit": "PyCaret dropping scikit-learn<1.5."
@@ -29,24 +34,41 @@
     {
       "package": "setuptools",
       "version": "80.10.2",
-      "locks": ["requirements-all.txt"],
-      "tolerate_advisories_fixing_only_at": "83.0.0",
-      "reason": "The fix is 83.0.0, which dropped pkg_resources that TPOT and autogluon-multimodal import - requirements-all.in pins setuptools<81 for exactly that.",
+      "locks": [
+        "requirements-all.txt"
+      ],
+      "tolerate_advisories_fixing_only_at": [
+        "83.0.0",
+        "84.1.0"
+      ],
+      "reason": "The fix is 83.0.0 - which dropped pkg_resources that TPOT and autogluon-multimodal import - or 84.1.0, a later release the same cap keeps out; requirements-all.in pins setuptools<81 for exactly that.",
       "revisit": "The day neither engine imports pkg_resources."
     },
     {
       "package": "nltk",
       "version": "3.10.3",
-      "locks": ["requirements-all.txt"],
-      "ids": ["GHSA-8mgp-746c-j5xp", "CVE-2026-81726", "PYSEC-2026-3740"],
+      "locks": [
+        "requirements-all.txt"
+      ],
+      "ids": [
+        "GHSA-8mgp-746c-j5xp",
+        "CVE-2026-81726",
+        "PYSEC-2026-3740"
+      ],
       "reason": "No fixed release: the PyPI record lists an empty fix_versions.",
       "revisit": "nltk publishing a release that closes GHSA-8mgp-746c-j5xp."
     },
     {
       "package": "h2o",
       "version": "3.46.0.12",
-      "locks": ["requirements-all.txt"],
-      "ids": ["GHSA-p2vc-m5fv-9w9m", "CVE-2024-7768", "PYSEC-2026-1443"],
+      "locks": [
+        "requirements-all.txt"
+      ],
+      "ids": [
+        "GHSA-p2vc-m5fv-9w9m",
+        "CVE-2024-7768",
+        "PYSEC-2026-1443"
+      ],
       "reason": "No fixed release: the PyPI record lists an empty fix_versions.",
       "revisit": "h2o publishing a release that closes GHSA-p2vc-m5fv-9w9m."
     }

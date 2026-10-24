@@ -181,7 +181,7 @@ fastapi==0.142.2
     # via mlflow-skinny
 fastjsonschema==2.22.2
     # via nbformat
-filelock==4.0.7
+filelock==4.2.1
     # via
     #   datasets
     #   gdown
@@ -409,11 +409,11 @@ mdurl==0.1.2
     # via markdown-it-py
 ml-dtypes==0.5.4
     # via onnx
-mlflow==3.16.1
+mlflow==3.17.2
     # via -r requirements-all.in
-mlflow-skinny==3.16.1
+mlflow-skinny==3.17.2
     # via mlflow
-mlflow-tracing==3.16.1
+mlflow-tracing==3.17.2
     # via mlflow
 model-index==0.1.11
     # via openmim
@@ -1116,7 +1116,7 @@ uvicorn==0.54.0
     # via
     #   mlflow-skinny
     #   streamlit
-virtualenv==21.14.9
+virtualenv==21.14.10
     # via ray
 waitress==3.0.2
     # via mlflow

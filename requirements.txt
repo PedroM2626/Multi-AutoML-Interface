@@ -52,8 +52,8 @@ kiwisolver==1.5.0
 Mako==1.4.3
 MarkupSafe==3.0.3
 matplotlib==3.11.0
-mlflow==3.16.1
-mlflow-tracing==3.16.1
+mlflow==3.17.2
+mlflow-tracing==3.17.2
 multidict==6.9.1
 narwhals==2.22.1
 numpy==2.5.0
@@ -121,7 +121,7 @@ nbformat==5.11.0
 # because tpot's stopit imports pkg_resources, which 82 dropped - but TPOT is not in this stack
 # (it needs scikit-learn <1.5, see requirements-all.in), and the older pin carried
 # CVE-2026-59890 into every installer.
-setuptools==84.0.0
+setuptools==84.1.0
 # ONNX export and SHAP explanations: bundled so the Experiments page works in the desktop app.
 onnx==1.23.1
 onnxruntime==1.30.0
